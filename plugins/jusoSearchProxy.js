@@ -5,7 +5,11 @@
 
 import { loadEnv } from 'vite';
 
-const SEARCH_PATH = '/api/juso-search/addrlink/addrLinkApi.do';
+const SEARCH_PATHS = new Set([
+  '/api/juso-search',
+  '/api/juso-search/',
+  '/api/juso-search/addrlink/addrLinkApi.do',
+]);
 
 function getSearchKey(env) {
   return (
@@ -27,7 +31,7 @@ export function jusoSearchProxyPlugin() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const path = req.url?.split('?')[0];
-        if (path !== SEARCH_PATH || req.method !== 'GET') {
+        if (!path || !SEARCH_PATHS.has(path) || req.method !== 'GET') {
           next();
           return;
         }

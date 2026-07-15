@@ -96,7 +96,10 @@ async function fetchJusoPage({ keyword, currentPage, countPerPage, firstSort, mo
     params.confmKey = confmKey;
   }
 
-  const { data } = await jusoClient.get('/addrlink/addrLinkApi.do', { params });
+  const { data } = await jusoClient.get(
+    serverInjectsKey ? '/' : '/addrlink/addrLinkApi.do',
+    { params },
+  );
   const common = data?.results?.common;
   const errorCode = common?.errorCode;
   if (errorCode && errorCode !== '0') {
