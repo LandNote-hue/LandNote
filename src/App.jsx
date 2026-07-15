@@ -33,6 +33,7 @@ import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/cus
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
 import { loadStoragePathLabel, saveStoragePathLabel, pickStorageFolder } from "./utils/storageFolder.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
+import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
 import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars } from "./utils/icsImport.js";
 import {
@@ -2290,7 +2291,7 @@ const PropRegister=({onNav})=>{
   const [roadSearch,setRoadSearch]=useState('');
   const [addressModalOpen,setAddressModalOpen]=useState(false);
   const [detailForm,setDetailForm]=useState({
-    title:'', agentName:'', agentTel:'', promo:'', memo:'',
+    title:'', agentName:'', agentTel:'', promo:'', memo:'', discoUrl:'',
   });
   useEffect(()=>{
     setDetailForm(f=>({
@@ -2333,6 +2334,7 @@ const PropRegister=({onNav})=>{
       roadInfo:locationForm.roadInfo||'',
       promo:detailForm.promo||'',
       memo:detailForm.memo||'',
+      discoUrl:normalizeDiscoUrl(detailForm.discoUrl)||'',
       agentName:detailForm.agentName||'',
       agentTel:normalizePhone(detailForm.agentTel)||'',
       photos:photoSlotsToSave(photoSlots),
@@ -2446,6 +2448,8 @@ const PropRegister=({onNav})=>{
               <textarea className="ta" rows={6} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>내부 메모 (비공개)</div>
               <textarea className="ta" rows={2} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항"/></div>
+            <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>디스코 상세 링크 <span style={{fontWeight:400,color:C.txP}}>(선택)</span></div>
+              <input className="inp" value={detailForm.discoUrl} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
           </div>
         </div>
       </div>
@@ -4403,13 +4407,20 @@ const fmtSalePriceEokWon=(priceMan)=>{
 /* 매물 상세 - 지도영역 외부 사이트 연결 (지번주소로 검색결과 연결) */
 const EXT_SITES=[
   {key:'K',label:'카카오맵',bg:'#FEE500',fg:'#3C1E1E',url:(addr)=>`https://map.kakao.com/?q=${encodeURIComponent(addr)}`},
-  {key:'D',label:'디스코',bg:'#1F2937',fg:'#FFFFFF',url:(addr)=>`https://disco.re/?utm_source=daum&utm_medium=cpc&utm_campaign=test2&utm_content=${encodeURIComponent(addr)}&utm_term=%EB%94%94%EC%8A%A4%EC%BD%94`},
+  {key:'D',label:'디스코',bg:'#1F2937',fg:'#FFFFFF',handler:'disco'},
   {key:'B',label:'밸류맵',bg:'#2563EB',fg:'#FFFFFF',url:()=>`https://www.valueupmap.com/`},
   {key:'N',label:'네이버 부동산',bg:'#03C75A',fg:'#FFFFFF',url:()=>`https://land.naver.com/`},
 ];
-const ExtSiteBtn=({site,addr})=>(
-  <button title={`${site.label}에서 "${addr}" 검색결과 보기`}
-    onClick={()=>window.open(site.url(addr),'_blank','noopener,noreferrer')}
+const ExtSiteBtn=({site,addr,property})=>(
+  <button
+    type="button"
+    title={site.handler==='disco'
+      ? ((property?.discoUrl||property?.disco_url) ? `${site.label} 상세 링크로 이동` : `${site.label}에서 "${addr}" 검색`)
+      : `${site.label}에서 "${addr}" 검색결과 보기`}
+    onClick={()=>{
+      if(site.handler==='disco') handleDiscoLink(property);
+      else if(typeof site.url==='function') window.open(site.url(addr),'_blank','noopener,noreferrer');
+    }}
     style={{width:32,height:32,borderRadius:8,background:site.bg,color:site.fg,border:'none',cursor:'pointer',fontSize:13,fontWeight:700,letterSpacing:'-.02em',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px rgba(0,0,0,.04)',transition:'transform .12s,box-shadow .12s',flexShrink:0}}
     onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 4px 8px rgba(0,0,0,.18)';}}
     onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px rgba(0,0,0,.04)';}}>
@@ -4884,7 +4895,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   );
   return(
     <Win title={detailWinTitle} ic="ti-building" onClose={onClose} w={PROP_DETAIL_WIN_W}
-      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr}/>)}</>}
+      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr} property={propData}/>)}</>}
       ch={detailBody}
     />
   );
@@ -5788,6 +5799,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
       bldg: detailForm.title || '',
       promo: detailForm.promo || '',
       memo: detailForm.memo || '',
+      discoUrl: normalizeDiscoUrl(detailForm.discoUrl) || '',
       agentName: detailForm.agentName || '',
       agentTel: normalizePhone(detailForm.agentTel || ''),
       ...buildPriceFields(trade, priceForm),
@@ -5971,6 +5983,8 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                   <textarea className="ta" rows={9} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
                 <div style={{gridColumn:'1/-1'}}><FL label="내부 메모 (비공개)"/>
                   <textarea className="ta" rows={3} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항 (공개 안 됨)"/></div>
+                <div style={{gridColumn:'1/-1'}}><FL label="디스코 상세 링크" hint="선택"/>
+                  <input className="inp" value={detailForm.discoUrl} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
               </div>
             </div>
           </div>

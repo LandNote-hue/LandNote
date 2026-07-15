@@ -12,6 +12,7 @@
     "verify:b2b": "node scripts/verify-b2b-team.mjs",
     "preview": "vite preview",
     "start": "node server/index.js --static",
+    "start:bff": "node server/index.js",
     "cap:sync": "npm run build && npx cap sync",
     "cap:android": "npm run cap:sync && npx cap open android",
     "cap:ios": "npm run cap:sync && npx cap open ios",

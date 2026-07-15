@@ -12,9 +12,9 @@ import {
 import { filterJusoResults, filterByDongLot } from './jusoFilter.js';
 import { searchVworldAddress } from './vworldAddressSearch.js';
 
-const baseURL = import.meta.env.DEV
-  ? '/api/juso-search'
-  : (import.meta.env.VITE_JUSO_API_BASE_URL || '/api/juso');
+/** 기본: BFF가 confmKey 주입 (`/api/juso-search`). 직접 juso URL을 쓸 때만 VITE_JUSO_API_BASE_URL 지정 */
+const baseURL = import.meta.env.VITE_JUSO_API_BASE_URL || '/api/juso-search';
+const serverInjectsKey = /juso-search/i.test(baseURL);
 
 const jusoClient = axios.create({
   baseURL,
@@ -86,7 +86,8 @@ async function fetchJusoPage({ keyword, currentPage, countPerPage, firstSort, mo
     addInfoYn: 'Y',
     firstSort,
   };
-  if (!import.meta.env.DEV) {
+  // BFF(`/api/juso-search`)는 서버에서 키를 넣고, 그 외 직접 호출일 때만 클라이언트 키 사용
+  if (!serverInjectsKey) {
     const confmKey = mobile
       ? (import.meta.env.VITE_JUSO_POPUP_MOBILE_KEY?.trim()
         || import.meta.env.VITE_JUSO_MOBILE_KEY?.trim()

@@ -45,6 +45,8 @@
 | 26 | `supabase/migrations/026_backfill_company_id.sql` *(공유 RLS용 company_id 백필)* |
 | 27 | `supabase/migrations/027_share_null_company_id.sql` *(company_id NULL 공유 허용 + 자동 채움)* |
 | 28 | `supabase/migrations/028_share_select_rls_unify.sql` *(매물·일정·통화 SELECT/쓰기 RLS 통일 — **직원 공유 필수**)* |
+| 29 | `supabase/migrations/029_property_photos_storage.sql` *(매물 사진 Storage)* |
+| 30 | `supabase/migrations/030_property_disco_url.sql` *(매물 디스코 상세 링크 `disco_url`)* |
 
 에러 없이 `Success`가 나오면 테이블·RLS·트리거가 생성된 것입니다.
 
@@ -176,13 +178,69 @@ npm run dev
 
 ---
 
-## 8. Render 배포 (BFF, 다음 단계)
+## 8. Vercel 배포 (웹 + BFF 서버리스)
 
-1. [Render](https://render.com) → **New Web Service**
-2. GitHub 저장소 연결
-3. Build: `npm install && npm run build`
-4. Start: `node server/index.js --static`
-5. Environment에 API 키들 추가 (`.env.example` 참고)
+LandNote는 Vite 정적 프론트 + Express BFF를 **같은 Vercel 프로젝트**에 올립니다.  
+`/api/*` · `/juso-return.html` 은 `api/index.js` 서버리스로, 나머지는 `dist/` SPA로 제공됩니다.
+
+### 8-A. Vercel 프로젝트 연결
+
+1. [vercel.com](https://vercel.com) → **Add New… → Project**
+2. GitHub **LandNote-hue/LandNote** 저장소 Import
+3. Framework Preset: **Vite** (자동 감지되면 그대로)
+4. Build Command: `npm run build` / Output: `dist` (`vercel.json`에 이미 정의)
+5. **Deploy**
+
+### 8-B. Environment Variables
+
+Project → **Settings → Environment Variables** 에 `.env.example` 값을 넣습니다.  
+`Production` / `Preview` 모두 권장.
+
+| 변수 | 비고 |
+|------|------|
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | 필수 |
+| `VITE_AUTH_DEV_BYPASS` | **`false`** |
+| `VITE_GOOGLE_CLIENT_ID` | Google 로그인 |
+| `VITE_KAKAO_MAP_JS_KEY` | 카카오 SDK 도메인에 Vercel URL 등록 |
+| `VITE_JUSO_SEARCH_KEY` | 주소 검색 (BFF가 서버에서 주입) |
+| `VITE_DATA_GO_KR_SERVICE_KEY` | 건축물대장 등 |
+| `VITE_VWORLD_API_KEY` | 공시지가 등 |
+| `VITE_VWORLD_DOMAIN` | **배포 호스트** (예: `landnote.vercel.app`) |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | BFF 전용(필요 시). **VITE_ 금지** |
+
+`VITE_*` 변경 후에는 **Redeploy** 해야 빌드에 반영됩니다.  
+`VITE_BFF_BASE_URL` 은 비워 두세요 (같은 도메인 `/api`).
+
+### 8-C. 외부 서비스에 배포 URL 등록
+
+배포 URL 예: `https://landnote-xxxx.vercel.app`
+
+| 서비스 | 등록 |
+|--------|------|
+| Supabase Auth Site URL / Redirect | `https://….vercel.app` , `https://….vercel.app/**` |
+| Google OAuth | JS origins + Supabase 콜백 |
+| 카카오 JS 키 도메인 | 배포 호스트 |
+| juso 팝업 returnUrl | `https://….vercel.app/juso-return.html` |
+| vworld domain | `VITE_VWORLD_DOMAIN`과 동일 |
+
+### 8-D. 동작 확인
+
+1. 배포 URL 접속 → 로그인
+2. 매물 등록에서 **주소 검색** (juso)
+3. 건축물대장·공시지가 조회 (공공데이터 / vworld)
+4. `/api/health` → `{ "ok": true, "service": "landnote-bff" }`
+
+로컬에서 BFF만 따로: `npm run start` 또는 `npm run dev:all`.  
+Render에 올리는 기존 방식(`npm start`)도 그대로 동작합니다.
+
+---
+
+## 8 (참고). Render 단일 서버 배포
+
+1. [Render](https://render.com) → **New Web Service** → GitHub 연결
+2. Build: `npm install && npm run build`
+3. Start: `npm start`
+4. Environment에 API 키 추가 (`.env.example` 참고)
 
 ---
 
