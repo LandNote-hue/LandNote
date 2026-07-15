@@ -1,0 +1,59 @@
+/* LandNote — global reset + UI scale (110%) */
+:root {
+  --ui-scale: 1.1;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  zoom: var(--ui-scale);
+  width: calc(100% / var(--ui-scale));
+  height: calc(100% / var(--ui-scale));
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1a2332;
+}
+
+#root {
+  width: 100%;
+  min-height: 100%;
+  height: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Firefox 등 zoom 미지원 — transform 폴백 */
+@supports not (zoom: 1) {
+  html {
+    zoom: unset;
+    width: calc(100% / var(--ui-scale));
+    height: calc(100% / var(--ui-scale));
+    transform: scale(var(--ui-scale));
+    transform-origin: 0 0;
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 768px) {
+  #root {
+    max-width: none;
+    min-height: 100dvh;
+  }
+
+  html,
+  body {
+    background: #f5f6fa;
+  }
+}
