@@ -1,5 +1,4 @@
 /** 통합 일괄 등록 양식 (CSV · Excel) */
-import * as XLSX from 'xlsx';
 
 /** 양식 참고용 — 업로드 시 등록 데이터에는 사용하지 않음 */
 export const BULK_PROPERTY_NO_HEADER = '매물번호';
@@ -128,7 +127,8 @@ export function downloadUnifiedBulkCsvTemplate() {
 }
 
 /** 통합 매물 양식 Excel(.xlsx) 다운로드 */
-export function downloadUnifiedBulkXlsxTemplate() {
+export async function downloadUnifiedBulkXlsxTemplate() {
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.aoa_to_sheet([
     BULK_TEMPLATE_HEADERS,
     ...BULK_UNIFIED_SAMPLE_ROWS,
@@ -145,5 +145,5 @@ export function downloadBulkCsvTemplate() {
 
 /** @deprecated downloadUnifiedBulkXlsxTemplate 사용 */
 export function downloadBulkXlsxTemplate() {
-  downloadUnifiedBulkXlsxTemplate();
+  return downloadUnifiedBulkXlsxTemplate();
 }

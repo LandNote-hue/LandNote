@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { parseCsv } from './csvParse.js';
 import { detectBulkCsvHeaders, stripBulkPropertyNoColumn } from '../data/propertyBulkCsv.js';
 import { bulkRowsFromMatrix } from '../services/bulk/mapUnifiedBulkRow.js';
@@ -45,9 +44,10 @@ function readFileAsArrayBuffer(file) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {string[][]}
+ * @returns {Promise<string[][]>}
  */
-function matrixFromXlsx(buffer) {
+async function matrixFromXlsx(buffer) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.read(buffer, { type: 'array' });
   const sheetName = wb.SheetNames[0];
   if (!sheetName) throw new Error('엑셀 파일에 시트가 없습니다.');
@@ -80,7 +80,7 @@ export async function parseBulkUploadFile(file) {
     || type === 'application/vnd.ms-excel'
   ) {
     const buffer = await readFileAsArrayBuffer(file);
-    const matrix = stripBulkPropertyNoColumn(matrixFromXlsx(buffer));
+    const matrix = stripBulkPropertyNoColumn(await matrixFromXlsx(buffer));
     const headers = detectBulkCsvHeaders(matrix);
     return bulkRowsFromMatrix(matrix, headers);
   }
