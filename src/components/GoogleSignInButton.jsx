@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import {
+  detectInAppBrowser,
+  isAndroidUA,
+  buildExternalBrowserIntentUrl,
+  IN_APP_BROWSER_LABELS,
+} from '../utils/inAppBrowser.js';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || '';
 
@@ -30,11 +36,15 @@ export function GoogleSignInButton({ disabled, rememberMe = true, onFallback }) 
   const rememberMeRef = useRef(rememberMe);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const inAppBrowser = useMemo(
+    () => (typeof navigator === 'undefined' ? null : detectInAppBrowser(navigator.userAgent)),
+    [],
+  );
 
   rememberMeRef.current = rememberMe;
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || disabled) return undefined;
+    if (!GOOGLE_CLIENT_ID || disabled || inAppBrowser) return undefined;
 
     let cancelled = false;
 
@@ -81,7 +91,27 @@ export function GoogleSignInButton({ disabled, rememberMe = true, onFallback }) 
     return () => {
       cancelled = true;
     };
-  }, [disabled, signInWithGoogleCredential]);
+  }, [disabled, signInWithGoogleCredential, inAppBrowser]);
+
+  if (inAppBrowser) {
+    const label = IN_APP_BROWSER_LABELS[inAppBrowser] || '인앱 브라우저';
+    const android = isAndroidUA();
+    return (
+      <div style={inAppBannerStyle}>
+        <div style={{ fontSize: 13, color: '#FDE68A', lineHeight: 1.5, marginBottom: android ? 10 : 0 }}>
+          {label} 안에서는 Google 정책상 구글 로그인을 사용할 수 없습니다.{' '}
+          {android
+            ? '아래 버튼으로 외부 브라우저에서 열어주세요.'
+            : '오른쪽 상단 메뉴에서 "다른 브라우저로 열기"를 선택해 주세요.'}
+        </div>
+        {android && (
+          <a href={buildExternalBrowserIntentUrl()} style={openExternalBtnStyle}>
+            외부 브라우저(Chrome)로 열기
+          </a>
+        )}
+      </div>
+    );
+  }
 
   if (!GOOGLE_CLIENT_ID) {
     return (
@@ -125,6 +155,27 @@ export function GoogleSignInButton({ disabled, rememberMe = true, onFallback }) 
     </div>
   );
 }
+
+const inAppBannerStyle = {
+  width: '100%',
+  marginBottom: 16,
+  padding: '14px 16px',
+  borderRadius: 10,
+  background: 'rgba(251,191,36,.1)',
+  border: '1px solid rgba(251,191,36,.3)',
+  boxSizing: 'border-box',
+};
+
+const openExternalBtnStyle = {
+  display: 'inline-block',
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#fff',
+  background: '#374151',
+  padding: '8px 14px',
+  borderRadius: 8,
+  textDecoration: 'none',
+};
 
 const fallbackBtnStyle = {
   width: '100%',
