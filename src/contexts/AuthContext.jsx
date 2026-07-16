@@ -242,13 +242,39 @@ export function AuthProvider({ children }) {
     refreshMemberPermissions();
   }, [refreshMemberPermissions]);
 
-  // 최초 로그인(세션) — 팀 계정만 자동 동기화. 개인(SOLO)은 제외.
+  // 최초 로그인(세션) — 계정 유형별 자동 동기화 (개인 SOLO도 본인 데이터만 pull/push)
   useEffect(() => {
     if (loading || profileLoading) return;
     if (!user?.id || user.id === 'dev-local') return;
     if (!isSupabaseConfigured) return;
+    if (sessionAutoSyncedUserIdRef.current === user.id) return;
 
     const role = companyRole ?? profile?.role;
+
+    const runSync = (fn) => {
+      sessionAutoSyncedUserIdRef.current = user.id;
+      (async () => {
+        try {
+          await fn();
+        } catch (err) {
+          console.error('[auth] session auto cloud sync', err);
+          // 실패 시 같은 세션에서 재시도 가능하도록
+          if (sessionAutoSyncedUserIdRef.current === user.id) {
+            sessionAutoSyncedUserIdRef.current = null;
+          }
+        }
+      })();
+    };
+
+    // 개인(SOLO) 계정: 회사/권한 개념이 없으므로 본인 소유 데이터만 바로 pull+push
+    if (isSoloRole(role)) {
+      runSync(async () => {
+        const { initialCloudSync } = await import('../services/sync/cloudSync.js');
+        await initialCloudSync(user.id);
+      });
+      return;
+    }
+
     if (!usesTeamCloudSync(role)) return;
 
     const workspaceId = company?.id ?? profile?.company_id;
@@ -257,26 +283,17 @@ export function AuthProvider({ children }) {
     // 직원: 권한 로드 완료 대기 (null이면 아직 미수신)
     if (!isCeoRole(role) && memberPermissions == null) return;
 
-    if (sessionAutoSyncedUserIdRef.current === user.id) return;
-    sessionAutoSyncedUserIdRef.current = user.id;
-
-    (async () => {
-      try {
-        if (isCeoRole(role)) {
-          const { initialCloudSync } = await import('../services/sync/cloudSync.js');
-          await initialCloudSync(user.id);
-        } else if (hasAnySharedReadPermission(memberPermissions)) {
-          const { refreshSharedCloudData } = await import('../services/sync/cloudSync.js');
-          await refreshSharedCloudData(user.id);
-        }
-      } catch (err) {
-        console.error('[auth] session auto cloud sync', err);
-        // 실패 시 같은 세션에서 재시도 가능하도록
-        if (sessionAutoSyncedUserIdRef.current === user.id) {
-          sessionAutoSyncedUserIdRef.current = null;
-        }
-      }
-    })();
+    if (isCeoRole(role)) {
+      runSync(async () => {
+        const { initialCloudSync } = await import('../services/sync/cloudSync.js');
+        await initialCloudSync(user.id);
+      });
+    } else if (hasAnySharedReadPermission(memberPermissions)) {
+      runSync(async () => {
+        const { refreshSharedCloudData } = await import('../services/sync/cloudSync.js');
+        await refreshSharedCloudData(user.id);
+      });
+    }
   }, [
     loading,
     profileLoading,
