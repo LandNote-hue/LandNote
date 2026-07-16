@@ -50,12 +50,14 @@ function formatEstimatedRemainingTime(seconds, processedCount) {
  *   processedCount: number,
  *   progressPercent: number,
  *   estimatedRemainingTime: number | null,
+ *   recentLog: { address: string, success: boolean, error?: string }[],
  * }} props */
 function BulkImportProgressModal({
   totalRows,
   processedCount,
   progressPercent,
   estimatedRemainingTime,
+  recentLog,
 }) {
   const etaLabel = formatEstimatedRemainingTime(estimatedRemainingTime, processedCount);
 
@@ -83,11 +85,11 @@ function BulkImportProgressModal({
           일괄 등록 진행 중
         </div>
         <div style={{ fontSize: 13, color: C.txM, marginBottom: 20, lineHeight: 1.5 }}>
-          주소·건축물대장 조회 및 저장을 {BULK_CHUNK_SIZE}건씩 순차 처리하고 있습니다.
+          매물을 1건씩 주소·건축물대장 조회 후 순차로 등록하고 있습니다.
         </div>
 
         <div style={{ fontSize: 14, fontWeight: 600, color: C.tx, marginBottom: 10 }}>
-          전체 {totalRows}건 중 {processedCount}건 분석 중… ({progressPercent}%)
+          전체 {totalRows}건 중 {processedCount}건 처리됨 ({progressPercent}%)
         </div>
 
         <div style={{ height: 10, borderRadius: 999, background: C.surf2, overflow: 'hidden', marginBottom: 14 }}>
@@ -100,9 +102,44 @@ function BulkImportProgressModal({
           />
         </div>
 
-        <div style={{ fontSize: 13, color: C.txM }}>
+        <div style={{ fontSize: 13, color: C.txM, marginBottom: recentLog?.length ? 16 : 0 }}>
           예상 남은 시간: <span style={{ fontWeight: 600, color: C.tx }}>{etaLabel}</span>
         </div>
+
+        {recentLog?.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.txM, marginBottom: 6 }}>최근 처리 내역</div>
+            <div style={{
+              background: C.surf2, borderRadius: 8, padding: '4px 12px',
+              maxHeight: 140, overflowY: 'auto',
+            }}>
+              {recentLog.map((item, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                    borderBottom: i < recentLog.length - 1 ? `1px solid ${C.bdr}` : 'none',
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: item.success ? C.ok : C.err, fontWeight: 700, flexShrink: 0 }}>
+                    {item.success ? '✓' : '✕'}
+                  </span>
+                  <span style={{
+                    color: C.tx, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                  }}>
+                    {item.address || '(주소 없음)'}
+                  </span>
+                  {!item.success && item.error && (
+                    <span style={{ color: C.err, fontSize: 11, flexShrink: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.error}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -224,6 +261,7 @@ export function PropertyBulkUploadPage({ onNav }) {
   const [totalRows, setTotalRows] = useState(0);
   const [estimatedRemainingTime, setEstimatedRemainingTime] = useState(null);
   const [startTime, setStartTime] = useState(null);
+  const [recentLog, setRecentLog] = useState([]);
   const [report, setReport] = useState('');
   const [successCount, setSuccessCount] = useState(0);
   const [typeCounts, setTypeCounts] = useState({});
@@ -248,6 +286,7 @@ export function PropertyBulkUploadPage({ onNav }) {
     setTotalRows(0);
     setEstimatedRemainingTime(null);
     setStartTime(null);
+    setRecentLog([]);
     if (!file) {
       setFileName('');
       setSelectedFile(null);
@@ -342,6 +381,7 @@ export function PropertyBulkUploadPage({ onNav }) {
     setProcessedCount(0);
     setProgressPercent(0);
     setEstimatedRemainingTime(null);
+    setRecentLog([]);
     try {
       const result = await runBulkPropertyImportFromFile(file, {
         startTime: importStartTime,
@@ -351,11 +391,15 @@ export function PropertyBulkUploadPage({ onNav }) {
           processedCount: count,
           totalRows: total,
           estimatedRemainingTime: eta,
+          lastItem,
         }) => {
           setProgressPercent(pct);
           setProcessedCount(count);
           setTotalRows(total);
           setEstimatedRemainingTime(eta);
+          if (lastItem) {
+            setRecentLog((prev) => [lastItem, ...prev].slice(0, 5));
+          }
         },
       });
       setSuccessCount(result.successCount);
@@ -526,6 +570,7 @@ export function PropertyBulkUploadPage({ onNav }) {
           processedCount={processedCount}
           progressPercent={progressPercent}
           estimatedRemainingTime={estimatedRemainingTime}
+          recentLog={recentLog}
         />
       )}
 

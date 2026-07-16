@@ -67,7 +67,8 @@ export const BULK_UNIFIED_SAMPLE_ROWS = [
 ];
 
 export const BULK_MAX_ROWS = 500;
-export const BULK_CHUNK_SIZE = 30;
+/** 서버 요청 1회당 처리 건수 — 1이어야 진행률이 매물 1건 단위로 실시간 갱신됨 */
+export const BULK_CHUNK_SIZE = 1;
 
 /** @type {Record<string, { main: string, sub: string, tag: string }>} */
 export const BULK_PROPERTY_TYPE_MAP = {

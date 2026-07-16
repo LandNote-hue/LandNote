@@ -217,7 +217,7 @@ export async function runBulkPropertyImportFromRows(rows, opts = {}) {
   let done = 0;
   const startTime = opts.startTime ?? Date.now();
 
-  const emitProgressDetail = (processedCount) => {
+  const emitProgressDetail = (processedCount, lastItem) => {
     const progressPercent = Math.min(100, Math.round((processedCount / total) * 100));
     const elapsedTime = (Date.now() - startTime) / 1000;
     const averageTimePerItem = processedCount > 0 ? elapsedTime / processedCount : 0;
@@ -232,6 +232,7 @@ export async function runBulkPropertyImportFromRows(rows, opts = {}) {
       totalRows: total,
       estimatedRemainingTime,
       startTime,
+      lastItem,
     });
   };
 
@@ -245,16 +246,20 @@ export async function runBulkPropertyImportFromRows(rows, opts = {}) {
 
   for (const { start, rows: chunk } of chunks) {
     const chunkResults = await processChunk(chunk, start);
+    let lastItem;
     for (let j = 0; j < chunkResults.length; j += 1) {
       const r = chunkResults[j];
+      const row = chunk[j];
+      const address = row?.['주소(필수)'] || row?.['상세주소(동호수)'] || '';
+      lastItem = { address, success: r.success, error: r.error };
       if (r.success) {
         successes.push(r);
       } else {
-        failures.push({ ...r, row: chunk[j] ? { ...chunk[j] } : undefined });
+        failures.push({ ...r, row: row ? { ...row } : undefined });
       }
     }
     done += chunk.length;
-    emitProgressDetail(done);
+    emitProgressDetail(done, lastItem);
   }
 
   emitProgressDetail(total);
