@@ -66,8 +66,21 @@ import { isBulkUploadFile } from "./utils/parseBulkUploadFile.js";
 import { setPendingBulkFile } from "./services/bulk/bulkUploadPendingFile.js";
 import { WithdrawAccountPage } from "./pages/WithdrawAccountPage.jsx";
 import { useIsMobile } from "./hooks/useIsMobile.js";
+import { useIsMobileDevice } from "./hooks/useIsMobileDevice.js";
+import { getForceDesktop, setForceDesktop } from "./utils/forceDesktop.js";
 import { PropertyCardList } from "./components/PropertyCardList.jsx";
 import { isSupabaseConfigured } from "./lib/supabase.js";
+import { MobileShell } from "./layouts/MobileShell.jsx";
+import { MobileDashboard } from "./pages/mobile/MobileDashboard.jsx";
+import { MobilePropertyList } from "./pages/mobile/MobilePropertyList.jsx";
+import { MobilePropertyDetail } from "./pages/mobile/MobilePropertyDetail.jsx";
+import { MobileMapView } from "./pages/mobile/MobileMapView.jsx";
+import { MobileCustomerList } from "./pages/mobile/MobileCustomerList.jsx";
+import { MobileCustomerDetail } from "./pages/mobile/MobileCustomerDetail.jsx";
+import { MobileCallList } from "./pages/mobile/MobileCallList.jsx";
+import { MobileCallDetail } from "./pages/mobile/MobileCallDetail.jsx";
+import { MobileScheduleList } from "./pages/mobile/MobileScheduleList.jsx";
+import { MobileScheduleDetail } from "./pages/mobile/MobileScheduleDetail.jsx";
 import { initialCloudSync, pushRestoredLocalData } from "./services/sync/cloudSync.js";
 import { prepareLocalStoreForUser } from "./services/sync/localDataCleanup.js";
 import {
@@ -6088,6 +6101,10 @@ function AuthPublicRoutes({ onLegacyLogin }) {
 function AppShell(){
   const { user, loading: authLoading, profileLoading, needsSignupCompletion, signOut, passwordRecovery } = useAuth();
   const isMobile = useIsMobile();
+  const isMobileDevice = useIsMobileDevice();
+  const [forceDesktop, setForceDesktopState] = useState(getForceDesktop);
+  const viewDesktop = () => { setForceDesktop(true); setForceDesktopState(true); };
+  const viewMobile = () => { setForceDesktop(false); setForceDesktopState(false); };
   const [legacyUnlocked, setLegacyUnlocked] = useState(false);
 
   // 로그인 시 로컬 스토어만 준비하고, 클라우드 동기화는「백업·복원」의 수동 버튼으로만 수행
@@ -6259,6 +6276,26 @@ function AppShell(){
     </RouteErrorBoundary>
   );
 
+  /* 모바일 조회 전용 라우트 — PC 전용 등록/일괄등록/백업/휴지통/멤버관리는 제외 */
+  const mobileRoutes=(
+    <RouteErrorBoundary>
+      <Routes>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<MobileDashboard/>} />
+        <Route path="/properties" element={<MobilePropertyList/>} />
+        <Route path="/properties/:id" element={<MobilePropertyDetail/>} />
+        <Route path="/mapview" element={<MobileMapView/>} />
+        <Route path="/customers" element={<MobileCustomerList/>} />
+        <Route path="/customers/:id" element={<MobileCustomerDetail/>} />
+        <Route path="/calls" element={<MobileCallList/>} />
+        <Route path="/calls/:id" element={<MobileCallDetail/>} />
+        <Route path="/calendar" element={<MobileScheduleList/>} />
+        <Route path="/calendar/:id" element={<MobileScheduleDetail/>} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </RouteErrorBoundary>
+  );
+
   const overlays=(
     <>
       {globalConfirm&&<ConfirmDialog msg={globalConfirm.msg} subMsg={globalConfirm.subMsg} confirmLabel={globalConfirm.confirmLabel} danger={globalConfirm.danger||false} onConfirm={globalConfirm.onConfirm} onCancel={()=>setGlobalConfirm(null)}/>}
@@ -6297,16 +6334,16 @@ function AppShell(){
     </>
   );
 
-  if(isMobile){
+  if(isMobileDevice&&!forceDesktop){
     return(
       <>
-        <MobileShell screenTitle={titleLabel} menuId={menuId} trashCount={trashCount}
-          onSettings={()=>setShowSet(true)} onSignOut={handleSignOut}>
+        <MobileShell screenTitle={titleLabel} menuId={menuId}
+          onSettings={()=>setShowSet(true)} onSignOut={handleSignOut} onViewDesktop={viewDesktop}>
           <div style={{flex:1,overflow:'hidden',background:C.bg,display:'flex',flexDirection:'column',minHeight:0}}>
-            {appRoutes}
+            {mobileRoutes}
           </div>
         </MobileShell>
-        {overlays}
+        {showSet&&<Settings onClose={()=>setShowSet(false)}/>}
         <ToastPopup toast={toast} onClose={dismissToast}/>
       </>
     );
@@ -6331,6 +6368,15 @@ function AppShell(){
           </div>
         </div>
       </div>
+      {isMobileDevice&&forceDesktop&&(
+        <button type="button" onClick={viewMobile} style={{
+          position:'fixed',right:14,bottom:14,zIndex:500,height:38,padding:'0 16px',borderRadius:20,
+          border:'none',background:C.brand,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',
+          boxShadow:'0 6px 18px rgba(0,0,0,.25)',fontFamily:'inherit',
+        }}>
+          모바일 버전으로 돌아가기
+        </button>
+      )}
       {overlays}
       <ToastPopup toast={toast} onClose={dismissToast}/>
     </>

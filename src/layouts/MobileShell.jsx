@@ -9,15 +9,13 @@ const TAB_ITEMS = [
   { id: 'dashboard', label: '홈', path: MENU_PATHS.dashboard },
   { id: 'properties', label: '매물', path: MENU_PATHS.properties },
   { id: 'mapview', label: '지도', path: MENU_PATHS.mapview },
-  { id: 'register', label: '등록', path: MENU_PATHS.register },
+  { id: 'customers', label: '고객', path: MENU_PATHS.customers },
 ];
 
 const MORE_ITEMS = [
-  { id: 'customers', label: '고객 관리' },
   { id: 'calls', label: '통화 내역' },
   { id: 'calendar', label: '일정 관리' },
-  { id: 'backup', label: '백업·복원' },
-  { id: 'trash', label: '휴지통' },
+  { id: 'desktop', label: 'PC버전으로 보기' },
 ];
 
 const TabIcon = ({ id, active }) => {
@@ -26,7 +24,7 @@ const TabIcon = ({ id, active }) => {
     dashboard: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>),
     properties: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>),
     mapview: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>),
-    register: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>),
+    customers: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>),
     more: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2"><circle cx="12" cy="5" r="1.5" fill={c}/><circle cx="12" cy="12" r="1.5" fill={c}/><circle cx="12" cy="19" r="1.5" fill={c}/></svg>),
   };
   return icons[id] || null;
@@ -36,9 +34,9 @@ export function MobileShell({
   children,
   screenTitle,
   menuId,
-  trashCount = 0,
   onSettings,
   onSignOut,
+  onViewDesktop,
 }) {
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -46,6 +44,10 @@ export function MobileShell({
 
   const go = (id) => {
     setMoreOpen(false);
+    if (id === 'desktop') {
+      onViewDesktop?.();
+      return;
+    }
     navigate(MENU_PATHS[id] || '/dashboard');
   };
 
@@ -105,9 +107,6 @@ export function MobileShell({
                   color: menuId === m.id ? BRAND : '#0F172A', cursor: 'pointer', fontFamily: 'inherit',
                 }}>
                 {m.label}
-                {m.id === 'trash' && trashCount > 0 && (
-                  <span style={{ fontSize: 12, background: BRAND, color: '#fff', borderRadius: 20, padding: '2px 8px', fontWeight: 600 }}>{trashCount}</span>
-                )}
               </button>
             ))}
           </div>
