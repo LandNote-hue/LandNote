@@ -57,6 +57,19 @@ function rowToServerPayload(row, fallbackIndex) {
     areaPyeong: u.areaPyeong || '',
     notes: normalized['특이사항'] || '',
     reportKey: u.reportKey || '',
+    resolvedType: u.resolvedType || null,
+    status: u.status || '',
+    pub: u.pub !== false,
+    roadInfo: u.roadInfo || '',
+    jLeaseEnd: u.jLeaseEnd || '',
+    exclusiveArea: u.exclusiveArea || '',
+    contractArea: u.contractArea || '',
+    shortTermPeriod: u.shortTermPeriod || '',
+    postTitle: u.postTitle || '',
+    agentName: u.agentName || '',
+    agentTel: u.agentTel || '',
+    promoText: u.promoText || '',
+    internalMemo: u.internalMemo || '',
   };
 }
 

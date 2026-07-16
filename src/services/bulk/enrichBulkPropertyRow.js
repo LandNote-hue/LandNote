@@ -17,7 +17,8 @@ function parseDongHo(detail) {
   return { dongNm: dong, hoNm: ho };
 }
 
-function mapType(propertyType) {
+function mapType(propertyType, resolvedType) {
+  if (resolvedType) return resolvedType;
   const key = String(propertyType || '').trim();
   return BULK_PROPERTY_TYPE_MAP[key] || BULK_PROPERTY_TYPE_MAP['아파트'];
 }
@@ -50,13 +51,12 @@ export async function enrichBulkPropertyRow(rawRow) {
 
   const detail = row['상세주소(동호수)']?.trim() || '';
   const { dongNm, hoNm } = parseDongHo(detail);
-  const typeInfo = mapType(row['매물유형']);
+  const typeInfo = mapType(row['매물유형'], unified.resolvedType);
   const trade = mapTrade(row['거래유형']);
   const priceManwon = row['가격(만원)']?.trim() || '0';
   const depositManwon = row['보증금(월세)']?.trim() || '0';
   const monthlyRentManwon = unified.monthlyRentManwon || '0';
   const notes = row['특이사항']?.trim() || '';
-  const isCommercial = ['상가', '사무실'].includes(String(row['매물유형'] || '').trim());
 
   const juso = await searchJusoAddress({ keyword: address, countPerPage: 5, mode: 'all' });
   if (!juso.items?.length) {
@@ -109,10 +109,12 @@ export async function enrichBulkPropertyRow(rawRow) {
     }
   }
 
+  const roadInfo = unified.roadInfo || detail;
+
   const locationForm = {
     roadAddr: normalized.roadAddr,
     jibunAddr: normalized.jibunAddr,
-    roadInfo: detail,
+    roadInfo,
     ownerTel: '',
   };
 
@@ -124,17 +126,19 @@ export async function enrichBulkPropertyRow(rawRow) {
     jDep: '',
     premium: '',
     leaseEnd: '',
-    jLeaseEnd: '',
+    jLeaseEnd: unified.jLeaseEnd || '',
     roi: '—',
     realInvest: '',
-    maintenance: '',
+    maintenance: String(parseFloat(String(unified.maintenanceManwon || '0').replace(/,/g, '')) || 0),
     maintenanceDetail: '',
-    shortTermPeriod: '',
+    shortTermPeriod: unified.shortTermPeriod || '',
+    unitFloor: '',
+    exclusiveArea: unified.exclusiveArea || '',
+    contractArea: unified.contractArea || '',
     priceNegotiable: false,
   };
 
   const priceNum = parseFloat(String(priceManwon).replace(/,/g, '')) || 0;
-  const depositNum = parseFloat(String(depositManwon).replace(/,/g, '')) || 0;
 
   if (trade === 'SALE' || trade === 'PRESALE') {
     priceForm.price = String(priceNum || 0);
@@ -145,31 +149,28 @@ export async function enrichBulkPropertyRow(rawRow) {
     priceForm.mRent = String(parseFloat(String(monthlyRentManwon).replace(/,/g, '')) || 0);
   }
 
-  if (isCommercial) {
-    priceForm.premium = String(parseFloat(String(unified.premiumManwon || '0').replace(/,/g, '')) || 0);
-    priceForm.maintenance = String(parseFloat(String(unified.maintenanceManwon || '0').replace(/,/g, '')) || 0);
-  }
+  priceForm.premium = String(parseFloat(String(unified.premiumManwon || '0').replace(/,/g, '')) || 0);
 
   const addressFields = buildPropertyAddressFields(locationForm, address);
-  const bldgTitle = [addrHit.bdNm, detail].filter(Boolean).join(' ').trim();
+  const bldgTitle = unified.postTitle || [addrHit.bdNm, detail].filter(Boolean).join(' ').trim();
   const areaOverride = pyeongToM2(unified.areaPyeong);
 
   const property = {
     main: typeInfo.main,
     sub: typeInfo.sub,
-    status: 'NEW',
-    pub: true,
+    status: unified.status || 'NEW',
+    pub: unified.pub !== false,
     trade,
     fav: false,
     favAt: null,
     ...addressFields,
     bldg: bldgTitle || typeInfo.tag,
     ownerTel: '',
-    roadInfo: detail,
-    promo: notes,
-    memo: notes,
-    agentName: '',
-    agentTel: '',
+    roadInfo,
+    promo: unified.promoText || notes,
+    memo: unified.internalMemo || notes,
+    agentName: unified.agentName || '',
+    agentTel: unified.agentTel || '',
     photos: [],
     tag: typeInfo.tag,
     lastCall: '—',

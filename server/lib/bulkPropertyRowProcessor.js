@@ -166,13 +166,16 @@ function buildPriceFields(trade, row) {
   const rentNum = parseFloat(String(row.monthlyRentManwon || '').replace(/,/g, '')) || 0;
   const premiumNum = parseFloat(String(row.premiumManwon || '').replace(/,/g, '')) || 0;
   const maintenanceNum = parseFloat(String(row.maintenanceManwon || '').replace(/,/g, '')) || 0;
-  const propertyType = String(row.propertyType || '').trim();
-  const isCommercial = propertyType === '상가' || propertyType === '사무실';
+  const exclusiveAreaNum = parseFloat(String(row.exclusiveArea || '').replace(/,/g, '')) || 0;
+  const contractAreaNum = parseFloat(String(row.contractArea || '').replace(/,/g, '')) || 0;
+  const jLeaseEnd = String(row.jLeaseEnd || '');
+  const shortTermPeriod = String(row.shortTermPeriod || '');
 
   const base = {
     price: 0, jDep: 0, mDep: 0, mRent: 0, loan: 0, premium: 0,
     leaseEnd: '', jLeaseEnd: '', maintenance: 0, maintenanceDetail: '',
     shortTermPeriod: '', priceNegotiable: false, roi: '—', realInvest: '',
+    unitFloor: '', exclusiveArea: 0, contractArea: 0,
   };
 
   if (trade === 'SALE' || trade === 'PRESALE') {
@@ -181,20 +184,30 @@ function buildPriceFields(trade, row) {
       price: priceNum || 0,
       mDep: 0,
       mRent: 0,
-      premium: isCommercial ? premiumNum : 0,
-      maintenance: isCommercial ? maintenanceNum : 0,
+      premium: premiumNum,
+      maintenance: maintenanceNum,
     };
   }
   if (trade === 'JEONSE') {
-    return { ...base, jDep: priceNum || 0, premium: isCommercial ? premiumNum : 0 };
+    return {
+      ...base,
+      jDep: priceNum || 0,
+      jLeaseEnd,
+      premium: premiumNum,
+      exclusiveArea: exclusiveAreaNum,
+      contractArea: contractAreaNum,
+    };
   }
   if (trade === 'MONTHLY' || trade === 'SHORT_TERM') {
     return {
       ...base,
       mDep: depositNum,
       mRent: rentNum || priceNum,
-      premium: isCommercial ? premiumNum : 0,
-      maintenance: isCommercial ? maintenanceNum : 0,
+      premium: premiumNum,
+      maintenance: maintenanceNum,
+      shortTermPeriod: trade === 'SHORT_TERM' ? shortTermPeriod : '',
+      exclusiveArea: exclusiveAreaNum,
+      contractArea: contractAreaNum,
     };
   }
   return base;
@@ -210,7 +223,7 @@ export async function processBulkPropertyRow(row, env) {
 
   const detail = String(row.detailAddress || '').trim();
   const { dongNm, hoNm } = parseDongHo(detail);
-  const typeInfo = TYPE_MAP[String(row.propertyType || '').trim()] || TYPE_MAP['아파트'];
+  const typeInfo = row.resolvedType || TYPE_MAP[String(row.propertyType || '').trim()] || TYPE_MAP['아파트'];
   const trade = TRADE_MAP[String(row.tradeType || '').trim()] || 'SALE';
 
   const juso = await fetchJuso(address, env);
@@ -235,15 +248,17 @@ export async function processBulkPropertyRow(row, env) {
     console.warn('[bulk-server] building ledger skip', err?.message || err);
   }
 
-  const bldg = [juso.bdNm, detail].filter(Boolean).join(' ').trim() || typeInfo.tag;
+  const postTitle = String(row.postTitle || '').trim();
+  const bldg = postTitle || [juso.bdNm, detail].filter(Boolean).join(' ').trim() || typeInfo.tag;
   const notes = String(row.notes || '').trim();
   const areaM2 = pyeongToM2(row.areaPyeong);
+  const roadInfo = String(row.roadInfo || '').trim() || detail;
 
   return {
     main: typeInfo.main,
     sub: typeInfo.sub,
-    status: 'NEW',
-    pub: true,
+    status: row.status || 'NEW',
+    pub: row.pub !== false,
     trade,
     fav: false,
     favAt: null,
@@ -252,11 +267,11 @@ export async function processBulkPropertyRow(row, env) {
     roadAddr,
     bldg,
     ownerTel: '',
-    roadInfo: detail,
-    promo: notes,
-    memo: notes,
-    agentName: '',
-    agentTel: '',
+    roadInfo,
+    promo: String(row.promoText || '').trim() || notes,
+    memo: String(row.internalMemo || '').trim() || notes,
+    agentName: String(row.agentName || '').trim(),
+    agentTel: String(row.agentTel || '').trim(),
     photos: [],
     tag: typeInfo.tag,
     lastCall: '—',
