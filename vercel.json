@@ -6,7 +6,8 @@
   "regions": ["icn1"],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/juso-return.html", "destination": "/api" }
+    { "source": "/juso-return.html", "destination": "/api" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/index.js": {
