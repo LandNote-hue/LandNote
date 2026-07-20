@@ -3024,7 +3024,7 @@ const ScheduleImportGuideWin=({onClose})=>{
   );
 };
 
-const GoogleCalendarImportWin=({onClose,onImported})=>{
+const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onUnlinkOne,linkLabelOf})=>{
   const [link,setLink]=useState('');
   const [label,setLabel]=useState('');
   const [loading,setLoading]=useState(false);
@@ -3036,7 +3036,8 @@ const GoogleCalendarImportWin=({onClose,onImported})=>{
       const imported=await importGoogleCalendarFromLink(link,{label:label.trim()});
       onImported(imported);
       showNotification(`구글 캘린더를 연동했습니다. 총 ${imported.total}건 중 ${imported.added}건 가져옴, ${imported.duplicated}건 중복 제외.`,'success');
-      onClose();
+      setLink('');
+      setLabel('');
     }catch(err){
       window.alert(err instanceof Error?err.message:'구글 캘린더를 불러오지 못했습니다.');
     }finally{
@@ -3045,28 +3046,57 @@ const GoogleCalendarImportWin=({onClose,onImported})=>{
   };
 
   return(
-    <Win title="구글 캘린더 가져오기" ic="ti-brand-google" onClose={onClose} w={560}
+    <Win title="구글 캘린더 동기화" ic="ti-brand-google" onClose={onClose} w={560}
       ch={<>
-        <div style={{...WIN_BODY_SCROLL,padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}>
-          <div style={{fontSize:13,color:C.txS,lineHeight:1.6}}>
-            Google Calendar의 공유 링크 또는 iCal 주소를 붙여 넣으면 일정을 가져옵니다. 이후에는「동기화」버튼을 눌러야 새 일정이 반영됩니다. (이미 가져온 일정은 유지되며 중복 저장되지 않습니다.)
-            <div style={{marginTop:8,padding:'10px 12px',background:C.surf2,borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:12,color:C.txM}}>
-              <div style={{fontWeight:600,color:C.tx,marginBottom:6}}>링크 찾는 방법</div>
-              <div>Google Calendar → 설정 → 내 캘린더 → 해당 캘린더 →「캘린더 통합」</div>
-              <div style={{marginTop:4}}>· 공개 캘린더: embed 링크 또는「공개 URL」</div>
-              <div>· 비공개 캘린더:「iCal 형식의 비공개 주소」전체 URL</div>
+        <div style={{...WIN_BODY_SCROLL,padding:'20px 24px',display:'flex',flexDirection:'column',gap:18}}>
+          {gcalLinks.length>0&&(
+            <div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                <span style={{fontSize:13,fontWeight:700,color:C.tx}}>연동된 캘린더 ({gcalLinks.length})</span>
+                <button type="button" disabled={gcalSyncing} onClick={onSyncNow}
+                  style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.tx,fontWeight:600}}>
+                  {gcalSyncing?'동기화 중…':'전체 동기화'}
+                </button>
+              </div>
+              <div style={{border:`1px solid ${C.bdr}`,borderRadius:8,overflow:'hidden'}}>
+                {gcalLinks.map((l,i)=>(
+                  <div key={l.sourceId} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderTop:i>0?`1px solid ${C.bdr}`:'none',background:C.surf2}}>
+                    <span style={{fontSize:13,fontWeight:600,color:C.tx,flexShrink:0}}>{linkLabelOf(l)}</span>
+                    <span style={{flex:1,minWidth:0,fontSize:12,color:C.txM,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                      {l.lastSyncAt?`최근 동기화 ${new Date(l.lastSyncAt).toLocaleString('ko-KR')}`:'아직 동기화하지 않음'}
+                      {l.lastError?` · 오류: ${l.lastError}`:''}
+                    </span>
+                    <button type="button" onClick={()=>onUnlinkOne(l.sourceId,linkLabelOf(l))}
+                      style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline',flexShrink:0}}>
+                      연동 해제
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-          <div>
-            <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>캘린더 링크</div>
-            <input className="inp" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://calendar.google.com/calendar/ical/…"
-              onKeyDown={e=>{if(e.key==='Enter'&&!loading&&link.trim()) handleImport();}}/>
-          </div>
-          <div>
-            <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>이름 (선택)</div>
-            <input className="inp" value={label} onChange={e=>setLabel(e.target.value)} placeholder="예: 회사 캘린더, 개인 일정"
-              onKeyDown={e=>{if(e.key==='Enter'&&!loading&&link.trim()) handleImport();}}/>
-            <div style={{fontSize:11,color:C.txM,marginTop:4}}>여러 캘린더를 연동할 때 구분하기 쉽도록 이름을 붙여 두면, 나중에 개별적으로 연동을 해제할 수 있습니다.</div>
+          )}
+          <div style={{display:'flex',flexDirection:'column',gap:14,paddingTop:gcalLinks.length>0?18:0,borderTop:gcalLinks.length>0?`1px solid ${C.bdr}`:'none'}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.tx}}>새 캘린더 연동하기</div>
+            <div style={{fontSize:13,color:C.txS,lineHeight:1.6}}>
+              Google Calendar의 공유 링크 또는 iCal 주소를 붙여 넣으면 일정을 가져옵니다. 이후에는「동기화」버튼을 눌러야 새 일정이 반영됩니다. (이미 가져온 일정은 유지되며 중복 저장되지 않습니다.)
+              <div style={{marginTop:8,padding:'10px 12px',background:C.surf2,borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:12,color:C.txM}}>
+                <div style={{fontWeight:600,color:C.tx,marginBottom:6}}>링크 찾는 방법</div>
+                <div>Google Calendar → 설정 → 내 캘린더 → 해당 캘린더 →「캘린더 통합」</div>
+                <div style={{marginTop:4}}>· 공개 캘린더: embed 링크 또는「공개 URL」</div>
+                <div>· 비공개 캘린더:「iCal 형식의 비공개 주소」전체 URL</div>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>캘린더 링크</div>
+              <input className="inp" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://calendar.google.com/calendar/ical/…"
+                onKeyDown={e=>{if(e.key==='Enter'&&!loading&&link.trim()) handleImport();}}/>
+            </div>
+            <div>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>이름 (선택)</div>
+              <input className="inp" value={label} onChange={e=>setLabel(e.target.value)} placeholder="예: 회사 캘린더, 개인 일정"
+                onKeyDown={e=>{if(e.key==='Enter'&&!loading&&link.trim()) handleImport();}}/>
+              <div style={{fontSize:11,color:C.txM,marginTop:4}}>여러 캘린더를 연동할 때 구분하기 쉽도록 이름을 붙여 두면, 나중에 개별적으로 연동을 해제할 수 있습니다.</div>
+            </div>
           </div>
         </div>
         <ActionBar
@@ -3243,9 +3273,14 @@ const Calendar=({onOpen})=>{
         <ScheduleImportGuideWin onClose={()=>setImportGuideOpen(false)}/>
       )}
       {googleCalOpen&&(
-        <GoogleCalendarImportWin
+        <GoogleCalendarSyncWin
           onClose={()=>setGoogleCalOpen(false)}
           onImported={applyImportedSchedules}
+          gcalLinks={gcalLinks}
+          gcalSyncing={gcalSyncing}
+          onSyncNow={handleGcalSyncNow}
+          onUnlinkOne={handleGcalUnlinkOne}
+          linkLabelOf={gcalLinkLabel}
         />
       )}
       <PH title="일정 관리" sub={fmtTodayKorean()}
@@ -3284,30 +3319,6 @@ const Calendar=({onOpen})=>{
       {icsNotice&&(
         <div style={{padding:'10px 28px',background:C.okBg,color:C.ok,fontSize:13,borderBottom:`1px solid ${C.okBd}`}}>
           {icsNotice}
-        </div>
-      )}
-      {gcalLinks.length>0&&(
-        <div style={{padding:'8px 28px',background:C.surf2,borderBottom:`1px solid ${C.bdr}`,display:'flex',flexDirection:'column',gap:6}}>
-          <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <span style={{fontSize:12,color:C.tx,fontWeight:600}}>구글 캘린더 연동 {gcalLinks.length}개</span>
-            <button type="button" disabled={gcalSyncing} onClick={handleGcalSyncNow}
-              style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'4px 10px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.tx,fontWeight:600}}>
-              {gcalSyncing?'동기화 중…':'전체 동기화'}
-            </button>
-          </div>
-          {gcalLinks.map(l=>(
-            <div key={l.sourceId} style={{display:'flex',alignItems:'center',gap:10,fontSize:12,color:C.txM}}>
-              <span style={{color:C.tx,fontWeight:600,flexShrink:0}}>{gcalLinkLabel(l)}</span>
-              <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                {l.lastSyncAt?`최근 동기화 ${new Date(l.lastSyncAt).toLocaleString('ko-KR')}`:'아직 동기화하지 않음'}
-                {l.lastError?` · 오류: ${l.lastError}`:''}
-              </span>
-              <button type="button" onClick={()=>handleGcalUnlinkOne(l.sourceId,gcalLinkLabel(l))}
-                style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline',flexShrink:0}}>
-                연동 해제
-              </button>
-            </div>
-          ))}
         </div>
       )}
       <div style={{flex:1,minHeight:0,display:'flex',gap:16,padding:'20px 28px',overflow:'hidden'}}>
