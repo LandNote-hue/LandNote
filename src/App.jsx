@@ -266,7 +266,7 @@ const hexToRgba=(hex,alpha=.16)=>{
  */
 const scheduleSourceInfo=(s,gcalMeta)=>{
   const src=s.icsSourceId?gcalMeta?.get(s.icsSourceId):null;
-  if(src) return {c:src.color,bg:hexToRgba(src.color),label:src.label,isSource:true};
+  if(src) return {c:src.color,bg:hexToRgba(src.color,.08),label:src.label,isSource:true};
   return {c:schedulePriColor(s.pri),bg:schedulePriBg(s.pri),label:PRI_L[s.pri]||'보통',isSource:false};
 };
 /** 구버전(색 미지정) 연동 링크용 — sourceId로부터 결정적으로 색 선택 */
