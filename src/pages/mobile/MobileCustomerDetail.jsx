@@ -3,7 +3,7 @@ import { useOwnerCustomers, useOwnerCallLogs } from '../../hooks/useOwnerScopedD
 import { formatCustomerTypesLabel } from '../../utils/customerTypes.js';
 import { formatPreferredTradesLabel } from '../../utils/customerTradePreference.js';
 import { formatPhone } from '../../utils/formatPhone.js';
-import { fmtWithUnit } from '../../utils/formatMoney.js';
+import { formatKoreanAmountFromMan } from '../../utils/formatMoney.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileInfoRow, MobileEmptyState, M } from './mobileUi.jsx';
 
 export function MobileCustomerDetail() {
@@ -50,8 +50,8 @@ export function MobileCustomerDetail() {
         <MobileCard>
           <MobileInfoRow label="소속" value={cust.co} />
           <MobileInfoRow label="선호 거래" value={tradesLabel} />
-          <MobileInfoRow label="보유 현금" value={cust.cash ? fmtWithUnit(cust.cash, '만원') : null} />
-          <MobileInfoRow label="매수 희망가" value={(cust.buyMin || cust.buyMax) ? `${fmtWithUnit(cust.buyMin || 0, '만원')} ~ ${fmtWithUnit(cust.buyMax || 0, '만원')}` : null} />
+          <MobileInfoRow label="보유 현금" value={cust.cash ? formatKoreanAmountFromMan(cust.cash) : null} />
+          <MobileInfoRow label="매수 희망가" value={(cust.buyMin || cust.buyMax) ? `${formatKoreanAmountFromMan(cust.buyMin || 0)} ~ ${formatKoreanAmountFromMan(cust.buyMax || 0)}` : null} />
           <MobileInfoRow label="등록일" value={cust.created} />
         </MobileCard>
 

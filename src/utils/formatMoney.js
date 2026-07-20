@@ -113,18 +113,6 @@ export function formatKoreanAmountFromMan(amountMan) {
   return formatKoreanAmount(n * 10000);
 }
 
-/** @param {string|number|null|undefined} v */
-export function fmtEok(v) {
-  if (v == null || v === '' || Number(v) === 0) return null;
-  return `${fmtNum(v, { decimal: true })}억`;
-}
-
-/** @param {string|number|null|undefined} v */
-export function fmtMan(v) {
-  if (v == null || v === '' || Number(v) === 0) return null;
-  return `${fmtNum(v)}만`;
-}
-
 /** @param {string|number|null|undefined} v @param {string} [suffix] */
 export function fmtWon(v, suffix = '원') {
   if (v == null || v === '') return null;

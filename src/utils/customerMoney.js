@@ -3,7 +3,7 @@
  * (구 억 단위 저장값은 normalize 시 × EOK_TO_MAN 변환)
  */
 
-import { EOK_TO_MAN, fmtMan, looksLikeEokStored, priceInManForFilter } from './formatMoney.js';
+import { EOK_TO_MAN, looksLikeEokStored, priceInManForFilter, formatKoreanAmountFromMan } from './formatMoney.js';
 
 export { EOK_TO_MAN };
 
@@ -95,7 +95,7 @@ export function fmtCustomerMoney(v) {
   if (v == null || v === '') return '—';
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return '—';
-  return fmtMan(n) ?? '—';
+  return formatKoreanAmountFromMan(n) || '—';
 }
 
 /** @param {unknown} buyMin @param {unknown} buyMax */

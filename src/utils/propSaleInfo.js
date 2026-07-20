@@ -2,7 +2,7 @@ import { parseFormNum, deriveSalePriceFormFields } from './propertyForm.js';
 import {
   resolveSaleInvestmentMetrics,
 } from './propInvestment.js';
-import { fmtNum, normalizeJDepToMan, m2ToPyung } from './formatMoney.js';
+import { fmtNum, normalizeJDepToMan, m2ToPyung, formatKoreanAmountFromMan } from './formatMoney.js';
 
 /** 매매·분양 시 투자분석(보증금·월임대료·관리비·수익률) 입력/표시 여부 */
 export function showsSaleInvestmentFields(trade, sub) {
@@ -58,11 +58,11 @@ export function deriveSalePriceFormFieldsForUi(priceForm) {
   return deriveSalePriceFormFields(priceForm);
 }
 
-/** @param {number} v @param {string} unit */
-export function fmtManwonDisplay(v, unit = '만') {
+/** @param {number} v */
+export function fmtManwonDisplay(v) {
   const n = parseFormNum(v);
   if (!n) return '—';
-  return `${fmtNum(n)}${unit}`;
+  return formatKoreanAmountFromMan(n);
 }
 
 /** 임대차 행들의 임차계약만료일 요약 (빠른 만료일 우선) */
@@ -115,25 +115,25 @@ export function buildPropSaleInfoRows(prop, rentals, fmt) {
     if (showsSaleInvestmentFields(trade, sub)) {
       const realInvestLabel =
         metrics.realInvest != null && Number.isFinite(metrics.realInvest)
-          ? `${fmtNum(metrics.realInvest)}만원`
-          : (prop.realInvest ? `${String(prop.realInvest).replace(/만원$/, '')}만원` : '—');
+          ? formatKoreanAmountFromMan(metrics.realInvest)
+          : (prop.realInvest ? formatKoreanAmountFromMan(String(prop.realInvest).replace(/만원$/, '')) : '—');
       const leaseEndLabel = formatRentalLeaseEnds(rentals, prop);
 
       rows.push(
         {
           left: {
             k: '보증금',
-            v: metrics.existingDeposit > 0 ? `${fmtNum(metrics.existingDeposit)}만원` : '—',
+            v: metrics.existingDeposit > 0 ? formatKoreanAmountFromMan(metrics.existingDeposit) : '—',
           },
           right: {
             k: '월임대료',
-            v: metrics.monthlyRent > 0 ? `${fmtNum(metrics.monthlyRent)}만원` : '—',
+            v: metrics.monthlyRent > 0 ? formatKoreanAmountFromMan(metrics.monthlyRent) : '—',
           },
         },
         {
           left: {
             k: '관리비',
-            v: metrics.maintenance > 0 ? `${fmtNum(metrics.maintenance)}만원` : '—',
+            v: metrics.maintenance > 0 ? formatKoreanAmountFromMan(metrics.maintenance) : '—',
           },
           right: {
             k: '수익률',
@@ -158,11 +158,11 @@ export function buildPropSaleInfoRows(prop, rentals, fmt) {
         rows.push({
           left: {
             k: '권리금',
-            v: premium > 0 ? `${fmtNum(premium)}만원` : '—',
+            v: premium > 0 ? formatKoreanAmountFromMan(premium) : '—',
           },
           right: {
             k: '융자금',
-            v: loan > 0 ? `${fmtNum(loan)}만원` : '—',
+            v: loan > 0 ? formatKoreanAmountFromMan(loan) : '—',
           },
         });
       }

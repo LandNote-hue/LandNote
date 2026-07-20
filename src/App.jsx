@@ -23,7 +23,7 @@ import { PropertyPhotoPicker } from "./components/PropertyPhotoPicker.jsx";
 import { PropertyDetailMap } from "./components/PropertyDetailMap.jsx";
 import { PropertyDetailNewWin } from "./components/PropertyDetailNewWin.jsx";
 import { normalizePhotoSlots, photoSlotsToSave } from "./utils/readImageFile.js";
-import { fmtNum, fmtWithUnit, fmtLandPyUnit, fmtPropPrice as propPrice, fmtWon, calcPyUnitPriceMan, priceInManForFilter, fmtInputNum } from "./utils/formatMoney.js";
+import { fmtNum, fmtLandPyUnit, fmtPropPrice as propPrice, fmtWon, calcPyUnitPriceMan, priceInManForFilter, fmtInputNum, formatKoreanAmountFromMan } from "./utils/formatMoney.js";
 import { buildSaleInvestmentMetrics } from "./utils/propInvestment.js";
 import { formatPhone, normalizePhone, phoneMatches, digitsOnly, freePhoneOptionFromSearch } from "./utils/formatPhone.js";
 import { formatCustomerTypesLabel, normalizeCustomerTypesField } from "./utils/customerTypes.js";
@@ -4434,7 +4434,7 @@ const fmtOfficialLandPriceDisplay=(prop)=>{
 const fmtSalePriceEokWon=(priceMan)=>{
   const p=parseFloat(priceMan);
   if(!Number.isFinite(p)||p<=0) return '—';
-  return `${fmtNum(p/10000,{decimal:p%10000!==0})}억원`;
+  return formatKoreanAmountFromMan(p);
 };
 
 /* 매물 상세 - 지도영역 외부 사이트 연결 (지번주소로 검색결과 연결) */
@@ -4693,7 +4693,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
               <div style={{border:`1px solid ${C.bdr}`,borderRadius:8,overflow:'hidden',marginBottom:12}}>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
                   {[
-                    ['매각금액',propData.price?fmtWithUnit(propData.price,'만'):'—',C.brand],
+                    ['매각금액',propData.price?formatKoreanAmountFromMan(propData.price):'—',C.brand],
                     ['수익률',saleInvest.yieldLabel,C.tx],
                     ['공실 현황',vacantCount>0?`${vacantCount}개층`:'없음',vacantCount>0?C.warn:C.tx],
                   ].map(([l,v,c],i)=>(
@@ -4705,9 +4705,9 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
                   {[
-                    ['총 보증금',fmtWithUnit(totalDep,'만'),C.tx],
-                    ['총 임대료',fmtWithUnit(totalRent,'만'),C.tx],
-                    ['총 관리비',fmtWithUnit(totalMaint,'만'),C.tx],
+                    ['총 보증금',formatKoreanAmountFromMan(totalDep),C.tx],
+                    ['총 임대료',formatKoreanAmountFromMan(totalRent),C.tx],
+                    ['총 관리비',formatKoreanAmountFromMan(totalMaint),C.tx],
                   ].map(([l,v,c],i)=>(
                     <div key={i} style={{...rentalSummaryCell,borderRight:i<2?`1px solid ${C.bdr}`:'none',background:'#fff'}}>
                       <div style={{fontSize:11,color:C.txM,fontWeight:500,marginBottom:4}}>{l}</div>
@@ -4975,9 +4975,9 @@ const RentalWin=({prop,onClose})=>{
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
               {[
-                ['총 보증금',fmtWithUnit(totalDep,'만'),C.tx],
-                ['총 임대료',fmtWithUnit(totalRent,'만'),C.tx],
-                ['총 관리비',fmtWithUnit(totalMaint,'만'),C.tx],
+                ['총 보증금',formatKoreanAmountFromMan(totalDep),C.tx],
+                ['총 임대료',formatKoreanAmountFromMan(totalRent),C.tx],
+                ['총 관리비',formatKoreanAmountFromMan(totalMaint),C.tx],
               ].map(([l,v,c],i)=>(
                 <div key={i} style={{padding:'14px 18px',borderRight:i<2?`1px solid ${C.bdr}`:'none'}}>
                   <div style={{fontSize:12,color:C.txM,fontWeight:500,marginBottom:5}}>{l}</div>
@@ -5966,9 +5966,9 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                         </div>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
                           {[
-                            ['총 보증금',fmtWithUnit(totalDep,'만'),C.tx],
-                            ['총 임대료',fmtWithUnit(totalRent,'만'),C.tx],
-                            ['총 관리비',fmtWithUnit(totalMaint,'만'),C.tx],
+                            ['총 보증금',formatKoreanAmountFromMan(totalDep),C.tx],
+                            ['총 임대료',formatKoreanAmountFromMan(totalRent),C.tx],
+                            ['총 관리비',formatKoreanAmountFromMan(totalMaint),C.tx],
                           ].map(([l,v,c],i)=>(
                             <div key={i} style={{...rentalSummaryCell,borderRight:i<2?`1px solid ${C.bdr}`:'none',background:'#fff'}}>
                               <div style={{fontSize:11,color:C.txM,fontWeight:500,marginBottom:4}}>{l}</div>
