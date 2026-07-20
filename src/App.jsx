@@ -3229,7 +3229,8 @@ const Calendar=({onOpen})=>{
   const gcalMeta=useMemo(()=>{
     const m=new Map();
     gcalLinks.forEach(l=>{
-      m.set(l.sourceId,{color:l.color||gcalFallbackColor(l.sourceId),label:gcalLinkLabel(l)});
+      const color=l.color&&GCAL_LINK_COLORS.includes(l.color)?l.color:gcalFallbackColor(l.sourceId);
+      m.set(l.sourceId,{color,label:gcalLinkLabel(l)});
     });
     return m;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- gcalLinkLabel은 gcalLinks에서 파생, 별도 의존성 불필요

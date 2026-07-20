@@ -5,10 +5,11 @@ const STORAGE_PREFIX = 'landnote.gcal.links.';
 export const GCAL_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
- * 연동 캘린더 구분색 — 일정 우선순위색(빨강·주황·파랑)과 겹치지 않는 팔레트
+ * 연동 캘린더 구분색 — 일정 우선순위색(긴급 빨강·중요 주황·보통 파랑)보다 눈에 덜 띄어야 하므로
+ * 붉은 계열(빨강·주황·핑크 등)은 전부 제외한 팔레트
  * @see PRI_C in App.jsx (URGENT #DC2626, IMPORTANT #D97706, NORMAL #2563EB)
  */
-export const GCAL_LINK_COLORS = ['#059669', '#0891B2', '#7C3AED', '#DB2777', '#65A30D', '#4338CA'];
+export const GCAL_LINK_COLORS = ['#059669', '#0891B2', '#7C3AED', '#475569', '#65A30D', '#4338CA'];
 
 /** @param {GoogleCalendarLink[]} existingLinks */
 function nextGcalColor(existingLinks) {
