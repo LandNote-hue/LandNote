@@ -356,14 +356,16 @@ const fmtCallDate=(iso)=>{
   return y&&m&&d?`${y}.${m}.${d}`:String(iso).replace(/-/g,'.');
 };
 const callDtKey=(cl)=>`${cl.date||''}T${cl.time||'00:00'}`;
+/** cid/pid는 Supabase bigint 컬럼을 거치며 string으로 올 수 있어 항상 String()으로 키를 통일 */
 const buildCustCallDateMap=(calls)=>{
   const m=new Map();
   for(const cl of calls){
     if(!cl.cid||!cl.date) continue;
     const key=callDtKey(cl);
-    const prev=m.get(cl.cid);
+    const ck=String(cl.cid);
+    const prev=m.get(ck);
     if(!prev){
-      m.set(cl.cid,{first:cl.date,last:cl.date,firstKey:key,lastKey:key});
+      m.set(ck,{first:cl.date,last:cl.date,firstKey:key,lastKey:key});
       continue;
     }
     if(key<prev.firstKey){prev.first=cl.date;prev.firstKey=key;}
@@ -371,15 +373,16 @@ const buildCustCallDateMap=(calls)=>{
   }
   return m;
 };
-const custCallDatesOf=(map,cid)=>map.get(cid)||{first:null,last:null};
+const custCallDatesOf=(map,cid)=>(cid==null?{first:null,last:null}:map.get(String(cid))||{first:null,last:null});
 const buildPropCallDateMap=(calls)=>{
   const m=new Map();
   for(const cl of calls){
     if(!cl.pid||!cl.date) continue;
     const key=callDtKey(cl);
-    const prev=m.get(cl.pid);
+    const pk=String(cl.pid);
+    const prev=m.get(pk);
     if(!prev){
-      m.set(cl.pid,{first:cl.date,last:cl.date,firstKey:key,lastKey:key});
+      m.set(pk,{first:cl.date,last:cl.date,firstKey:key,lastKey:key});
       continue;
     }
     if(key<prev.firstKey){prev.first=cl.date;prev.firstKey=key;}
@@ -387,7 +390,7 @@ const buildPropCallDateMap=(calls)=>{
   }
   return m;
 };
-const propCallDatesOf=(map,pid)=>map.get(pid)||{first:null,last:null};
+const propCallDatesOf=(map,pid)=>(pid==null?{first:null,last:null}:map.get(String(pid))||{first:null,last:null});
 const propLinkedChip=(p)=>propDisplayAddr(p);
 
 /* ═══ UI PRIMITIVES ═══ */
