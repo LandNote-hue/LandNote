@@ -58,6 +58,7 @@ import { PROP_MAIN, PROP_SUB } from "./data/propertyTypes.js";
 import { matchesOwner } from "./services/sync/ownerScope.js";
 import { canWriteRecord, isSharedRecord, displayPhone, PERMISSION_DENIED_TOOLTIP, getEffectivePermissions, canReadSharedResource, formatSharedPropertyLabel, canViewTeamProperties } from "./utils/permissions.js";
 import TeamManagementPage from "./pages/TeamManagementPage.jsx";
+import { upgradeSoloToBusiness } from "./services/companyService.js";
 import { PageHeader as PH } from "./components/PageHeader.jsx";
 import { CloudSyncHeaderActions } from "./components/CloudSyncHeaderActions.jsx";
 import { BTN_SIZE, btnPx } from "./theme/buttonLayout.js";
@@ -3962,7 +3963,7 @@ const Trash=()=>{
 /* ═══ SETTINGS OVERLAY ═══ */
 const Settings=({onClose})=>{
   const navigate=useNavigate();
-  const { user, profile, accountDefaults, updateProfile, updatePassword, verifyCurrentPassword, company, companyRole, profileLoading, isConfigured, isDevBypass }=useAuth();
+  const { user, profile, accountDefaults, updateProfile, updatePassword, verifyCurrentPassword, company, companyRole, profileLoading, isConfigured, isDevBypass, refreshProfile }=useAuth();
   const displayRole=companyRole??(profile?.role?normalizeCompanyRole(profile.role):null);
   const workspaceId=company?.id??profile?.company_id??null;
   const canAccessTeamManage=(isConfigured||isDevBypass)&&workspaceId&&isBusinessRole(displayRole)&&isCeoRole(displayRole);
@@ -3977,6 +3978,10 @@ const Settings=({onClose})=>{
   const [pwBusy,setPwBusy]=useState(false);
   const [storagePath,setStoragePath]=useState(()=>loadStoragePathLabel());
   const [pickingFolder,setPickingFolder]=useState(false);
+  const [bizModalOpen,setBizModalOpen]=useState(false);
+  const [bizCompanyName,setBizCompanyName]=useState('');
+  const [bizBusy,setBizBusy]=useState(false);
+  const [bizError,setBizError]=useState('');
 
   useEffect(()=>{
     setStoragePath(loadStoragePathLabel());
@@ -4000,6 +4005,43 @@ const Settings=({onClose})=>{
     ||user?.identities?.some?.(i=>i.provider==='google');
 
   const showToast=(msg)=>{ setToast(msg); setTimeout(()=>setToast(null),2200); };
+
+  const openBizUpgradeModal=()=>{
+    setBizCompanyName(String(form?.agencyName||company?.name||'').trim());
+    setBizError('');
+    setBizModalOpen(true);
+  };
+
+  const closeBizUpgradeModal=()=>{
+    if(bizBusy) return;
+    setBizModalOpen(false);
+    setBizError('');
+  };
+
+  const submitBizUpgrade=async()=>{
+    const name=String(bizCompanyName||'').trim();
+    if(!name){
+      setBizError('회사명을 입력해 주세요.');
+      return;
+    }
+    if(!isConfigured){
+      showToast('클라우드 연동 후에 전환할 수 있습니다.');
+      return;
+    }
+    setBizBusy(true);
+    setBizError('');
+    try{
+      await upgradeSoloToBusiness(name);
+      await refreshProfile();
+      setBizModalOpen(false);
+      onClose();
+      navigate('/team/manage', { state: { toast: '회사형으로 전환되었습니다. 직원을 초대해 보세요.' } });
+    }catch(err){
+      setBizError(err?.message||'회사형 전환에 실패했습니다.');
+    }finally{
+      setBizBusy(false);
+    }
+  };
 
   const saveProfile=async()=>{
     if(!form) return { error: new Error('폼을 불러오는 중입니다') };
@@ -4196,13 +4238,13 @@ const Settings=({onClose})=>{
             </div>
           </div>
         )}
-        {(isConfigured || isDevBypass) && isSoloRole(companyRole) && (
+        {(isConfigured || isDevBypass) && isSoloRole(displayRole) && (
           <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}>
             <div style={{padding:'16px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
               <div style={{fontSize:13,color:C.txM,lineHeight:1.6}}>
                 직원을 채용해 팀과 매물을 공유하려면 회사형으로 전환하세요.
               </div>
-              <Btn role="settings-secondary" ch="회사형으로 전환" on={()=>showToast('회사형 전환은 준비 중입니다. 문의해 주세요.')}/>
+              <Btn role="settings-secondary" ch="회사형으로 전환" on={openBizUpgradeModal}/>
             </div>
           </div>
         )}
@@ -4338,6 +4380,43 @@ const Settings=({onClose})=>{
         <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
           <Btn role="dialog-cancel" ch="취소" on={closePasswordModal}/>
           <Btn role="dialog-confirm" ch={pwBusy?'변경 중…':'변경하기'} on={submitNewPassword}/>
+        </div>
+      </div>
+    </div>
+  )}
+  {bizModalOpen&&(
+    <div
+      role="dialog"
+      aria-modal="true"
+      style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:550,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
+      onClick={closeBizUpgradeModal}
+    >
+      <div
+        style={{background:'#fff',borderRadius:14,padding:'28px 28px 24px',maxWidth:420,width:'90%',boxShadow:'0 16px 48px rgba(0,0,0,.2)'}}
+        onClick={e=>e.stopPropagation()}
+      >
+        <div style={{fontSize:16,fontWeight:700,color:C.tx,marginBottom:8}}>회사형으로 전환</div>
+        <div style={{fontSize:13,color:C.txM,lineHeight:1.55,marginBottom:18}}>
+          대표(CEO) 계정으로 전환됩니다. 전환 후 멤버 관리에서 직원을 초대하고 매물·일정을 공유할 수 있습니다. 기존 매물·일정·통화 데이터는 그대로 유지됩니다.
+        </div>
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>회사명</div>
+          <input
+            className="inp"
+            value={bizCompanyName}
+            onChange={e=>{ setBizCompanyName(e.target.value); if(bizError) setBizError(''); }}
+            onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); submitBizUpgrade(); } }}
+            placeholder="예: ○○공인중개사사무소"
+            autoFocus
+            disabled={bizBusy}
+          />
+          {bizError&&(
+            <div style={{fontSize:12,color:C.err,marginTop:6,lineHeight:1.45,fontWeight:500}}>{bizError}</div>
+          )}
+        </div>
+        <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+          <Btn role="dialog-cancel" ch="취소" on={closeBizUpgradeModal}/>
+          <Btn role="dialog-confirm" ch={bizBusy?'전환 중…':'전환 후 멤버 관리'} on={submitBizUpgrade}/>
         </div>
       </div>
     </div>
@@ -6102,13 +6181,21 @@ const PropDetailRedirect=({onOpen})=>{
 
 const TeamManageRoute=()=>{
   const [toast,setToast]=useState(null);
+  const location=useLocation();
+  useEffect(()=>{
+    const msg=location.state?.toast;
+    if(typeof msg==='string'&&msg.trim()){
+      setToast(msg.trim());
+      window.history.replaceState({}, '', location.pathname);
+    }
+  },[location.state, location.pathname]);
   useEffect(()=>{
     if(!toast) return undefined;
     const t=setTimeout(()=>setToast(null),2500);
     return ()=>clearTimeout(t);
   },[toast]);
   return(<>
-    {toast&&<div style={{position:'fixed',top:72,left:'50%',transform:'translateX(-50%)',zIndex:400,background:'#1A2332',color:'#fff',padding:'10px 18px',borderRadius:8,fontSize:13,boxShadow:'0 4px 16px rgba(0,0,0,.2)'}}>{toast}</div>}
+  {toast&&<div style={{position:'fixed',top:72,left:'50%',transform:'translateX(-50%)',zIndex:400,background:'#1A2332',color:'#fff',padding:'10px 18px',borderRadius:8,fontSize:13,boxShadow:'0 4px 16px rgba(0,0,0,.2)'}}>{toast}</div>}
     <TeamManagementPage onToast={setToast}/>
   </>);
 };

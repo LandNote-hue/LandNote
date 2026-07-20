@@ -36,3 +36,30 @@ export async function ensureUserCompany(companyName = null) {
   if (error) throw error;
   return data;
 }
+
+/** 개인(SOLO) → 회사형(CEO/BUSINESS) 인플레이스 승격 */
+export async function upgradeSoloToBusiness(companyName) {
+  const trimmed = String(companyName || '').trim();
+  if (!trimmed) {
+    const err = new Error('회사명을 입력해 주세요.');
+    err.code = 'COMPANY_NAME_REQUIRED';
+    throw err;
+  }
+  const { data, error } = await supabase.rpc('upgrade_solo_to_business', {
+    p_company_name: trimmed,
+  });
+  if (error) {
+    const msg = String(error.message || error.details || '');
+    if (msg.includes('COMPANY_NAME_REQUIRED')) {
+      throw Object.assign(new Error('회사명을 입력해 주세요.'), { code: 'COMPANY_NAME_REQUIRED' });
+    }
+    if (msg.includes('ALREADY_BUSINESS')) {
+      throw Object.assign(new Error('이미 회사형 계정입니다.'), { code: 'ALREADY_BUSINESS' });
+    }
+    if (msg.includes('NOT_AUTHENTICATED')) {
+      throw Object.assign(new Error('로그인이 필요합니다.'), { code: 'NOT_AUTHENTICATED' });
+    }
+    throw error;
+  }
+  return data;
+}

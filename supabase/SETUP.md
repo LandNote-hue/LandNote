@@ -47,6 +47,7 @@
 | 28 | `supabase/migrations/028_share_select_rls_unify.sql` *(매물·일정·통화 SELECT/쓰기 RLS 통일 — **직원 공유 필수**)* |
 | 29 | `supabase/migrations/029_property_photos_storage.sql` *(매물 사진 Storage)* |
 | 30 | `supabase/migrations/030_property_disco_url.sql` *(매물 디스코 상세 링크 `disco_url`)* |
+| 31 | `supabase/migrations/031_upgrade_solo_to_business.sql` *(개인→회사형 전환 RPC)* |
 
 에러 없이 `Success`가 나오면 테이블·RLS·트리거가 생성된 것입니다.
 
