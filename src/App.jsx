@@ -3002,15 +3002,16 @@ const ScheduleImportGuideWin=({onClose})=>{
 
 const GoogleCalendarImportWin=({onClose,onImported})=>{
   const [link,setLink]=useState('');
+  const [label,setLabel]=useState('');
   const [loading,setLoading]=useState(false);
 
   const handleImport=async()=>{
     if(loading||!link.trim()) return;
     setLoading(true);
     try{
-      const imported=await importGoogleCalendarFromLink(link);
+      const imported=await importGoogleCalendarFromLink(link,{label:label.trim()});
       onImported(imported);
-      showNotification('구글 캘린더를 연동했습니다. 새 일정은「동기화」로 가져옵니다.','success');
+      showNotification(`구글 캘린더를 연동했습니다. 총 ${imported.total}건 중 ${imported.added}건 가져옴, ${imported.duplicated}건 중복 제외.`,'success');
       onClose();
     }catch(err){
       window.alert(err instanceof Error?err.message:'구글 캘린더를 불러오지 못했습니다.');
@@ -3036,6 +3037,12 @@ const GoogleCalendarImportWin=({onClose,onImported})=>{
             <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>캘린더 링크</div>
             <input className="inp" value={link} onChange={e=>setLink(e.target.value)} placeholder="https://calendar.google.com/calendar/ical/…"
               onKeyDown={e=>{if(e.key==='Enter'&&!loading&&link.trim()) handleImport();}}/>
+          </div>
+          <div>
+            <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>이름 (선택)</div>
+            <input className="inp" value={label} onChange={e=>setLabel(e.target.value)} placeholder="예: 회사 캘린더, 개인 일정"
+              onKeyDown={e=>{if(e.key==='Enter'&&!loading&&link.trim()) handleImport();}}/>
+            <div style={{fontSize:11,color:C.txM,marginTop:4}}>여러 캘린더를 연동할 때 구분하기 쉽도록 이름을 붙여 두면, 나중에 개별적으로 연동을 해제할 수 있습니다.</div>
           </div>
         </div>
         <ActionBar
@@ -3123,8 +3130,8 @@ const Calendar=({onOpen})=>{
         return;
       }
       applyImportedSchedules(result);
-      if(result.added>0) showNotification(`구글 캘린더에서 ${result.added}건의 새 일정을 가져왔습니다.`,'success');
-      else showNotification('동기화 완료 — 새 일정이 없습니다.','success');
+      if(result.added>0) showNotification(`구글 캘린더 동기화: 총 ${result.total}건 중 신규 ${result.added}건, 중복 제외 ${result.duplicated}건`,'success');
+      else showNotification(`동기화 완료 — 새 일정이 없습니다. (총 ${result.total}건 중 중복 ${result.duplicated}건)`,'success');
     }catch(err){
       window.alert(err instanceof Error?err.message:'구글 캘린더 동기화에 실패했습니다.');
     }finally{
@@ -3132,13 +3139,17 @@ const Calendar=({onOpen})=>{
     }
   };
 
-  const handleGcalUnlink=()=>{
-    const links=listGoogleCalendarLinks();
-    if(!links.length) return;
-    if(!window.confirm('구글 캘린더 연동을 해제할까요? (이미 가져온 일정은 삭제되지 않습니다.)')) return;
-    for(const l of links) removeGoogleCalendarLink(l.sourceId);
+  const gcalLinkLabel=(l)=>{
+    if(l.label&&l.label.trim()) return l.label.trim();
+    const src=l.sourceLink||l.icsUrl||'';
+    return src.length>42?`${src.slice(0,42)}…`:(src||'연동된 캘린더');
+  };
+
+  const handleGcalUnlinkOne=(sourceId,label)=>{
+    if(!window.confirm(`'${label}' 캘린더의 연동을 해제할까요? (이미 가져온 일정은 삭제되지 않습니다. 다른 연동 캘린더에는 영향이 없습니다.)`)) return;
+    removeGoogleCalendarLink(sourceId);
     refreshGcalLinks();
-    setIcsNotice('구글 캘린더 연동을 해제했습니다.');
+    setIcsNotice(`'${label}' 캘린더 연동을 해제했습니다.`);
   };
   const isTodayCell=(d)=>d!=null&&year===todayRef.year&&month===todayRef.month&&d===todayRef.date;
   const goToday=()=>{setYear(todayRef.year);setMonth(todayRef.month);setSel(todayRef.date);};
@@ -3252,20 +3263,27 @@ const Calendar=({onOpen})=>{
         </div>
       )}
       {gcalLinks.length>0&&(
-        <div style={{padding:'8px 28px',background:C.surf2,color:C.txM,fontSize:12,borderBottom:`1px solid ${C.bdr}`,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <span style={{color:C.tx}}>
-            구글 캘린더 연동됨
-            {gcalLinks[0]?.lastSyncAt?` · 최근 동기화 ${new Date(gcalLinks[0].lastSyncAt).toLocaleString('ko-KR')}`:''}
-            {gcalLinks[0]?.lastError?` · 오류: ${gcalLinks[0].lastError}`:''}
-          </span>
-          <button type="button" disabled={gcalSyncing} onClick={handleGcalSyncNow}
-            style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'4px 10px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.tx,fontWeight:600}}>
-            {gcalSyncing?'동기화 중…':'동기화'}
-          </button>
-          <button type="button" onClick={handleGcalUnlink}
-            style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline'}}>
-            연동 해제
-          </button>
+        <div style={{padding:'8px 28px',background:C.surf2,borderBottom:`1px solid ${C.bdr}`,display:'flex',flexDirection:'column',gap:6}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <span style={{fontSize:12,color:C.tx,fontWeight:600}}>구글 캘린더 연동 {gcalLinks.length}개</span>
+            <button type="button" disabled={gcalSyncing} onClick={handleGcalSyncNow}
+              style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'4px 10px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.tx,fontWeight:600}}>
+              {gcalSyncing?'동기화 중…':'전체 동기화'}
+            </button>
+          </div>
+          {gcalLinks.map(l=>(
+            <div key={l.sourceId} style={{display:'flex',alignItems:'center',gap:10,fontSize:12,color:C.txM}}>
+              <span style={{color:C.tx,fontWeight:600,flexShrink:0}}>{gcalLinkLabel(l)}</span>
+              <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                {l.lastSyncAt?`최근 동기화 ${new Date(l.lastSyncAt).toLocaleString('ko-KR')}`:'아직 동기화하지 않음'}
+                {l.lastError?` · 오류: ${l.lastError}`:''}
+              </span>
+              <button type="button" onClick={()=>handleGcalUnlinkOne(l.sourceId,gcalLinkLabel(l))}
+                style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline',flexShrink:0}}>
+                연동 해제
+              </button>
+            </div>
+          ))}
         </div>
       )}
       <div style={{flex:1,minHeight:0,display:'flex',gap:16,padding:'20px 28px',overflow:'hidden'}}>
@@ -3765,7 +3783,7 @@ const Trash=()=>{
           <>
           <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
             <table className="tbl">
-              <thead><tr><TrashCheckHead/><th>종류</th><th>주소</th><th>상태</th><th>삭제일</th><th style={{width:180}}>작업</th></tr></thead>
+              <thead><tr><TrashCheckHead/><th>종류</th><th>주소</th><th>상태</th><th>삭제일시</th><th style={{width:180}}>작업</th></tr></thead>
               <tbody>
                 {deletedProps.map(p=>(
                   <tr key={p.id}>
@@ -3787,7 +3805,7 @@ const Trash=()=>{
           <>
           <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
             <table className="tbl">
-              <thead><tr><TrashCheckHead/><th>이름</th><th>연락처</th><th>유형</th><th>삭제일</th><th style={{width:180}}>작업</th></tr></thead>
+              <thead><tr><TrashCheckHead/><th>이름</th><th>연락처</th><th>유형</th><th>삭제일시</th><th style={{width:180}}>작업</th></tr></thead>
               <tbody>
                 {deletedCusts.map(c=>(
                   <tr key={c.id}>
@@ -3809,7 +3827,7 @@ const Trash=()=>{
           <>
           <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
             <table className="tbl">
-              <thead><tr><TrashCheckHead/><th>일정 제목</th><th>날짜</th><th>우선순위</th><th>삭제일</th><th style={{width:180}}>작업</th></tr></thead>
+              <thead><tr><TrashCheckHead/><th>일정 제목</th><th>날짜</th><th>우선순위</th><th>삭제일시</th><th style={{width:180}}>작업</th></tr></thead>
               <tbody>
                 {deletedScheds.map(s=>(
                   <tr key={s.id}>
@@ -3845,7 +3863,7 @@ const Trash=()=>{
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:500,color:C.tx,marginBottom:4,whiteSpace:'pre-wrap',maxHeight:72,overflowY:'auto'}}>{c.content}</div>
-                  <div style={{fontSize:12,color:C.txM}}>{c.date} · 삭제일: {c.deletedAt}</div>
+                  <div style={{fontSize:12,color:C.txM}}>{c.date} · 삭제일시: {c.deletedAt}</div>
                 </div>
                 <ActionBtns label={c.content.slice(0,15)} onRestore={()=>handleRestore('calls',c.id)} onDelete={()=>handleHardDelete('calls',c.id)}/>
               </div>

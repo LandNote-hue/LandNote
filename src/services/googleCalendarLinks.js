@@ -14,6 +14,7 @@ function storageKey(ownerId = getActiveOwnerId()) {
  *   icsUrl: string,
  *   sourceLink?: string,
  *   sourceId: string,
+ *   label?: string,
  *   enabled?: boolean,
  *   linkedAt?: string,
  *   lastSyncAt?: string | null,
@@ -44,6 +45,9 @@ function saveLinks(ownerId, links) {
  */
 export function upsertGoogleCalendarLink(link, ownerId = getActiveOwnerId()) {
   if (!link?.icsUrl || !link?.sourceId) return;
+  const existing = listGoogleCalendarLinks(ownerId).find(
+    (l) => l.icsUrl === link.icsUrl || l.sourceId === link.sourceId,
+  );
   const links = listGoogleCalendarLinks(ownerId).filter(
     (l) => l.icsUrl !== link.icsUrl && l.sourceId !== link.sourceId,
   );
@@ -51,8 +55,9 @@ export function upsertGoogleCalendarLink(link, ownerId = getActiveOwnerId()) {
     icsUrl: link.icsUrl,
     sourceLink: link.sourceLink || link.icsUrl,
     sourceId: link.sourceId,
+    label: (link.label ?? existing?.label) || '',
     enabled: link.enabled !== false,
-    linkedAt: link.linkedAt || new Date().toISOString(),
+    linkedAt: link.linkedAt || existing?.linkedAt || new Date().toISOString(),
     lastSyncAt: link.lastSyncAt ?? null,
     lastError: link.lastError ?? null,
   });

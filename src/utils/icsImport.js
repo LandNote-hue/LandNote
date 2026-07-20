@@ -664,6 +664,8 @@ export async function importIcsSchedules(icsText, options = {}) {
     added,
     updated,
     skipped,
+    duplicated: skipped,
+    total: schedules.length,
     schedules: addedSchedules,
   };
 }
@@ -749,7 +751,7 @@ async function fetchIcsTextFromProxy(icsUrl) {
 
 /**
  * @param {string} link
- * @param {{ saveLink?: boolean }} [options]
+ * @param {{ saveLink?: boolean, label?: string }} [options]
  */
 export async function importGoogleCalendarFromLink(link, options = {}) {
   const icsUrl = resolveGoogleCalendarIcsUrl(link);
@@ -761,6 +763,7 @@ export async function importGoogleCalendarFromLink(link, options = {}) {
       icsUrl,
       sourceLink: String(link || '').trim(),
       sourceId,
+      label: options.label ? String(options.label).trim() : '',
       enabled: true,
       lastSyncAt: new Date().toISOString(),
       lastError: null,
@@ -782,12 +785,13 @@ export async function syncLinkedGoogleCalendars(options = {}) {
     const force = options.force !== false;
     const links = listGoogleCalendarLinks().filter((l) => l.enabled !== false);
     if (!links.length) {
-      return { added: 0, updated: 0, skipped: 0, synced: 0, errors: 0 };
+      return { added: 0, updated: 0, skipped: 0, duplicated: 0, total: 0, synced: 0, errors: 0 };
     }
 
     let added = 0;
     let updated = 0;
     let skipped = 0;
+    let total = 0;
     let synced = 0;
     let errors = 0;
 
@@ -805,6 +809,7 @@ export async function syncLinkedGoogleCalendars(options = {}) {
         added += result.added;
         updated += result.updated;
         skipped += result.skipped;
+        total += result.total;
         synced += 1;
         patchGoogleCalendarLink(link.sourceId, {
           lastSyncAt: new Date().toISOString(),
@@ -819,7 +824,7 @@ export async function syncLinkedGoogleCalendars(options = {}) {
       }
     }
 
-    return { added, updated, skipped, synced, errors };
+    return { added, updated, skipped, duplicated: skipped, total, synced, errors };
   })();
 
   try {

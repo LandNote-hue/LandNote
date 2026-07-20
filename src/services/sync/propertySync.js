@@ -8,7 +8,7 @@ import {
   cloudUserIdForRow,
   cloudCompanyIdForRow,
 } from './ownerScope.js';
-import { insertOrUpdateByLocalId, omitHeavyCloudFields, mergePropertyPhotos, pushOwnedSoftDeletes, pruneStaleCloudRows } from './syncHelpers.js';
+import { insertOrUpdateByLocalId, omitHeavyCloudFields, mergePropertyPhotos, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso } from './syncHelpers.js';
 import { upsertSharedCloudRecord } from './cloudIdMap.js';
 import { ensurePropertyPhotosInCloud, removePropertyPhotosFromStorage } from './propertyPhotoStorage.js';
 import { normalizeJDepToMan } from '../../utils/formatMoney.js';
@@ -17,21 +17,6 @@ const INDEX_KEYS = new Set([
   'id', 'cloudId', 'cloudLocalId', 'ownerId', 'companyId', 'status', 'main', 'sub', 'trade', 'fav', 'favAt', 'deletedAt',
   'discoUrl', // cloud column disco_url 로 매핑 — data JSON과 중복 저장 방지
 ]);
-
-function deletedAtToIso(deletedAt) {
-  if (!deletedAt) return null;
-  const parts = String(deletedAt).split('.');
-  if (parts.length === 3) {
-    return new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00.000Z`).toISOString();
-  }
-  return null;
-}
-
-function deletedAtFromIso(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
 
 /** @param {Record<string, unknown>} prop @param {string} sessionUserId */
 function propToCloudRow(prop, sessionUserId) {

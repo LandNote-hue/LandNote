@@ -1,3 +1,31 @@
+/**
+ * 로컬 deletedAt("YYYY.MM.DD" 또는 "YYYY.MM.DD HH:mm") → 클라우드 저장용 ISO
+ * 시간 정보가 없는(구버전) 값은 당일 정오로 앵커링해 타임존 롤오버를 방지
+ * @param {string|null|undefined} deletedAt
+ */
+export function deletedAtToIso(deletedAt) {
+  if (!deletedAt) return null;
+  const [datePart, timePart] = String(deletedAt).trim().split(' ');
+  const dateNums = (datePart || '').split('.').map(Number);
+  if (dateNums.length !== 3 || dateNums.some((n) => !Number.isFinite(n))) return null;
+  const [y, mo, d] = dateNums;
+  let h = 12;
+  let mi = 0;
+  if (timePart && /^\d{2}:\d{2}$/.test(timePart)) {
+    [h, mi] = timePart.split(':').map(Number);
+  }
+  return new Date(y, mo - 1, d, h, mi, 0, 0).toISOString();
+}
+
+/** @param {string|null|undefined} iso */
+export function deletedAtFromIso(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const date = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${date} ${time}`;
+}
+
 /** @param {unknown} error */
 export function isUniqueViolation(error) {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';

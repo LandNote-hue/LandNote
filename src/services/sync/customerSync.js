@@ -9,27 +9,12 @@ import {
   cloudUserIdForRow,
   cloudCompanyIdForRow,
 } from './ownerScope.js';
-import { insertOrUpdateByLocalId, omitHeavyCloudFields, pushOwnedSoftDeletes, pruneStaleCloudRows } from './syncHelpers.js';
+import { insertOrUpdateByLocalId, omitHeavyCloudFields, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso } from './syncHelpers.js';
 import { upsertSharedCloudRecord } from './cloudIdMap.js';
 
 const INDEX_KEYS = new Set([
   'id', 'cloudId', 'cloudLocalId', 'ownerId', 'companyId', 'type', 'status', 'name', 'phone', 'fav', 'deletedAt', 'created',
 ]);
-
-function deletedAtToIso(deletedAt) {
-  if (!deletedAt) return null;
-  const parts = String(deletedAt).split('.');
-  if (parts.length === 3) {
-    return new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00.000Z`).toISOString();
-  }
-  return null;
-}
-
-function deletedAtFromIso(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
 
 /** @param {Record<string, unknown>} cust @param {string} sessionUserId */
 function custToCloudRow(cust, sessionUserId) {
