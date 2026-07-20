@@ -69,6 +69,50 @@ export function fmtInputNum(v, { decimal = false, maxDecimals = 2 } = {}) {
   return formattedInt;
 }
 
+/**
+ * 원 단위 금액을 "X억 Y만 Z원" 한글 단위 문자열로 변환.
+ * 하위 단위가 전부 0이면 잘라내고, 마지막으로 표시되는 단위에 '원'을 붙여 마무리한다.
+ * (예: 120억 3456만 1235원 · 1200억원 · 35만원 · 4500원)
+ * @param {string|number|null|undefined} amountWon 원 단위 금액
+ * @returns {string}
+ */
+export function formatKoreanAmount(amountWon) {
+  if (amountWon == null || amountWon === '') return '';
+  const n = Number(String(amountWon).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return '';
+
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.round(Math.abs(n));
+
+  const eok = Math.floor(abs / 100000000);
+  const man = Math.floor((abs % 100000000) / 10000);
+  const won = abs % 10000;
+
+  const parts = [];
+  if (eok > 0) parts.push(`${eok}억`);
+  if (man > 0) parts.push(`${man}만`);
+  if (won > 0) parts.push(`${won}원`);
+
+  if (parts.length === 0) return '0원';
+  if (!parts[parts.length - 1].endsWith('원')) {
+    parts[parts.length - 1] += '원';
+  }
+  return sign + parts.join(' ');
+}
+
+/**
+ * **만원** 단위로 저장된 금액(매매가·보증금 등 이 앱의 저장 단위)을
+ * formatKoreanAmount로 변환하는 편의 함수.
+ * @param {string|number|null|undefined} amountMan 만원 단위 금액
+ * @returns {string}
+ */
+export function formatKoreanAmountFromMan(amountMan) {
+  if (amountMan == null || amountMan === '') return '';
+  const n = Number(String(amountMan).replace(/,/g, ''));
+  if (!Number.isFinite(n)) return '';
+  return formatKoreanAmount(n * 10000);
+}
+
 /** @param {string|number|null|undefined} v */
 export function fmtEok(v) {
   if (v == null || v === '' || Number(v) === 0) return null;
@@ -119,15 +163,15 @@ export function fmtLandPyUnit(priceMan, areaM2) {
 export function fmtPropPrice(p) {
   if (!p) return '—';
   if (p.trade === 'SALE' || p.trade === 'PRESALE') {
-    return p.price != null && p.price !== '' ? `${fmtNum(p.price)}만` : '—';
+    return p.price != null && p.price !== '' ? formatKoreanAmountFromMan(p.price) : '—';
   }
   if (p.trade === 'JEONSE') {
     const man = normalizeJDepToMan(p.jDep);
-    return man > 0 ? `${fmtNum(man)}만` : '—';
+    return man > 0 ? formatKoreanAmountFromMan(man) : '—';
   }
   if (p.trade === 'MONTHLY' || p.trade === 'SHORT_TERM') {
-    const dep = p.mDep != null && p.mDep !== '' ? `${fmtNum(p.mDep)}만` : '';
-    const rent = p.mRent != null && p.mRent !== '' ? `${fmtNum(p.mRent)}만` : '';
+    const dep = p.mDep != null && p.mDep !== '' ? formatKoreanAmountFromMan(p.mDep) : '';
+    const rent = p.mRent != null && p.mRent !== '' ? formatKoreanAmountFromMan(p.mRent) : '';
     if (dep && rent) return `${dep}/${rent}`;
     return dep || rent || '—';
   }
