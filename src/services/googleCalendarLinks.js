@@ -4,6 +4,25 @@ const STORAGE_PREFIX = 'landnote.gcal.links.';
 /** 수동 동기화가 아닌 경로에서 과도한 재요청을 막을 때 사용 */
 export const GCAL_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
+/**
+ * 연동 캘린더 구분색 — 일정 우선순위색(빨강·주황·파랑)과 겹치지 않는 팔레트
+ * @see PRI_C in App.jsx (URGENT #DC2626, IMPORTANT #D97706, NORMAL #2563EB)
+ */
+export const GCAL_LINK_COLORS = ['#059669', '#0891B2', '#7C3AED', '#DB2777', '#65A30D', '#4338CA'];
+
+/** @param {GoogleCalendarLink[]} existingLinks */
+function nextGcalColor(existingLinks) {
+  const used = new Set(existingLinks.map((l) => l.color).filter(Boolean));
+  const free = GCAL_LINK_COLORS.find((c) => !used.has(c));
+  if (free) return free;
+  // 팔레트를 다 썼으면 가장 적게 쓰인 색을 재사용
+  const counts = new Map(GCAL_LINK_COLORS.map((c) => [c, 0]));
+  for (const l of existingLinks) {
+    if (l.color && counts.has(l.color)) counts.set(l.color, counts.get(l.color) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => a[1] - b[1])[0][0];
+}
+
 /** @param {string} [ownerId] */
 function storageKey(ownerId = getActiveOwnerId()) {
   return `${STORAGE_PREFIX}${ownerId || 'anon'}`;
@@ -15,6 +34,7 @@ function storageKey(ownerId = getActiveOwnerId()) {
  *   sourceLink?: string,
  *   sourceId: string,
  *   label?: string,
+ *   color?: string,
  *   enabled?: boolean,
  *   linkedAt?: string,
  *   lastSyncAt?: string | null,
@@ -45,10 +65,11 @@ function saveLinks(ownerId, links) {
  */
 export function upsertGoogleCalendarLink(link, ownerId = getActiveOwnerId()) {
   if (!link?.icsUrl || !link?.sourceId) return;
-  const existing = listGoogleCalendarLinks(ownerId).find(
+  const before = listGoogleCalendarLinks(ownerId);
+  const existing = before.find(
     (l) => l.icsUrl === link.icsUrl || l.sourceId === link.sourceId,
   );
-  const links = listGoogleCalendarLinks(ownerId).filter(
+  const links = before.filter(
     (l) => l.icsUrl !== link.icsUrl && l.sourceId !== link.sourceId,
   );
   links.push({
@@ -56,6 +77,7 @@ export function upsertGoogleCalendarLink(link, ownerId = getActiveOwnerId()) {
     sourceLink: link.sourceLink || link.icsUrl,
     sourceId: link.sourceId,
     label: (link.label ?? existing?.label) || '',
+    color: link.color || existing?.color || nextGcalColor(links),
     enabled: link.enabled !== false,
     linkedAt: link.linkedAt || existing?.linkedAt || new Date().toISOString(),
     lastSyncAt: link.lastSyncAt ?? null,

@@ -39,6 +39,7 @@ import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalen
 import {
   listGoogleCalendarLinks,
   removeGoogleCalendarLink,
+  GCAL_LINK_COLORS,
 } from "./services/googleCalendarLinks.js";
 import { PhoneInput } from "./components/PhoneInput.jsx";
 import { MoneyInput } from "./components/MoneyInput.jsx";
@@ -252,6 +253,29 @@ const PRI_L={URGENT:'긴급',IMPORTANT:'중요',NORMAL:'보통'};
 const PRI_OPTS=[['URGENT','긴급'],['IMPORTANT','중요'],['NORMAL','보통']];
 const schedulePriColor=(pri)=>PRI_C[pri]||PRI_C.NORMAL;
 const schedulePriBg=(pri)=>PRI_BG[pri]||PRI_BG.NORMAL;
+/** @param {string} hex @param {number} [alpha] */
+const hexToRgba=(hex,alpha=.16)=>{
+  const h=String(hex||'').replace('#','');
+  const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+};
+/**
+ * 일정 표시색 — 연동 캘린더에서 가져온 일정은 캘린더 구분색, 직접 등록한 일정은 우선순위색
+ * @param {{pri?:string, icsSourceId?:string}} s
+ * @param {Map<string,{color:string,label:string}>} gcalMeta
+ */
+const scheduleSourceInfo=(s,gcalMeta)=>{
+  const src=s.icsSourceId?gcalMeta?.get(s.icsSourceId):null;
+  if(src) return {c:src.color,bg:hexToRgba(src.color),label:src.label,isSource:true};
+  return {c:schedulePriColor(s.pri),bg:schedulePriBg(s.pri),label:PRI_L[s.pri]||'보통',isSource:false};
+};
+/** 구버전(색 미지정) 연동 링크용 — sourceId로부터 결정적으로 색 선택 */
+const gcalFallbackColor=(sourceId)=>{
+  let h=0;
+  const s=String(sourceId||'');
+  for(let i=0;i<s.length;i+=1) h=(h*31+s.charCodeAt(i))>>>0;
+  return GCAL_LINK_COLORS[h%GCAL_LINK_COLORS.length];
+};
 
 /** 일정 우선순위 선택 (등록·수정) */
 const PriorityPicker=({value,onChange})=>{
@@ -3024,7 +3048,7 @@ const ScheduleImportGuideWin=({onClose})=>{
   );
 };
 
-const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onUnlinkOne,linkLabelOf})=>{
+const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onUnlinkOne,gcalMeta})=>{
   const [link,setLink]=useState('');
   const [label,setLabel]=useState('');
   const [loading,setLoading]=useState(false);
@@ -3059,19 +3083,23 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
                 </button>
               </div>
               <div style={{border:`1px solid ${C.bdr}`,borderRadius:8,overflow:'hidden'}}>
-                {gcalLinks.map((l,i)=>(
+                {gcalLinks.map((l,i)=>{
+                  const meta=gcalMeta.get(l.sourceId);
+                  return(
                   <div key={l.sourceId} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderTop:i>0?`1px solid ${C.bdr}`:'none',background:C.surf2}}>
-                    <span style={{fontSize:13,fontWeight:600,color:C.tx,flexShrink:0}}>{linkLabelOf(l)}</span>
+                    <span style={{width:9,height:9,borderRadius:'50%',background:meta?.color,flexShrink:0}}/>
+                    <span style={{fontSize:13,fontWeight:600,color:C.tx,flexShrink:0}}>{meta?.label}</span>
                     <span style={{flex:1,minWidth:0,fontSize:12,color:C.txM,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                       {l.lastSyncAt?`최근 동기화 ${new Date(l.lastSyncAt).toLocaleString('ko-KR')}`:'아직 동기화하지 않음'}
                       {l.lastError?` · 오류: ${l.lastError}`:''}
                     </span>
-                    <button type="button" onClick={()=>onUnlinkOne(l.sourceId,linkLabelOf(l))}
+                    <button type="button" onClick={()=>onUnlinkOne(l.sourceId,meta?.label)}
                       style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline',flexShrink:0}}>
                       연동 해제
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -3198,6 +3226,14 @@ const Calendar=({onOpen})=>{
     const src=l.sourceLink||l.icsUrl||'';
     return src.length>42?`${src.slice(0,42)}…`:(src||'연동된 캘린더');
   };
+  const gcalMeta=useMemo(()=>{
+    const m=new Map();
+    gcalLinks.forEach(l=>{
+      m.set(l.sourceId,{color:l.color||gcalFallbackColor(l.sourceId),label:gcalLinkLabel(l)});
+    });
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- gcalLinkLabel은 gcalLinks에서 파생, 별도 의존성 불필요
+  },[gcalLinks]);
 
   const handleGcalUnlinkOne=(sourceId,label)=>{
     if(!window.confirm(`'${label}' 캘린더의 연동을 해제할까요? (이미 가져온 일정은 삭제되지 않습니다. 다른 연동 캘린더에는 영향이 없습니다.)`)) return;
@@ -3249,13 +3285,12 @@ const Calendar=({onOpen})=>{
   );
 
   const CalSchedChip=({s,onClick})=>{
-    const c=schedulePriColor(s.pri);
-    const bg=schedulePriBg(s.pri);
+    const {c,bg,label}=scheduleSourceInfo(s,gcalMeta);
     const period=fmtSchedulePeriodDot(s);
     return(
       <CalEvtSlot>
         <div
-          title={`${PRI_L[s.pri]||'보통'} · ${period}${s.time?` ${s.time}`:''} ${s.title||''}`.trim()}
+          title={`${label} · ${period}${s.time?` ${s.time}`:''} ${s.title||''}`.trim()}
           onClick={onClick}
           style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',borderRadius:4,background:bg,borderLeft:`3px solid ${c}`,cursor:'pointer',overflow:'hidden',minWidth:0}}>
           {s.time&&<span style={{fontSize:10,color:C.txM,flexShrink:0}}>{s.time.slice(0,5)}</span>}
@@ -3280,7 +3315,7 @@ const Calendar=({onOpen})=>{
           gcalSyncing={gcalSyncing}
           onSyncNow={handleGcalSyncNow}
           onUnlinkOne={handleGcalUnlinkOne}
-          linkLabelOf={gcalLinkLabel}
+          gcalMeta={gcalMeta}
         />
       )}
       <PH title="일정 관리" sub={fmtTodayKorean()}
@@ -3315,6 +3350,19 @@ const Calendar=({onOpen})=>{
             {l}
           </span>
         ))}
+        {gcalLinks.length>0&&(<>
+          <span style={{width:1,height:14,background:C.bdr,flexShrink:0}}/>
+          <span style={{fontSize:12,color:C.txM,fontWeight:600}}>연동 캘린더</span>
+          {gcalLinks.map(l=>{
+            const meta=gcalMeta.get(l.sourceId);
+            return(
+              <span key={l.sourceId} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:600,color:meta?.color}}>
+                <span style={{width:8,height:8,borderRadius:'50%',background:meta?.color,flexShrink:0}}/>
+                {meta?.label}
+              </span>
+            );
+          })}
+        </>)}
       </div>
       {icsNotice&&(
         <div style={{padding:'10px 28px',background:C.okBg,color:C.ok,fontSize:13,borderBottom:`1px solid ${C.okBd}`}}>
@@ -3404,8 +3452,7 @@ const Calendar=({onOpen})=>{
                     </div>
                   )}
                   {selScheds.map(s=>{
-                    const c=schedulePriColor(s.pri);
-                    const bg=schedulePriBg(s.pri);
+                    const {c,bg,label}=scheduleSourceInfo(s,gcalMeta);
                     return(
                     <div key={s.id} onClick={()=>onOpen('sd',s)} style={{padding:'12px 16px',borderBottom:`1px solid ${C.bdr}`,display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer',background:'transparent'}}
                       onMouseEnter={e=>e.currentTarget.style.background=bg}
@@ -3414,7 +3461,7 @@ const Calendar=({onOpen})=>{
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:c,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.title}</div>
                         <div style={{fontSize:12,color:C.txM,marginTop:3,lineHeight:1.45}}>
-                          {fmtSchedulePeriodDot(s)}{s.time?` · ${s.time}`:''} · <span style={{color:c,fontWeight:600}}>{PRI_L[s.pri]||'보통'}</span>
+                          {fmtSchedulePeriodDot(s)}{s.time?` · ${s.time}`:''} · <span style={{color:c,fontWeight:600}}>{label}</span>
                           {s.chk?.length>0&&<><br/>체크 {s.chk.filter(x=>x.d).length}/{s.chk.length}</>}
                         </div>
                       </div>
