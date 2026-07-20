@@ -372,6 +372,22 @@ const buildCustCallDateMap=(calls)=>{
   return m;
 };
 const custCallDatesOf=(map,cid)=>map.get(cid)||{first:null,last:null};
+const buildPropCallDateMap=(calls)=>{
+  const m=new Map();
+  for(const cl of calls){
+    if(!cl.pid||!cl.date) continue;
+    const key=callDtKey(cl);
+    const prev=m.get(cl.pid);
+    if(!prev){
+      m.set(cl.pid,{first:cl.date,last:cl.date,firstKey:key,lastKey:key});
+      continue;
+    }
+    if(key<prev.firstKey){prev.first=cl.date;prev.firstKey=key;}
+    if(key>prev.lastKey){prev.last=cl.date;prev.lastKey=key;}
+  }
+  return m;
+};
+const propCallDatesOf=(map,pid)=>map.get(pid)||{first:null,last:null};
 const propLinkedChip=(p)=>propDisplayAddr(p);
 
 /* ═══ UI PRIMITIVES ═══ */
@@ -1311,6 +1327,7 @@ const normalizePropListTab=(tab)=>PROP_LIST_TABS.has(tab)?tab:'ALL';
 
 const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeleteProperty})=>{
   const P=useProperties();
+  const CALLS=useOwnerCallLogs();
   const { user, company, profile, companyRole, teamNameMap, teamRoleMap, memberPermissions }=useAuth();
   const workspaceId=company?.id??profile?.company_id??null;
   const showOwnerScopeTabs=isBusinessRole(companyRole)&&workspaceId&&!isSoloRole(companyRole);
@@ -1321,10 +1338,11 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(!isSharedRecord(p,user?.id)) return null;
     return formatSharedPropertyLabel(teamNameMap[p.ownerId],teamRoleMap[p.ownerId]);
   },[user?.id,teamNameMap,teamRoleMap]);
+  const propCallDateMap=useMemo(()=>buildPropCallDateMap(CALLS),[CALLS]);
   const baseProps=useMemo(()=>{
-    if(!showOwnerScopeTabs||ownerScopeTab==='ALL') return P;
-    return P.filter(p=>matchesOwner(p,user?.id));
-  },[P,showOwnerScopeTabs,ownerScopeTab,user?.id]);
+    const scoped=(!showOwnerScopeTabs||ownerScopeTab==='ALL')?P:P.filter(p=>matchesOwner(p,user?.id));
+    return scoped.map(p=>({...p,lastCall:fmtCallDate(propCallDatesOf(propCallDateMap,p.id).last)}));
+  },[P,showOwnerScopeTabs,ownerScopeTab,user?.id,propCallDateMap]);
   const isMobile=useIsMobile();
   const [searchParams,setSearchParams]=useSearchParams();
   const saved=loadPropListState();
@@ -2017,7 +2035,10 @@ const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,s
 
 /* ═══ FOLDER MANAGE WIN (폴더 생성/매물 묶음 관리) ═══ */
 const FolderManageWin=({folders,setFolders,propFolders,setPropFolders,onClose,onOpen})=>{
-  const P=useProperties();
+  const rawP=useProperties();
+  const CALLS=useOwnerCallLogs();
+  const propCallDateMap=useMemo(()=>buildPropCallDateMap(CALLS),[CALLS]);
+  const P=useMemo(()=>rawP.map(p=>({...p,lastCall:fmtCallDate(propCallDatesOf(propCallDateMap,p.id).last)})),[rawP,propCallDateMap]);
   const [newName,setNewName]=useState('');
   const [newColor,setNewColor]=useState(FOLDER_COLORS[0]);
   const [activeFolder,setActiveFolder]=useState(null);
