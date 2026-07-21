@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useOwnerCustomers } from '../../hooks/useOwnerScopedData.js';
 import { formatCustomerTypesLabel } from '../../utils/customerTypes.js';
 import { formatPhone } from '../../utils/formatPhone.js';
-import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
+import { MobilePage, MobileCard, MobileEmptyState, MobileCloudDataHint, M } from './mobileUi.jsx';
 
 export function MobileCustomerList() {
   const navigate = useNavigate();
@@ -19,6 +19,7 @@ export function MobileCustomerList() {
 
   return (
     <MobilePage>
+      <MobileCloudDataHint empty={customers.length === 0} resourceLabel="고객" />
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}

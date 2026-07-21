@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useProperties } from '../../hooks/useProperties.js';
 import { useOwnerCustomers, useOwnerCallLogs, useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
-import { isSupabaseConfigured } from '../../lib/supabase.js';
-import { isSoloRole, usesTeamCloudSync, normalizeCompanyRole } from '../../data/companyRoles.js';
+import { usesTeamCloudSync, normalizeCompanyRole } from '../../data/companyRoles.js';
 import { CloudSyncHeaderActions } from '../../components/CloudSyncHeaderActions.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import {
@@ -12,14 +11,14 @@ import {
   groupUpcomingScheduleSections,
   fmtSchedulePeriodDot,
 } from '../../utils/schedulePeriod.js';
-import { MobilePage, MobileCard, MobileSectionTitle, MobileStatCard, MobileEmptyState, M } from './mobileUi.jsx';
+import {
+  MobilePage, MobileCard, MobileSectionTitle, MobileStatCard, MobileEmptyState,
+  MobileCloudDataHint, M,
+} from './mobileUi.jsx';
 
 export function MobileDashboard() {
   const navigate = useNavigate();
-  const {
-    user, companyRole, profile, profileLoading,
-    sessionCloudSyncStatus, reloadSessionCloudData,
-  } = useAuth();
+  const { companyRole, profile } = useAuth();
   const properties = useProperties();
   const customers = useOwnerCustomers();
   const callLogs = useOwnerCallLogs();
@@ -44,22 +43,8 @@ export function MobileDashboard() {
   const displayRole = rawRole != null && rawRole !== ''
     ? normalizeCompanyRole(rawRole)
     : (profile?.user_type === 'SOLO' ? 'SOLO' : null);
-  const isSolo = isSoloRole(displayRole) || profile?.user_type === 'SOLO';
   const isTeam = usesTeamCloudSync(displayRole);
   const dataEmpty = properties.length === 0 && customers.length === 0;
-  const showSoloLoading = isSupabaseConfigured
-    && user?.id
-    && user.id !== 'dev-local'
-    && isSolo
-    && dataEmpty
-    && (profileLoading || sessionCloudSyncStatus === 'idle' || sessionCloudSyncStatus === 'syncing');
-  const showSoloEmpty = isSupabaseConfigured
-    && user?.id
-    && user.id !== 'dev-local'
-    && isSolo
-    && dataEmpty
-    && !profileLoading
-    && (sessionCloudSyncStatus === 'done' || sessionCloudSyncStatus === 'error');
 
   return (
     <MobilePage>
@@ -74,35 +59,7 @@ export function MobileDashboard() {
         )}
       </div>
 
-      {showSoloLoading && (
-        <MobileCard style={{ marginBottom: 16, background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>데이터 불러오는 중…</div>
-          <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55 }}>
-            개인 계정은 로그인 시 자동으로 매물·고객·일정을 가져옵니다. 잠시만 기다려 주세요.
-          </div>
-        </MobileCard>
-      )}
-
-      {showSoloEmpty && (
-        <MobileCard style={{ marginBottom: 16, background: '#FFF8F0', border: '1px solid #FED7AA' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>아직 표시할 데이터가 없습니다</div>
-          <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55, marginBottom: 10 }}>
-            휴대폰은 PC와 저장소가 다릅니다. 클라우드에서 다시 불러올 수 있습니다.
-            이후에는 등록·수정·삭제할 때만 자동으로 반영됩니다.
-          </div>
-          <button
-            type="button"
-            onClick={() => { reloadSessionCloudData?.(); }}
-            style={{
-              height: 36, padding: '0 14px', borderRadius: 8, border: 'none',
-              background: M.brand, color: '#fff', fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >
-            다시 불러오기
-          </button>
-        </MobileCard>
-      )}
+      <MobileCloudDataHint empty={dataEmpty} resourceLabel="매물·고객·일정" />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
         <MobileStatCard label="오늘 일정" value={todayCount} onClick={() => navigate('/calendar')} />

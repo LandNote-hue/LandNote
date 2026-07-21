@@ -26,8 +26,23 @@ export async function pushRestoredLocalData(userId) {
   return { properties, customers, schedules, callLogs, failed };
 }
 
-/** @param {string} userId */
-async function initialCloudSyncInner(userId) {
+/** @returns {Promise<boolean>} */
+async function isLocalDataEmpty() {
+  const { getLocalTableCounts } = await import('../../db.js');
+  const counts = await getLocalTableCounts();
+  const n = (counts.properties || 0)
+    + (counts.customers || 0)
+    + (counts.schedules || 0)
+    + (counts.call_logs || 0);
+  return n === 0;
+}
+
+/**
+ * @param {string} userId
+ * @param {{ forcePull?: boolean }} [options]
+ *   forcePull: 복원 플래그 무시하고 pull 강제 (모바일「다시 불러오기」등)
+ */
+async function initialCloudSyncInner(userId, options = {}) {
   const { consumeRestoreLocalWinsFlag } = await import('../../db.js');
   const { resetCloudLocalIdMaps, remapSharedForeignKeys } = await import('./cloudIdMap.js');
   const { db } = await import('../../db.js');
@@ -36,23 +51,37 @@ async function initialCloudSyncInner(userId) {
   const { initialScheduleSync } = await import('./scheduleSync.js');
   const { initialCallLogSync } = await import('./callLogSync.js');
 
-  if (consumeRestoreLocalWinsFlag()) {
+  const forcePull = options.forcePull === true;
+  const restoreFlag = forcePull
+    ? (consumeRestoreLocalWinsFlag(), false) // 플래그만 소비하고 pull 진행
+    : consumeRestoreLocalWinsFlag();
+
+  if (restoreFlag) {
+    const localEmpty = await isLocalDataEmpty();
     try {
       const restoredPush = await pushRestoredLocalData(userId);
       if (restoredPush.failed > 0) {
         console.warn('[initialCloudSync] restore push partial failures', restoredPush);
       }
-      return {
-        properties: restoredPush.properties,
-        customers: restoredPush.customers,
-        schedules: restoredPush.schedules,
-        callLogs: restoredPush.callLogs,
-        restoredLocalWins: true,
-        failed: restoredPush.failed,
-      };
+      // 로컬이 비어 있으면(다른 기기·모바일) push만으로는 데이터가 안 생김 → pull 필수
+      if (!localEmpty) {
+        return {
+          properties: restoredPush.properties,
+          customers: restoredPush.customers,
+          schedules: restoredPush.schedules,
+          callLogs: restoredPush.callLogs,
+          restoredLocalWins: true,
+          failed: restoredPush.failed,
+          ok: true,
+        };
+      }
+      console.info('[initialCloudSync] restore flag set but local empty — continuing with pull');
     } catch (err) {
       console.error('[initialCloudSync] restore push', err);
-      return { restoredLocalWins: true, ok: false, error: err };
+      // 로컬이 비어 있으면 pull 시도로 이어감
+      if (!(await isLocalDataEmpty())) {
+        return { restoredLocalWins: true, ok: false, error: err };
+      }
     }
   }
 
@@ -82,9 +111,12 @@ async function initialCloudSyncInner(userId) {
   return { ...results, ok: !failed };
 }
 
-/** @param {string} userId */
-export function initialCloudSync(userId) {
-  return withSyncMutex(() => initialCloudSyncInner(userId));
+/**
+ * @param {string} userId
+ * @param {{ forcePull?: boolean }} [options]
+ */
+export function initialCloudSync(userId, options = {}) {
+  return withSyncMutex(() => initialCloudSyncInner(userId, options));
 }
 
 /** 권한 변경 후 공유 데이터 재수신 (diff pull, mutex) */

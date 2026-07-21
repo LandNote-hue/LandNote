@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useOwnerCallLogs, useOwnerCustomers } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { propDisplayAddr } from '../../utils/propAddress.js';
-import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
+import { MobilePage, MobileCard, MobileEmptyState, MobileCloudDataHint, M } from './mobileUi.jsx';
 
 export function MobileCallList() {
   const navigate = useNavigate();
@@ -20,6 +20,7 @@ export function MobileCallList() {
 
   return (
     <MobilePage>
+      <MobileCloudDataHint empty={callLogs.length === 0} resourceLabel="통화" />
       {sorted.length === 0 ? (
         <MobileEmptyState message="통화 기록이 없습니다" />
       ) : (

@@ -93,7 +93,6 @@ import { MobileCallDetail } from "./pages/mobile/MobileCallDetail.jsx";
 import { MobileScheduleList } from "./pages/mobile/MobileScheduleList.jsx";
 import { MobileScheduleDetail } from "./pages/mobile/MobileScheduleDetail.jsx";
 import { initialCloudSync, pushRestoredLocalData } from "./services/sync/cloudSync.js";
-import { prepareLocalStoreForUser } from "./services/sync/localDataCleanup.js";
 import {
   useOwnerCustomers,
   useOwnerCallLogs,
@@ -6471,14 +6470,11 @@ function AppShell(){
   const viewMobile = () => { setForceDesktop(false); setForceDesktopState(false); };
   const [legacyUnlocked, setLegacyUnlocked] = useState(false);
 
-  // 로그인 시 로컬 스토어만 준비하고, 클라우드 동기화는「백업·복원」의 수동 버튼으로만 수행
+  // 로그인 시 seed만 — prepareLocalStore는 Auth 세션 sync가 pull 직전에 수행 (경합 방지)
   useEffect(()=>{
     let cancelled=false;
     (async()=>{
       if(profileLoading) return;
-      if(user?.id&&user.id!=='dev-local'&&isSupabaseConfigured){
-        await prepareLocalStoreForUser(user.id);
-      }
       if(cancelled) return;
       const skipSeed=isSupabaseConfigured&&!!user?.id&&user.id!=='dev-local';
       await seedDatabase({ skipSeed });

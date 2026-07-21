@@ -12,11 +12,18 @@ export function useOwnerId() {
 
 export function useDataScope() {
   const { user, company, profile, companyRole, memberPermissions } = useAuth();
-  const role = normalizeCompanyRole(companyRole ?? profile?.role);
+  const rawRole = companyRole ?? profile?.role;
+  const soloByType = profile?.user_type === 'SOLO';
+  // normalizeCompanyRole(null)→MEMBER 이므로 SOLO user_type을 먼저 반영
+  const role = rawRole != null && rawRole !== ''
+    ? normalizeCompanyRole(rawRole)
+    : (soloByType ? 'SOLO' : null);
+  const solo = role === 'SOLO' || soloByType;
   return {
     userId: user?.id || DEV_LOCAL_OWNER,
-    companyId: company?.id ?? profile?.company_id ?? null,
-    role,
+    // 개인 계정은 company 스코프로 걸러지지 않도록 null 고정
+    companyId: solo ? null : (company?.id ?? profile?.company_id ?? null),
+    role: role ?? 'SOLO',
     permissions: getEffectivePermissions(role, memberPermissions),
   };
 }

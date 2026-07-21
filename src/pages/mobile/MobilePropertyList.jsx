@@ -4,7 +4,7 @@ import { useProperties } from '../../hooks/useProperties.js';
 import { setPropertyFav } from '../../db.js';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { PropertyCardList } from '../../components/PropertyCardList.jsx';
-import { MobilePage, M } from './mobileUi.jsx';
+import { MobilePage, M, MobileCloudDataHint } from './mobileUi.jsx';
 
 const STATUS_TABS = [
   { id: 'ALL', label: '전체' },
@@ -30,6 +30,7 @@ export function MobilePropertyList() {
 
   return (
     <MobilePage>
+      <MobileCloudDataHint empty={properties.length === 0} resourceLabel="매물" />
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}

@@ -210,13 +210,22 @@ export function AuthProvider({ children }) {
     return null;
   }, []);
 
-  const runInitialCloudSyncForUser = useCallback(async (userId) => {
+  const runInitialCloudSyncForUser = useCallback(async (userId, options = {}) => {
     setSessionCloudSyncStatus('syncing');
     try {
+      // clear와 pull 경합 방지 — 스토어 준비 후 동기화
+      const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
+      await prepareLocalStoreForUser(userId);
+
       const { initialCloudSync } = await import('../services/sync/cloudSync.js');
-      await initialCloudSync(userId);
+      const result = await initialCloudSync(userId, options);
+      if (result?.ok === false) {
+        setSessionCloudSyncStatus('error');
+        console.error('[auth] session cloud sync incomplete', result);
+        throw new Error('cloud sync incomplete');
+      }
       setSessionCloudSyncStatus('done');
-      return { ok: true };
+      return { ok: true, result };
     } catch (err) {
       console.error('[auth] session auto cloud sync', err);
       setSessionCloudSyncStatus('error');
@@ -232,8 +241,14 @@ export function AuthProvider({ children }) {
     sessionAutoSyncedUserIdRef.current = null;
     try {
       sessionAutoSyncedUserIdRef.current = user.id;
-      await runInitialCloudSyncForUser(user.id);
-      return { ok: true };
+      // 모바일 빈 IndexedDB — 복원 플래그 무시하고 pull 강제
+      const out = await runInitialCloudSyncForUser(user.id, { forcePull: true });
+      if (out?.ok === false) {
+        if (sessionAutoSyncedUserIdRef.current === user.id) {
+          sessionAutoSyncedUserIdRef.current = null;
+        }
+      }
+      return out;
     } catch (err) {
       if (sessionAutoSyncedUserIdRef.current === user.id) {
         sessionAutoSyncedUserIdRef.current = null;

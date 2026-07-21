@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { propDisplayAddr } from '../../utils/propAddress.js';
-import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
+import { MobilePage, MobileCard, MobileEmptyState, MobileCloudDataHint, M } from './mobileUi.jsx';
 
 const PRI_LABEL = { IMPORTANT: { label: '중요', color: '#DC2626' }, NORMAL: { label: '일반', color: '#6B7280' } };
 
@@ -33,6 +33,7 @@ export function MobileScheduleList() {
 
   return (
     <MobilePage>
+      <MobileCloudDataHint empty={schedules.length === 0} resourceLabel="일정" />
       {groups.length === 0 ? (
         <MobileEmptyState message="등록된 일정이 없습니다" />
       ) : (

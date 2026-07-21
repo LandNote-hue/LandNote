@@ -1,4 +1,8 @@
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { isSupabaseConfigured } from '../../lib/supabase.js';
+import { normalizeCompanyRole } from '../../data/companyRoles.js';
 
 /** 모바일 조회 전용 화면 공용 색상 — MobileShell과 동일 값 사용 */
 export const M = {
@@ -85,6 +89,77 @@ export function MobileEmptyState({ message = '데이터가 없습니다' }) {
     }}>
       {message}
     </div>
+  );
+}
+
+/**
+ * 모바일 — 클라우드 데이터 미적재/로딩/실패 안내 + 다시 불러오기
+ * (휴대폰 IndexedDB는 PC와 분리되어 로그인 pull이 필요)
+ */
+export function MobileCloudDataHint({ empty = false, resourceLabel = '데이터' }) {
+  const {
+    user, profile, companyRole, profileLoading,
+    sessionCloudSyncStatus, reloadSessionCloudData,
+  } = useAuth();
+  const [busy, setBusy] = useState(false);
+
+  const rawRole = companyRole ?? profile?.role;
+  const isSolo = (rawRole != null && rawRole !== ''
+    ? normalizeCompanyRole(rawRole) === 'SOLO'
+    : false) || profile?.user_type === 'SOLO';
+
+  if (!isSupabaseConfigured || !user?.id || user.id === 'dev-local' || !isSolo || !empty) {
+    return null;
+  }
+
+  const loading = profileLoading
+    || sessionCloudSyncStatus === 'idle'
+    || sessionCloudSyncStatus === 'syncing'
+    || busy;
+  const failed = sessionCloudSyncStatus === 'error';
+
+  const onReload = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await reloadSessionCloudData?.();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <MobileCard style={{ marginBottom: 16, background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>데이터 불러오는 중…</div>
+        <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55 }}>
+          개인 계정은 로그인 시 클라우드에서 {resourceLabel}을(를) 가져옵니다. 잠시만 기다려 주세요.
+        </div>
+      </MobileCard>
+    );
+  }
+
+  return (
+    <MobileCard style={{ marginBottom: 16, background: '#FFF8F0', border: '1px solid #FED7AA' }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>
+        {failed ? '데이터를 불러오지 못했습니다' : `표시할 ${resourceLabel}이(가) 없습니다`}
+      </div>
+      <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55, marginBottom: 10 }}>
+        휴대폰은 PC와 저장소가 다릅니다. 클라우드에서 다시 불러올 수 있습니다.
+      </div>
+      <button
+        type="button"
+        onClick={onReload}
+        disabled={busy}
+        style={{
+          height: 36, padding: '0 14px', borderRadius: 8, border: 'none',
+          background: M.brand, color: '#fff', fontSize: 13, fontWeight: 600,
+          cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.7 : 1,
+        }}
+      >
+        {busy ? '불러오는 중…' : '다시 불러오기'}
+      </button>
+    </MobileCard>
   );
 }
 
