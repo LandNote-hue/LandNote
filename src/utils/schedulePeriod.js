@@ -88,3 +88,69 @@ export function scheduleCoversDay(sched, year, month, day) {
 export function dateEndForSave(date, dateEnd) {
   return normalizeScheduleDateEnd(date, dateEnd) || null;
 }
+
+/** PC·모바일 대시보드 공통 — 오늘부터 N일 내 일정 창 */
+export const SCHEDULE_ALERT_MAX_DAYS = 7;
+
+/** @param {unknown} s */
+export function parseScheduleDate(s) {
+  if (!s) return null;
+  const iso = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+  const dot = String(s).match(/^(\d{4})\.(\d{2})\.(\d{2})/);
+  if (dot) return new Date(+dot[1], +dot[2] - 1, +dot[3]);
+  return null;
+}
+
+/** @param {Date} from @param {Date} to */
+export function scheduleDayDiff(from, to) {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / 86400000);
+}
+
+/**
+ * 오늘 진행 중 + maxDays일 내 시작 예정 일정 (PC 대시보드와 동일 규칙)
+ * @param {Array<Record<string, unknown>>} schedules
+ * @param {Date} [today]
+ * @param {number} [maxDays]
+ */
+export function collectUpcomingSchedules(schedules, today = new Date(), maxDays = SCHEDULE_ALERT_MAX_DAYS) {
+  const today0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  /** @type {Array<{ schedule: Record<string, unknown>, sortKey: number, dayLabel: string }>} */
+  const items = [];
+  for (const s of schedules ?? []) {
+    const start = parseScheduleDate(s.date);
+    if (!start) continue;
+    const endIso = scheduleEndIso(s) || String(s.date);
+    const end = parseScheduleDate(endIso) || start;
+    const startDiff = scheduleDayDiff(today0, start);
+    const endDiff = scheduleDayDiff(today0, end);
+    if (endDiff < 0) continue;
+    const ongoing = startDiff <= 0 && endDiff >= 0;
+    const upcoming = startDiff > 0 && startDiff <= maxDays;
+    if (!ongoing && !upcoming) continue;
+    let dayLabel = `D-${startDiff}`;
+    if (ongoing) dayLabel = '오늘';
+    else if (startDiff === 1) dayLabel = '내일';
+    items.push({ schedule: s, sortKey: ongoing ? 0 : startDiff, dayLabel });
+  }
+  return items.sort(
+    (a, b) => a.sortKey - b.sortKey
+      || String(a.schedule.time || '').localeCompare(String(b.schedule.time || ''))
+      || String(a.schedule.title || '').localeCompare(String(b.schedule.title || ''), 'ko'),
+  );
+}
+
+/**
+ * @param {ReturnType<typeof collectUpcomingSchedules>} items
+ * @param {number} [maxDays]
+ */
+export function groupUpcomingScheduleSections(items, maxDays = SCHEDULE_ALERT_MAX_DAYS) {
+  return [
+    { title: '오늘', items: items.filter((a) => a.sortKey === 0) },
+    { title: '내일', items: items.filter((a) => a.sortKey === 1) },
+    { title: '일주일 내', items: items.filter((a) => a.sortKey >= 2 && a.sortKey <= maxDays) },
+  ].filter((s) => s.items.length > 0);
+}
+

@@ -38,6 +38,23 @@ export function fmtNum(v, { decimal = false } = {}) {
 }
 
 /**
+ * 만원 단위 금액 파싱 — 콤마 포함 문자열 허용, 빈 값은 0
+ * @param {unknown} v
+ */
+export function parseMoneyMan(v) {
+  if (v === '' || v == null) return 0;
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** 만원 단위 금액 파싱 — 빈 값은 null (DB 저장용) */
+export function parseMoneyManOrNull(v) {
+  if (v === '' || v == null || v === undefined) return null;
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * 입력 필드용 — 입력 중에도 천 단위 콤마 표시
  * @param {string|number|null|undefined} v
  * @param {{ decimal?: boolean, maxDecimals?: number }} [opts]

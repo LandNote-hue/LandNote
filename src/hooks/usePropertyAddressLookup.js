@@ -164,6 +164,22 @@ export function usePropertyAddressLookup(options = {}) {
     setApiRaw({ building: null, land: null });
   }, []);
 
+  /** 매물 등록 임시 저장 복원 */
+  const restoreAddressLookupDraft = useCallback((draft) => {
+    if (!draft || typeof draft !== 'object') return;
+    if (draft.addressKeys) setAddressKeys({ ...initialAddressKeys(), ...draft.addressKeys });
+    if (draft.locationForm) setLocationForm({ ...emptyLocationForm(), ...draft.locationForm });
+    if (draft.landForm) setLandForm({ ...emptyLandForm(), ...draft.landForm });
+    if (draft.buildingForm) setBuildingForm({ ...emptyBuildingForm(), ...draft.buildingForm });
+    if (draft.lookup) {
+      setLookup((s) => ({
+        ...initialLookupMeta(),
+        ...draft.lookup,
+        mode,
+      }));
+    }
+  }, [mode]);
+
   return {
     lookup,
     addressKeys,
@@ -177,6 +193,7 @@ export function usePropertyAddressLookup(options = {}) {
     handleAddressFetchSuccess,
     refetchPublicData,
     resetAddressLookup,
+    restoreAddressLookupDraft,
     isLoading: lookup.status === 'loading',
   };
 }

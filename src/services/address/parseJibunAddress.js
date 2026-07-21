@@ -118,20 +118,47 @@ function hasLotComponent(v) {
   return s.length > 0 && parseInt(s, 10) > 0;
 }
 
+/** @param {string} bun @param {string} ji */
+function formatLotLabel(bun, ji) {
+  const bunNum = parseInt(bun, 10);
+  const jiNum = parseInt(ji, 10);
+  if (Number.isNaN(bunNum) || bunNum <= 0) return '';
+  if (ji && ji !== '0000' && !Number.isNaN(jiNum) && jiNum > 0) {
+    return `${bunNum}-${jiNum}`;
+  }
+  return `${bunNum}`;
+}
+
+/**
+ * 끝에 중복 붙은 본번·부번 제거
+ * e.g. "상계동 1264 은빛3단지아파트 1264" → "상계동 1264 은빛3단지아파트"
+ * @param {string} jibunAddr
+ */
+export function stripTrailingDuplicateLot(jibunAddr) {
+  const text = String(jibunAddr || '').trim();
+  if (!text) return text;
+
+  const trailing = text.match(/(\d+(?:-\d+)?)\s*$/);
+  if (!trailing) return text;
+
+  const lot = trailing[1];
+  const beforeTrailing = text.slice(0, trailing.index).trim();
+  if (!beforeTrailing || !jibunAddrMatchesLot(beforeTrailing, lot)) return text;
+  return beforeTrailing;
+}
+
 /** 지번 문자열에 본번·부번이 없을 때 juso 값으로 표시 보완 */
 function enrichJibunAddr(jibunAddr, bun, ji) {
   if (!jibunAddr || bun === '0000') return jibunAddr;
+
+  const lotLabel = formatLotLabel(bun, ji);
+  if (!lotLabel) return jibunAddr;
+
   const parsed = parseJibunLot(jibunAddr);
-  if (!parsed.warnings.length) return jibunAddr;
+  if (!parsed.warnings.length) return stripTrailingDuplicateLot(jibunAddr);
+  if (jibunAddrMatchesLot(jibunAddr, lotLabel)) return stripTrailingDuplicateLot(jibunAddr);
 
-  const bunNum = parseInt(bun, 10);
-  const jiNum = parseInt(ji, 10);
-  if (Number.isNaN(bunNum) || bunNum <= 0) return jibunAddr;
-
-  const lotLabel = ji && ji !== '0000' && !Number.isNaN(jiNum) && jiNum > 0
-    ? `${bunNum}-${jiNum}`
-    : `${bunNum}`;
-  return `${jibunAddr} ${lotLabel}`.trim();
+  return stripTrailingDuplicateLot(`${jibunAddr} ${lotLabel}`.trim());
 }
 
 /** @param {string} code */

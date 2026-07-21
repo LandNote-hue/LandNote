@@ -4,6 +4,12 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useProperties, usePropertiesQuery } from "./hooks/useProperties.js";
 import { MapView } from "./features/map/MapView.jsx";
 import { loadPropListState, savePropListState, clearPropListState } from "./navigation/propListPersist.js";
+import {
+  loadPropertyRegisterDraft,
+  savePropertyRegisterDraft,
+  clearPropertyRegisterDraft,
+  hydratePropertyRegisterDraft,
+} from "./navigation/propertyRegisterDraft.js";
 import { loadFolderState, saveFolderState, getDefaultFolderState, DEFAULT_FOLDERS, DEFAULT_PROP_FOLDERS } from "./navigation/folderPersist.js";
 import { MENU_PATHS, pathToMenuId, resolveTitle } from "./navigation/routes.js";
 import {
@@ -13,6 +19,7 @@ import {
   restoreProperty, restoreCustomer, restoreCallLog, restoreSchedule,
   hardDeleteProperty, hardDeleteCustomer, hardDeleteCallLog, hardDeleteSchedule,
   saveRentalsForProperty, addProperty, duplicateProperty, updateProperty, addCustomer, updateCustomer,
+  normalizePropertyLocalId,
   saveCallLog, addCallLogDirect, addScheduleDirect, updateScheduleDirect,
   exportBackupData, restoreBackupData,
   getBackupTableCounts, getLocalTableCounts, formatBackupCountsLabel, formatRestoreMergeLabel,
@@ -23,7 +30,7 @@ import { PropertyPhotoPicker } from "./components/PropertyPhotoPicker.jsx";
 import { PropertyDetailMap } from "./components/PropertyDetailMap.jsx";
 import { PropertyDetailNewWin } from "./components/PropertyDetailNewWin.jsx";
 import { normalizePhotoSlots, photoSlotsToSave } from "./utils/readImageFile.js";
-import { fmtNum, fmtLandPyUnit, fmtPropPrice as propPrice, fmtWon, calcPyUnitPriceMan, priceInManForFilter, fmtInputNum, formatKoreanAmountFromMan } from "./utils/formatMoney.js";
+import { fmtNum, fmtLandPyUnit, fmtPropPrice as propPrice, fmtWon, calcPyUnitPriceMan, priceInManForFilter, fmtInputNum, formatKoreanAmountFromMan, parseMoneyMan } from "./utils/formatMoney.js";
 import { buildSaleInvestmentMetrics } from "./utils/propInvestment.js";
 import { formatPhone, normalizePhone, phoneMatches, digitsOnly, freePhoneOptionFromSearch } from "./utils/formatPhone.js";
 import { formatCustomerTypesLabel, normalizeCustomerTypesField } from "./utils/customerTypes.js";
@@ -33,7 +40,7 @@ import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/cus
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
 import { loadStoragePathLabel, saveStoragePathLabel, pickStorageFolder } from "./utils/storageFolder.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
-import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
+import { zoningTextColor } from "./utils/zoningColor.js";
 import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
 import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars } from "./utils/icsImport.js";
 import {
@@ -150,7 +157,10 @@ class RouteErrorBoundary extends React.Component {
   }
 }
 const useRentals = (pid) => useLiveQuery(
-  () => (pid ? db.rentals.where("pid").equals(pid).toArray() : db.rentals.toArray()),
+  () => {
+    const id = normalizePropertyLocalId(pid);
+    return id ? db.rentals.where("pid").equals(id).toArray() : db.rentals.toArray();
+  },
   [pid]
 ) ?? [];
 
@@ -686,6 +696,11 @@ const py=(m2)=>m2>0?(m2/3.3058).toFixed(1):'—';
 const propLandPyungLabel=(p)=>p.land>0?`${py(p.land)}평`:'-';
 const propFloorPyungLabel=(p)=>p.floor>0?`${py(p.floor)}평`:'-';
 const propZoningLabel=(p)=>p.zoning||'-';
+const PropZoningCell=({p,className,style})=>(
+  <td className={className} style={style} title={p.zoning||''}>
+    <span style={{color:zoningTextColor(p.zoning),fontWeight:p.zoning?600:400}}>{propZoningLabel(p)}</span>
+  </td>
+);
 
 /* ═══ ACTION BAR — 저장/수정/삭제 공통 하단 고정 컴포넌트 ═══ */
 const ActionBar=({
@@ -955,6 +970,9 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
       const sortKey=ongoing?0:startDiff;
       const priC=schedulePriColor(s.pri);
       const period=fmtSchedulePeriodDot(s);
+      const chkList=Array.isArray(s.chk)?s.chk.filter(c=>c&&String(c.t||'').trim()):[];
+      const chkTotal=chkList.length;
+      const chkDone=chkList.filter(c=>c.d).length;
       items.push({
         kind:'sched',target:s,sortKey,
         c:priC,
@@ -964,6 +982,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
         dayLabel:ongoing?'오늘':dashRelativeDayLabel(startDiff),
         priLabel:PRI_L[s.pri]||'보통',
         whenLabel:period+(s.time?` ${s.time}`:''),
+        chkLabel:chkTotal>0?`${chkDone}/${chkTotal}`:null,
         sub:`${ongoing?'오늘':dashRelativeDayLabel(startDiff)} · ${PRI_L[s.pri]||'보통'} · ${period}${s.time?` ${s.time}`:''}`,
       });
     });
@@ -1067,7 +1086,9 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
     <>
       <td style={{textAlign:'right',fontSize:12,color:p.land>0?C.tx:C.txP,whiteSpace:'nowrap'}}>{propLandPyungLabel(p)}</td>
       <td style={{textAlign:'right',fontSize:12,color:p.floor>0?C.tx:C.txP,whiteSpace:'nowrap'}}>{propFloorPyungLabel(p)}</td>
-      <td style={{textAlign:'center',fontSize:12,color:C.txM,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}} title={p.zoning||''}>{propZoningLabel(p)}</td>
+      <td style={{textAlign:'center',fontSize:12,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}} title={p.zoning||''}>
+        <span style={{color:zoningTextColor(p.zoning),fontWeight:p.zoning?600:400}}>{propZoningLabel(p)}</span>
+      </td>
       <td style={{textAlign:'right',fontSize:12,color:p.land>0&&p.price>0?C.tx:C.txP,whiteSpace:'nowrap'}}>{fmtLandPyUnit(p.price,p.land)}</td>
     </>
   );
@@ -1204,6 +1225,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
                       <>
                         {a.dayLabel} · <span style={{color:a.c,fontWeight:600}}>{a.priLabel}</span>
                         {a.whenLabel?` · ${a.whenLabel}`:''}
+                        {a.chkLabel?` · 체크리스트 ${a.chkLabel}`:''}
                       </>
                     ):a.sub}
                   </div>
@@ -1251,7 +1273,7 @@ const PROP_LIST_TBL_ACTION_CSS=PROP_LIST_SHOW_ROW_ACTIONS
   ? `.prop-list-tbl .prop-col-action{${PROP_LIST_STICKY_COL};z-index:3;overflow:visible!important;min-width:${PROP_ROW_ACTION_COL_W}px}.prop-list-tbl thead .prop-col-action{z-index:5;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-action{background:#FAFBFF!important}`
   : '';
 const FOLDER_LIST_MIN_W=1150;
-const FOLDER_TBL_STYLE=`.folder-prop-tbl th,.folder-prop-tbl td{padding:10px 8px!important;vertical-align:middle;letter-spacing:-0.01em}.folder-prop-tbl .f-col-star{text-align:center}.folder-prop-tbl .f-col-num{text-align:right!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-num{text-align:right!important}.folder-prop-tbl .f-col-zone{text-align:center!important;white-space:nowrap;font-size:12px;color:${C.txM};overflow:hidden;text-overflow:ellipsis}.folder-prop-tbl th.f-col-zone{text-align:center!important}.folder-prop-tbl .f-col-date{text-align:center!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-date{text-align:center!important}`;
+const FOLDER_TBL_STYLE=`.folder-prop-tbl th,.folder-prop-tbl td{padding:10px 8px!important;vertical-align:middle;letter-spacing:-0.01em}.folder-prop-tbl .f-col-star{text-align:center}.folder-prop-tbl .f-col-num{text-align:right!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-num{text-align:right!important}.folder-prop-tbl .f-col-zone{text-align:center!important;white-space:nowrap;font-size:12px;overflow:hidden;text-overflow:ellipsis}.folder-prop-tbl th.f-col-zone{text-align:center!important}.folder-prop-tbl .f-col-date{text-align:center!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-date{text-align:center!important}`;
 
 const FolderPickCheckbox=({checked,inFolder})=>(
   <div style={{width:18,height:18,borderRadius:5,border:`1.5px solid ${inFolder?C.bdrSt:checked?C.brand:C.bdrSt}`,background:inFolder?C.surf2:checked?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0,margin:'0 auto'}}>
@@ -1333,7 +1355,7 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
                   <td className="f-col-num" style={{color:C.ok,fontWeight:500}}>{p.roi||'—'}</td>
                   <td className="f-col-num" style={{color:p.land>0?C.tx:C.txP}}>{propLandPyungLabel(p)}</td>
                   <td className="f-col-num" style={{color:p.floor>0?C.tx:C.txP}}>{propFloorPyungLabel(p)}</td>
-                  <td className="f-col-zone" title={p.zoning||''}>{propZoningLabel(p)}</td>
+                  <PropZoningCell p={p} className="f-col-zone"/>
                   <td className="f-col-num" style={{color:p.land>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.land)}</td>
                   <td className="f-col-date" style={{color:p.lastCall!=='—'?C.txS:C.txP}}>{p.lastCall}</td>
                   <td className="f-col-date" style={{color:C.txM}}>{p.created}</td>
@@ -1384,8 +1406,12 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   useEffect(()=>{
     if(urlTab) setStatusTab(normalizePropListTab(urlTab));
   },[urlTab]);
-  const [sortKey,setSortKey]=useState(saved.sortKey??null);
-  const [sortDir,setSortDir]=useState(saved.sortDir??'asc');
+  const [sortKey,setSortKey]=useState(saved.sortKey!==undefined?saved.sortKey:'created');
+  const [sortDir,setSortDir]=useState(()=>{
+    if(saved.sortDir) return saved.sortDir;
+    if(saved.sortKey!==undefined) return 'asc';
+    return 'desc';
+  });
   const [colFilter,setColFilter]=useState(saved.colFilter??{tag:'',trade:'',status:''});
   const [openColFilter,setOpenColFilter]=useState(null);
   const [filterResetKey,setFilterResetKey]=useState(0);
@@ -1519,7 +1545,10 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
       if(av>bv) return sortDir==='asc'?1:-1;
       return 0;
     }
-    return (b.fav?1:0)-(a.fav?1:0);
+    const av=getSortVal(a,'created'), bv=getSortVal(b,'created');
+    if(av<bv) return 1;
+    if(av>bv) return -1;
+    return (b.fav?1:0)-(a.fav?1:0)||b.id-a.id;
   });
   const visible=sorted.slice(0,visibleCount);
   const selectableIds=useMemo(()=>sorted.map((p)=>p.id),[sorted]);
@@ -1845,7 +1874,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
           <PropertyCardList properties={visible} onOpen={openProperty} onToggleFav={togglePropertyFav} getSharedLabel={getSharedLabel} emptyMessage="조건에 맞는 매물이 없습니다"/>
         ):(
         <div style={{background:C.surf,borderRadius:10,overflowX:'auto',padding:`0 ${PROP_LIST_PAD_X}px`,boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
-          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;color:${C.txM};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
+          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
           <table className="tbl prop-list-tbl" style={{tableLayout:'fixed',minWidth:PROP_LIST_MIN_W,width:'100%'}} onClick={()=>setOpenColFilter(null)}>
             <colgroup>
               <col style={{width:PROP_COL.check}}/>
@@ -2046,7 +2075,7 @@ const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,s
     <td className="prop-col-num prop-col-metrics" style={{color:C.ok,fontWeight:500}}>{p.roi||'-'}</td>
     <td className="prop-col-num prop-col-metrics" style={{color:p.land>0?C.tx:C.txP}}>{propLandPyungLabel(p)}</td>
     <td className="prop-col-num prop-col-metrics" style={{color:p.floor>0?C.tx:C.txP}}>{propFloorPyungLabel(p)}</td>
-    <td className="prop-col-zone prop-col-metrics" title={p.zoning||''}>{propZoningLabel(p)}</td>
+    <PropZoningCell p={p} className="prop-col-zone prop-col-metrics"/>
     <td className="prop-col-num prop-col-metrics" style={{color:p.land>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.land)}</td>
     <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
     <td className="prop-col-date prop-col-created prop-col-metrics" style={{color:C.txM,fontSize:12,whiteSpace:'nowrap'}}>{p.created}</td>
@@ -2320,18 +2349,22 @@ const PropBuildingFields=({buildingForm,setBuildingForm,readOnlyStyle})=>{
 };
 
 const PropRegister=({onNav})=>{
-  const { accountDefaults }=useAuth();
-  const [trade,setTrade]=useState('SALE');
-  const [mainType,setMainType]=useState('COMMERCIAL');
-  const [subType,setSubType]=useState('WHOLE_BUILDING');
-  const [status,setStatus]=useState('NEW');
-  const [pub,setPub]=useState('true');
-  const [photoSlots,setPhotoSlots]=useState([null,null,null]);
-  const [priceForm,setPriceForm]=useState(emptyPriceForm);
-  const [roadSearch,setRoadSearch]=useState('');
+  const { accountDefaults, user }=useAuth();
+  const userId=user?.id??null;
+  const registerDraft=useMemo(()=>hydratePropertyRegisterDraft(loadPropertyRegisterDraft(userId)),[userId]);
+  const [draftReady,setDraftReady]=useState(()=>!registerDraft);
+  const draftRestoredRef=useRef(false);
+  const [trade,setTrade]=useState(()=>registerDraft?.trade??'SALE');
+  const [mainType,setMainType]=useState(()=>registerDraft?.mainType??'COMMERCIAL');
+  const [subType,setSubType]=useState(()=>registerDraft?.subType??'WHOLE_BUILDING');
+  const [status,setStatus]=useState(()=>registerDraft?.status??'NEW');
+  const [pub,setPub]=useState(()=>registerDraft?.pub??'true');
+  const [photoSlots,setPhotoSlots]=useState(()=>registerDraft?.photoSlots??[null,null,null]);
+  const [priceForm,setPriceForm]=useState(()=>registerDraft?.priceForm??emptyPriceForm());
+  const [roadSearch,setRoadSearch]=useState(()=>registerDraft?.roadSearch??'');
   const [addressModalOpen,setAddressModalOpen]=useState(false);
-  const [detailForm,setDetailForm]=useState({
-    title:'', agentName:'', agentTel:'', promo:'', memo:'', discoUrl:'',
+  const [detailForm,setDetailForm]=useState(()=>registerDraft?.detailForm??{
+    title:'', agentName:'', agentTel:'', promo:'', memo:'',
   });
   useEffect(()=>{
     setDetailForm(f=>({
@@ -2344,7 +2377,39 @@ const PropRegister=({onNav})=>{
     lookup, addressKeys, locationForm, setLocationForm,
     landForm, setLandForm, buildingForm, setBuildingForm,
     handleAddressFetchSuccess, refetchPublicData, isLoading,
+    restoreAddressLookupDraft,
   }=usePropertyAddressLookup({ mode:'register' });
+
+  useEffect(()=>{
+    if(draftRestoredRef.current||!registerDraft) return;
+    draftRestoredRef.current=true;
+    restoreAddressLookupDraft(registerDraft);
+    setDraftReady(true);
+  },[registerDraft,restoreAddressLookupDraft]);
+
+  useEffect(()=>{
+    if(!draftReady) return;
+    const timer=window.setTimeout(()=>{
+      savePropertyRegisterDraft({
+        trade, mainType, subType, status, pub,
+        priceForm, roadSearch, detailForm, photoSlots,
+        locationForm, landForm, buildingForm, addressKeys,
+        lookup: {
+          status: lookup.status,
+          error: lookup.error,
+          warnings: lookup.warnings,
+          fetchedAt: lookup.fetchedAt,
+          mode: lookup.mode,
+        },
+      }, userId);
+    },400);
+    return ()=>window.clearTimeout(timer);
+  },[
+    draftReady, userId,
+    trade, mainType, subType, status, pub,
+    priceForm, roadSearch, detailForm, photoSlots,
+    locationForm, landForm, buildingForm, addressKeys, lookup,
+  ]);
   const subOpts=PROP_SUB[mainType]||{};
 
   const onAddressSearch=()=>setAddressModalOpen(true);
@@ -2374,7 +2439,6 @@ const PropRegister=({onNav})=>{
       roadInfo:locationForm.roadInfo||'',
       promo:detailForm.promo||'',
       memo:detailForm.memo||'',
-      discoUrl:normalizeDiscoUrl(detailForm.discoUrl)||'',
       agentName:detailForm.agentName||'',
       agentTel:normalizePhone(detailForm.agentTel)||'',
       photos:photoSlotsToSave(photoSlots),
@@ -2384,6 +2448,7 @@ const PropRegister=({onNav})=>{
       ...landToPropertyFields(landForm),
       ...buildingToPropertyFields(buildingForm),
     });
+    clearPropertyRegisterDraft();
     showNotification('저장하였습니다.','success');
     onNav('properties');
   };
@@ -2488,8 +2553,6 @@ const PropRegister=({onNav})=>{
               <textarea className="ta" rows={6} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>내부 메모 (비공개)</div>
               <textarea className="ta" rows={2} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항"/></div>
-            <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>디스코 상세 링크 <span style={{fontWeight:400,color:C.txP}}>(선택)</span></div>
-              <input className="inp" value={detailForm.discoUrl} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
           </div>
         </div>
       </div>
@@ -3138,10 +3201,9 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
 };
 
 const Calendar=({onOpen})=>{
+  const { user, companyRole, memberPermissions }=useAuth();
   const SCHEDS=useOwnerSchedules();
   const CALLS=useOwnerCallLogs();
-  const P=useProperties();
-  const CU=useOwnerCustomers();
   const todayRef=useMemo(()=>{
     const d=new Date();
     return {year:d.getFullYear(),month:d.getMonth()+1,date:d.getDate()};
@@ -3157,6 +3219,39 @@ const Calendar=({onOpen})=>{
   const [importGuideOpen,setImportGuideOpen]=useState(()=>{
     try{ return localStorage.getItem(SCHEDULE_IMPORT_GUIDE_SEEN_KEY)!=='1'; }catch{ return true; }
   });
+  const [expandedChkIds,setExpandedChkIds]=useState(()=>new Set());
+  const [chkBusyId,setChkBusyId]=useState(null);
+
+  const toggleChkExpand=(schedId,e)=>{
+    e?.stopPropagation?.();
+    setExpandedChkIds(prev=>{
+      const next=new Set(prev);
+      if(next.has(schedId)) next.delete(schedId);
+      else next.add(schedId);
+      return next;
+    });
+  };
+
+  const toggleSidebarChkItem=async(sched,chkIndex,e)=>{
+    e?.stopPropagation?.();
+    if(!sched?.id||chkBusyId!=null) return;
+    if(!canWriteRecord(sched,user?.id,companyRole,memberPermissions,'schedules')){
+      showNotification(PERMISSION_DENIED_TOOLTIP,'warning');
+      return;
+    }
+    const full=Array.isArray(sched.chk)?sched.chk.map(c=>({...c})):[];
+    if(!full[chkIndex]) return;
+    full[chkIndex]={...full[chkIndex],d:!full[chkIndex].d};
+    setChkBusyId(sched.id);
+    try{
+      await updateScheduleDirect(sched.id,{chk:full});
+    }catch(err){
+      console.error('[Calendar chk toggle]',err);
+      showNotification(err?.message==='FORBIDDEN'?PERMISSION_DENIED_TOOLTIP:'체크리스트 수정에 실패했습니다.','error');
+    }finally{
+      setChkBusyId(null);
+    }
+  };
 
   const refreshGcalLinks=()=>setGcalLinks(listGoogleCalendarLinks());
 
@@ -3251,15 +3346,9 @@ const Calendar=({onOpen})=>{
   const cells=Array.from({length:42},(_,i)=>{const d=i-firstDow+1;return d>=1&&d<=daysInMonth?d:null;});
 
   const getSchedsForDay=(d)=>SCHEDS.filter(s=>scheduleCoversDay(s,year,month,d));
-  const getCallsForDay=(d)=>CALLS.filter(c=>{
-    const cd=parseDashDate(c.date);
-    if(!cd) return false;
-    return cd.getFullYear()===year&&cd.getMonth()+1===month&&cd.getDate()===d;
-  });
 
   const selScheds=sel?getSchedsForDay(sel):[];
-  const selCalls=sel?getCallsForDay(sel):[];
-  const hasItems=selScheds.length>0||selCalls.length>0;
+  const hasItems=selScheds.length>0;
 
   const CAL_CELL_H=112;
   const CAL_EVT_H=18;
@@ -3440,7 +3529,7 @@ const Calendar=({onOpen})=>{
                         {isTodayCell(sel)&&<span style={{fontSize:11,color:C.brand,fontWeight:600,marginLeft:6}}>오늘</span>}
                       </div>
                       <div style={{fontSize:12,color:C.txM,marginTop:4}}>
-                        일정 {selScheds.length}건 · 통화 {selCalls.length}건
+                        일정 {selScheds.length}건
                       </div>
                     </div>
                   </div>
@@ -3450,42 +3539,80 @@ const Calendar=({onOpen})=>{
                 <div style={{flex:1,minHeight:0,overflow:'auto'}}>
                   {!hasItems&&(
                     <div style={{padding:'32px 16px',textAlign:'center',color:C.txM,fontSize:13,lineHeight:1.6}}>
-                      이 날의 일정 및<br/>통화 내역이 없습니다
+                      이 날의 일정이 없습니다
                     </div>
                   )}
                   {selScheds.map(s=>{
                     const {c,bg,label}=scheduleSourceInfo(s,gcalMeta);
+                    const chkRaw=Array.isArray(s.chk)?s.chk:[];
+                    const chkEntries=chkRaw
+                      .map((item,idx)=>({item,idx}))
+                      .filter(({item})=>item&&String(item.t||'').trim());
+                    const chkDone=chkEntries.filter(({item})=>item.d).length;
+                    const chkOpen=expandedChkIds.has(s.id);
+                    const memoText=String(s.memo||'').trim();
+                    const canEditChk=canWriteRecord(s,user?.id,companyRole,memberPermissions,'schedules');
+                    const chkBusy=chkBusyId===s.id;
                     return(
                     <div key={s.id} onClick={()=>onOpen('sd',s)} style={{padding:'12px 16px',borderBottom:`1px solid ${C.bdr}`,display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer',background:'transparent'}}
                       onMouseEnter={e=>e.currentTarget.style.background=bg}
                       onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                      <div style={{width:4,height:40,borderRadius:2,background:c,flexShrink:0,marginTop:2}}/>
+                      <div style={{width:4,alignSelf:'stretch',minHeight:40,borderRadius:2,background:c,flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:c,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.title}</div>
-                        <div style={{fontSize:12,color:C.txM,marginTop:3,lineHeight:1.45}}>
-                          {fmtSchedulePeriodDot(s)}{s.time?` · ${s.time}`:''} · <span style={{color:c,fontWeight:600}}>{label}</span>
-                          {s.chk?.length>0&&<><br/>체크 {s.chk.filter(x=>x.d).length}/{s.chk.length}</>}
-                        </div>
-                      </div>
-                    </div>
-                    );
-                  })}
-                  {selCalls.map(c=>{
-                    const prop=P.find(p=>p.id===c.pid);
-                    const cust=CU.find(cu=>cu.id===c.cid);
-                    return(
-                      <div key={c.id} onClick={()=>prop&&onOpen('pd',prop)} style={{padding:'12px 16px',borderBottom:`1px solid ${C.bdr}`,display:'flex',gap:10,alignItems:'flex-start',cursor:prop?'pointer':'default'}}
-                        onMouseEnter={e=>{if(prop)e.currentTarget.style.background=C.surf2}}
-                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                        <div style={{width:3,height:40,borderRadius:2,background:C.info,flexShrink:0,marginTop:2}}/>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,color:C.txS,lineHeight:1.45,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{c.content}</div>
-                          <div style={{fontSize:11,color:C.txM,marginTop:3,lineHeight:1.45}}>
-                            {c.time}{prop&&` · ${prop.bldg||propDisplayAddr(prop)}`}{cust&&` · ${cust.name}`}{!cust&&c.contactPhone&&` · ${formatPhone(c.contactPhone)||c.contactPhone}`}
+                        <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap',minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:c,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0,flex:'1 1 auto'}} title={s.title}>{s.title}</div>
+                          <div style={{fontSize:11,color:C.txM,lineHeight:1.35,flexShrink:0,whiteSpace:'nowrap'}}>
+                            {fmtSchedulePeriodDot(s)}{s.time?` ${s.time}`:''}
+                            {' · '}<span style={{color:c,fontWeight:600}}>{label}</span>
                           </div>
                         </div>
-                        <span style={{fontSize:11,color:C.txP,flexShrink:0,marginTop:2}}>통화</span>
+                        {memoText&&(
+                          <div
+                            onClick={e=>e.stopPropagation()}
+                            style={{marginTop:6,fontSize:12,color:C.txS,lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-word',maxHeight:'4.5em',overflowY:'auto',paddingRight:2}}
+                            title={memoText}
+                          >
+                            {memoText}
+                          </div>
+                        )}
+                        {chkEntries.length>0&&(
+                          <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e)=>toggleChkExpand(s.id,e)}
+                              style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 8px',borderRadius:6,border:`1px solid ${C.bdr}`,background:C.surf2,cursor:'pointer',fontSize:11,fontWeight:600,color:C.txM,fontFamily:'inherit'}}
+                            >
+                              <span style={{fontSize:10,lineHeight:1,transform:chkOpen?'rotate(90deg)':'none',transition:'transform .12s',display:'inline-block'}}>▶</span>
+                              체크리스트 {chkDone}/{chkEntries.length}
+                              <span style={{fontWeight:500,color:C.txP}}>{chkOpen?'접기':'펼치기'}</span>
+                            </button>
+                            {chkOpen&&(
+                              <div style={{marginTop:6,padding:'8px 10px',background:C.surf2,borderRadius:8,border:`1px solid ${C.bdr}`,display:'flex',flexDirection:'column',gap:5,maxHeight:140,overflowY:'auto'}}>
+                                {chkEntries.map(({item,idx})=>(
+                                  <div key={idx} style={{display:'flex',alignItems:'flex-start',gap:7,fontSize:12,lineHeight:1.4,color:item.d?C.txP:C.txS}}>
+                                    <button
+                                      type="button"
+                                      disabled={!canEditChk||chkBusy}
+                                      title={!canEditChk?PERMISSION_DENIED_TOOLTIP:(item.d?'완료 해제':'완료 처리')}
+                                      onClick={(e)=>toggleSidebarChkItem(s,idx,e)}
+                                      style={{flexShrink:0,width:18,height:18,marginTop:1,borderRadius:'50%',border:`1.5px solid ${item.d?C.ok:C.bdr}`,background:item.d?C.ok:'#fff',color:'#fff',cursor:!canEditChk||chkBusy?'not-allowed':'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',padding:0,fontSize:10,lineHeight:1,fontFamily:'inherit',opacity:chkBusy?0.6:1}}
+                                    >
+                                      {item.d?'✓':''}
+                                    </button>
+                                    <span
+                                      onClick={canEditChk&&!chkBusy?(e)=>toggleSidebarChkItem(s,idx,e):undefined}
+                                      style={{flex:1,minWidth:0,textDecoration:item.d?'line-through':'none',wordBreak:'break-word',cursor:canEditChk&&!chkBusy?'pointer':'default'}}
+                                    >
+                                      {item.t}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
+                    </div>
                     );
                   })}
                 </div>
@@ -4578,19 +4705,15 @@ const fmtSalePriceEokWon=(priceMan)=>{
 /* 매물 상세 - 지도영역 외부 사이트 연결 (지번주소로 검색결과 연결) */
 const EXT_SITES=[
   {key:'K',label:'카카오맵',bg:'#FEE500',fg:'#3C1E1E',url:(addr)=>`https://map.kakao.com/?q=${encodeURIComponent(addr)}`},
-  {key:'D',label:'디스코',bg:'#1F2937',fg:'#FFFFFF',handler:'disco'},
-  {key:'B',label:'밸류맵',bg:'#2563EB',fg:'#FFFFFF',url:()=>`https://www.valueupmap.com/`},
+  {key:'V',label:'밸류맵',bg:'#2563EB',fg:'#FFFFFF',url:()=>`https://www.valueupmap.com/`},
   {key:'N',label:'네이버 부동산',bg:'#03C75A',fg:'#FFFFFF',url:()=>`https://land.naver.com/`},
 ];
-const ExtSiteBtn=({site,addr,property})=>(
+const ExtSiteBtn=({site,addr})=>(
   <button
     type="button"
-    title={site.handler==='disco'
-      ? ((property?.discoUrl||property?.disco_url) ? `${site.label} 상세 링크로 이동` : `${site.label}에서 "${addr}" 검색`)
-      : `${site.label}에서 "${addr}" 검색결과 보기`}
+    title={`${site.label}에서 "${addr}" 검색결과 보기`}
     onClick={()=>{
-      if(site.handler==='disco') handleDiscoLink(property);
-      else if(typeof site.url==='function') window.open(site.url(addr),'_blank','noopener,noreferrer');
+      if(typeof site.url==='function') window.open(site.url(addr),'_blank','noopener,noreferrer');
     }}
     style={{width:32,height:32,borderRadius:8,background:site.bg,color:site.fg,border:'none',cursor:'pointer',fontSize:13,fontWeight:700,letterSpacing:'-.02em',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px rgba(0,0,0,.04)',transition:'transform .12s,box-shadow .12s',flexShrink:0}}
     onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 4px 8px rgba(0,0,0,.18)';}}
@@ -4607,6 +4730,13 @@ const defaultCallDateTime=()=>{
 };
 
 /** 고객·매물 상세 공통 — 통화 이력 목록 + 기록 추가 폼 (고객 상세 UI 기준) */
+/** 통화 이력 — 최신(날짜·시간) 우선, 동시각이면 id 큰 순(신규 등록 상단) */
+const sortCallsNewestFirst=(list)=>[...(list||[])].sort((a,b)=>{
+  const byDateTime=`${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`);
+  if(byDateTime) return byDateTime;
+  return (Number(b.id)||0)-(Number(a.id)||0);
+});
+
 const DetailCallHistoryPanel=({
   calls,onOpen,onDeleteCall,renderCallLink,
   newCallDate,setNewCallDate,newCallTime,setNewCallTime,
@@ -4701,7 +4831,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   },[photoList.length,photoIdx]);
   const filtCusts=CU.filter(c=>!custSearch||c.name.includes(custSearch)||phoneMatches(c.phone,custSearch)||(c.co&&c.co.includes(custSearch)));
   const freePhoneOpt=freePhoneOptionFromSearch(custSearch, CU);
-  const calls=CALLS.filter(c=>c.pid===prop.id);
+  const calls=sortCallsNewestFirst(CALLS.filter(c=>c.pid===prop.id));
   const shared=isSharedRecord(propData,user?.id);
   const effectivePerms=getEffectivePermissions(companyRole,memberPermissions);
   const maskSensitive=shared&&!canReadSharedResource(effectivePerms,'call_logs');
@@ -4709,7 +4839,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   const canEditProp=canWriteRecord(propData,user?.id,companyRole,memberPermissions,'properties');
   const canWriteCalls=canWriteRecord(propData,user?.id,companyRole,memberPermissions,'call_logs');
   const sharedLabel=shared?formatSharedPropertyLabel(teamNameMap[propData.ownerId],teamRoleMap[propData.ownerId]):null;
-  if(showRental) return(<RentalWin prop={propData} onClose={()=>setShowRental(false)}/>);
+  if(showRental) return(<RentalWin prop={propData} onClose={()=>setShowRental(false)} canWrite={canEditProp}/>);
 
   const detailPhotoPanel=(
     <div style={{width:'100%',height:'100%',position:'relative',background:hasPhotos?'#111':`linear-gradient(135deg,#E6F1FB,#C7D9F5)`,display:'flex',alignItems:'center',justifyContent:'center',cursor:hasPhotos?'pointer':'default',overflow:'hidden'}}
@@ -4768,9 +4898,14 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
 
   const jibunAddr=propJibunAddr(propData)||propDisplayAddr(propData);
   const roadAddr=propRoadAddr(propData);
-  const combinedAddrDisplay=roadAddr&&roadAddr!==jibunAddr
-    ?`${jibunAddr||''}${jibunAddr&&roadAddr?' · ':''}${roadAddr}`
-    :(jibunAddr||roadAddr||'—');
+  const locationDisplay=(
+    <span style={{display:'block',lineHeight:1.45}}>
+      <span style={{display:'block'}}>{jibunAddr||roadAddr||'—'}</span>
+      {roadAddr&&roadAddr!==jibunAddr&&(
+        <span style={{display:'block',marginTop:2,color:C.txM,fontSize:12,fontWeight:400}}>{roadAddr}</span>
+      )}
+    </span>
+  );
   const buildingScale=(propData.floorsBelow?`B${propData.floorsBelow}/`:'')+(propData.floorsAbove?`${propData.floorsAbove}F`:'—');
   const saleInfoRows=buildPropSaleInfoRows(propData, RENTALS, { fmtSalePriceEokWon, fmtLandPyUnit });
   const tradePriceItems=buildTradePriceInfoItems(propData, TL);
@@ -4779,7 +4914,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
     <>
       <SecLabel ch="기본정보" plain propTitle ic="location" sx={{marginTop:0}}/>
       <PropInfoGrid items={[
-        {k:'지번주소',v:combinedAddrDisplay,full:true,wrap:true},
+        {k:'소재지',v:locationDisplay,full:true,wrap:true},
         {k:'매물 대분류',v:PROP_MAIN[propData.main]||'—'},
         {k:'매물 소분류',v:PROP_SUB[propData.main]?.[propData.sub]||'—'},
         {k:'도로상황',v:propData.roadInfo||'—',full:true},
@@ -4816,8 +4951,8 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.bdr}`}}>
           {RENTALS.length>0&&(()=>{
             const totalDep=saleInvest.existingDeposit;
-            const totalRent=RENTALS.reduce((s,r)=>s+(parseFloat(r.rent)||0),0);
-            const totalMaint=RENTALS.reduce((s,r)=>s+(parseFloat(r.maint)||0),0);
+            const totalRent=RENTALS.reduce((s,r)=>s+parseMoneyMan(r.rent),0);
+            const totalMaint=RENTALS.reduce((s,r)=>s+parseMoneyMan(r.maint),0);
             const vacantCount=RENTALS.filter(r=>r.dep===null&&r.rent===null).length;
             const rentalSummaryCell={
               padding:'10px 14px',
@@ -4866,13 +5001,13 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
       </>}
       <SecLabel ch="홍보문구" plain propTitle ic="promo"/>
       <div style={{padding:'12px 18px',borderBottom:`1px solid ${C.bdr}`}}>
-        <div style={{padding:'10px 14px',borderLeft:`3px solid ${C.bdr}`,background:C.surf2,borderRadius:'0 7px 7px 0',fontSize:13,color:propData.promo?C.txS:C.txP,lineHeight:1.7,minHeight:120,maxHeight:400,overflow:'auto'}}>
+        <div style={{padding:'10px 14px',borderLeft:`3px solid ${C.bdr}`,background:C.surf2,borderRadius:'0 7px 7px 0',fontSize:13,color:propData.promo?C.txS:C.txP,lineHeight:1.7,minHeight:120,maxHeight:400,overflow:'auto',whiteSpace:'pre-wrap'}}>
           {propData.promo||<span style={{fontStyle:'italic',color:C.txP}}>홍보문구 없음</span>}
         </div>
       </div>
       <SecLabel ch="메모" plain propTitle ic="memo"/>
       <div style={{padding:'12px 18px',borderBottom:`1px solid ${C.bdr}`}}>
-        <div style={{padding:'10px 14px',borderLeft:`3px solid ${C.bdr}`,background:C.surf2,borderRadius:'0 7px 7px 0',fontSize:13,color:propData.memo?C.txM:C.txP,lineHeight:1.7,minHeight:80,maxHeight:200,overflow:'auto'}}>
+        <div style={{padding:'10px 14px',borderLeft:`3px solid ${C.bdr}`,background:C.surf2,borderRadius:'0 7px 7px 0',fontSize:13,color:propData.memo?C.txM:C.txP,lineHeight:1.7,minHeight:80,maxHeight:200,overflow:'auto',whiteSpace:'pre-wrap'}}>
           {propData.memo||<span style={{fontStyle:'italic',color:C.txP}}>메모 없음</span>}
         </div>
       </div>
@@ -5066,30 +5201,58 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   );
   return(
     <Win title={detailWinTitle} ic="ti-building" onClose={onClose} w={PROP_DETAIL_WIN_W}
-      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr} property={propData}/>)}</>}
+      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr}/>)}</>}
       ch={detailBody}
     />
   );
 };
 
-const RentalWin=({prop,onClose})=>{
-  const dbRows=useRentals(prop.id);
+const RentalWin=({prop,onClose,canWrite=true})=>{
+  const pid=normalizePropertyLocalId(prop.id);
+  const dbRows=useRentals(pid);
   const [rows,setRows]=useState([]);
+  const [saving,setSaving]=useState(false);
+  const dirtyRef=useRef(false);
+
   useEffect(()=>{
+    dirtyRef.current=false;
+  },[pid]);
+
+  useEffect(()=>{
+    if(dirtyRef.current) return;
     setRows(dbRows.map(r=>({...r,status:(r.dep===null&&r.rent===null)?'vacant':'occupied'})));
-  },[dbRows]);
-  const updateRow=(i,field,val)=>setRows(r=>r.map((row,j)=>j===i?{...row,[field]:val}:row));
-  const addRow=()=>setRows(r=>[...r,{id:Date.now(),floor:'',tenant:'',purpose:'',area:'',dep:'',rent:'',maint:'',leaseEnd:'',memo:'',status:'occupied'}]);
-  const delRow=i=>setRows(r=>r.filter((_,j)=>j!==i));
-  const setRowStatus=(i,status)=>setRows(r=>r.map((row,j)=>j===i?{...row,status,...(status==='vacant'?{dep:null,rent:null,maint:null}:{dep:row.dep===null?'':row.dep,rent:row.rent===null?'':row.rent,maint:row.maint===null?'':row.maint})}:row));
+  },[dbRows,pid]);
+
+  const markDirty=()=>{ dirtyRef.current=true; };
+  const updateRow=(i,field,val)=>{ markDirty(); setRows(r=>r.map((row,j)=>j===i?{...row,[field]:val}:row)); };
+  const addRow=()=>{ markDirty(); setRows(r=>[...r,{id:Date.now(),floor:'',tenant:'',purpose:'',area:'',dep:'',rent:'',maint:'',leaseEnd:'',memo:'',status:'occupied'}]); };
+  const delRow=i=>{ markDirty(); setRows(r=>r.filter((_,j)=>j!==i)); };
+  const setRowStatus=(i,status)=>{ markDirty(); setRows(r=>r.map((row,j)=>j===i?{...row,status,...(status==='vacant'?{dep:null,rent:null,maint:null}:{dep:row.dep===null?'':row.dep,rent:row.rent===null?'':row.rent,maint:row.maint===null?'':row.maint})}:row)); };
   const toPy=a=>parseFloat(a)>0?`${(parseFloat(a)/3.3058).toFixed(1)}평`:'—';
   const EI={height:30,border:'none',borderBottom:`1px solid ${C.bdr}`,background:'transparent',padding:'0 8px',fontSize:13,color:C.tx,width:'100%',fontFamily:'inherit'};
 
-  const totalDep=rows.reduce((s,r)=>s+(parseFloat(r.dep)||0),0);
-  const totalRent=rows.reduce((s,r)=>s+(parseFloat(r.rent)||0),0);
-  const totalMaint=rows.reduce((s,r)=>s+(parseFloat(r.maint)||0),0);
+  const totalDep=rows.reduce((s,r)=>s+parseMoneyMan(r.dep),0);
+  const totalRent=rows.reduce((s,r)=>s+parseMoneyMan(r.rent),0);
+  const totalMaint=rows.reduce((s,r)=>s+parseMoneyMan(r.maint),0);
   const vacantCount=rows.filter(r=>r.dep===null&&r.rent===null).length;
   const saleInvest=buildSaleInvestmentMetrics(prop.price, rows, prop);
+
+  const handleSave=async()=>{
+    if(!canWrite||saving) return;
+    setSaving(true);
+    try{
+      await saveRentalsForProperty(pid, rows);
+      dirtyRef.current=false;
+      showNotification('저장하였습니다.','success');
+      onClose();
+    }catch(err){
+      console.error('[rentals save]', err);
+      const msg=err?.message==='FORBIDDEN'?PERMISSION_DENIED_TOOLTIP:(err?.message||'임대차 저장에 실패했습니다.');
+      showNotification(msg,'error');
+    }finally{
+      setSaving(false);
+    }
+  };
 
   return(
     <Win title={`임대차 내역 — ${propDisplayAddr(prop)}`} ic="ti-table" onClose={onClose} w={1320}
@@ -5132,7 +5295,7 @@ const RentalWin=({prop,onClose})=>{
               <table style={{width:'100%',minWidth:1200,borderCollapse:'collapse',fontSize:13}}>
                 <thead>
                   <tr style={{background:C.surf2,borderBottom:`1.5px solid ${C.bdr}`}}>
-                    {[['층/호실',86],['상태',90],['임차사',120],['용도',160],['면적(㎡)',74],['평',46],['보증금(만)',82],['임대료(만)',82],['관리비(만)',82],['임차계약만료일',130],['메모',260],['',30]].map(([h,w],i)=>(
+                    {[['층/호실',86],['상태',90],['임차사',120],['용도',160],['면적(㎡)',74],['평',46],['보증금(만)',96],['임대료(만)',96],['관리비(만)',96],['임차계약만료일',130],['메모',260],['',30]].map(([h,w],i)=>(
                       <th key={i} style={{padding:'9px 10px',textAlign:'left',fontSize:12,fontWeight:700,color:C.txM,letterSpacing:'.03em',textTransform:'uppercase',whiteSpace:'nowrap',width:w,minWidth:w}}>{h}</th>
                     ))}
                   </tr>
@@ -5156,7 +5319,7 @@ const RentalWin=({prop,onClose})=>{
                         <td style={{padding:'0 10px',fontSize:12,color:C.txM,whiteSpace:'nowrap'}}>{toPy(r.area)}</td>
                         {vacant?[0,1,2].map(j=><td key={j} style={{padding:'0 10px',color:C.txP,fontSize:13,fontStyle:'italic'}}>—</td>)
                           :['dep','rent','maint'].map(f=>(
-                            <td key={f} style={{padding:4}}><MoneyInput style={{...EI,width:70,textAlign:'right'}} value={r[f]??''} onChange={e=>updateRow(i,f,e.target.value)}/></td>
+                            <td key={f} style={{padding:4}}><MoneyInput style={{...EI,width:88,minWidth:88,textAlign:'right'}} value={r[f]??''} onChange={e=>updateRow(i,f,e.target.value)}/></td>
                           ))}
                         <td style={{padding:4}}>
                           <input type="date" style={{...EI,width:'100%',minWidth:118}} value={r.leaseEnd||''} onChange={e=>updateRow(i,'leaseEnd',e.target.value)}/>
@@ -5186,7 +5349,7 @@ const RentalWin=({prop,onClose})=>{
             </div>
           </div>
         </div>
-        <ActionBar saveLabel="저장" onSave={async()=>{await saveRentalsForProperty(prop.id,rows);showNotification('수정되었습니다.','info');onClose();}} onCancel={onClose}/>
+        <ActionBar saveLabel={saving?'저장 중…':'저장'} onSave={handleSave} saveDisabled={!canWrite||saving} saveDisabledTitle={!canWrite?PERMISSION_DENIED_TOOLTIP:undefined} onCancel={onClose}/>
       </>}/>
   );
 };
@@ -5417,7 +5580,7 @@ const CustDetail=({cust,onClose,onOpen,onDelete,onDeleteCall})=>{
   const CALLS=useOwnerCallLogs();
   const CU=useOwnerCustomers();
   const c=CU?.find(x=>x.id===cust.id)??cust;
-  const calls=CALLS.filter(cl=>cl.cid===c.id);
+  const calls=sortCallsNewestFirst(CALLS.filter(cl=>cl.cid===c.id));
   const callDates=custCallDatesOf(buildCustCallDateMap(CALLS),c.id);
   const [propSearch,setPropSearch]=useState('');
   const [propDropOpen,setPropDropOpen]=useState(false);
@@ -5970,7 +6133,6 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
       bldg: detailForm.title || '',
       promo: detailForm.promo || '',
       memo: detailForm.memo || '',
-      discoUrl: normalizeDiscoUrl(detailForm.discoUrl) || '',
       agentName: detailForm.agentName || '',
       agentTel: normalizePhone(detailForm.agentTel || ''),
       ...buildPriceFields(trade, priceForm),
@@ -6154,8 +6316,6 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                   <textarea className="ta" rows={9} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
                 <div style={{gridColumn:'1/-1'}}><FL label="내부 메모 (비공개)"/>
                   <textarea className="ta" rows={3} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항 (공개 안 됨)"/></div>
-                <div style={{gridColumn:'1/-1'}}><FL label="디스코 상세 링크" hint="선택"/>
-                  <input className="inp" value={detailForm.discoUrl} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
               </div>
             </div>
           </div>

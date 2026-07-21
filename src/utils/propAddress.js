@@ -2,11 +2,13 @@
  * 매물 주소 — 지번 우선 표시·저장·검색
  */
 
+import { stripTrailingDuplicateLot } from '../services/address/parseJibunAddress.js';
+
 /** @param {{ addr?: string, jibunAddr?: string, roadAddr?: string, bldg?: string }|null|undefined} p */
 export function propDisplayAddr(p) {
   if (!p) return '—';
-  const jibun = (p.jibunAddr || '').trim();
-  const addr = (p.addr || '').trim();
+  const jibun = stripTrailingDuplicateLot((p.jibunAddr || '').trim());
+  const addr = stripTrailingDuplicateLot((p.addr || '').trim());
   return jibun || addr || '—';
 }
 
@@ -34,7 +36,8 @@ export function propRoadAddr(p) {
 /** @param {{ addr?: string, jibunAddr?: string, roadAddr?: string, bldg?: string }|null|undefined} p */
 export function propJibunAddr(p) {
   if (!p) return '';
-  return (p.jibunAddr || '').trim() || (p.addr || '').trim();
+  const raw = (p.jibunAddr || '').trim() || (p.addr || '').trim();
+  return stripTrailingDuplicateLot(raw);
 }
 
 /** 상세 지도 등 — 지번·addr·건물명만 (도로명 제외) */

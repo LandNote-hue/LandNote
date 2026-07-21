@@ -1,3 +1,5 @@
+import { parseMoneyMan } from './formatMoney.js';
+
 /**
  * 매물 투자분석 — 임대차 내역 기반 자동 계산 (매물 상세)
  */
@@ -6,9 +8,9 @@
 export function sumRentalTotals(rentals) {
   return (rentals ?? []).reduce(
     (acc, r) => ({
-      totalDep: acc.totalDep + (parseFloat(String(r.dep ?? '')) || 0),
-      totalRent: acc.totalRent + (parseFloat(String(r.rent ?? '')) || 0),
-      totalMaint: acc.totalMaint + (parseFloat(String(r.maint ?? '')) || 0),
+      totalDep: acc.totalDep + parseMoneyMan(r.dep),
+      totalRent: acc.totalRent + parseMoneyMan(r.rent),
+      totalMaint: acc.totalMaint + parseMoneyMan(r.maint),
     }),
     { totalDep: 0, totalRent: 0, totalMaint: 0 },
   );

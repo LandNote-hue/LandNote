@@ -4,6 +4,7 @@ import { MENU_PATHS } from '../navigation/routes.js';
 
 const BRAND = '#C8102E';
 const SIDEBAR = '#1A2332';
+const NAV_H = 56;
 
 const TAB_ITEMS = [
   { id: 'dashboard', label: '홈', path: MENU_PATHS.dashboard },
@@ -41,6 +42,7 @@ export function MobileShell({
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
   const isMoreActive = MORE_ITEMS.some((m) => m.id === menuId);
+  const navOffset = `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))`;
 
   const go = (id) => {
     setMoreOpen(false);
@@ -55,6 +57,7 @@ export function MobileShell({
     <div style={{
       width: '100%', height: '100dvh', display: 'flex', flexDirection: 'column',
       overflow: 'hidden', background: '#F5F6FA', fontFamily: 'inherit',
+      position: 'relative',
     }}>
       <header style={{
         height: 52, background: SIDEBAR, display: 'flex', alignItems: 'center',
@@ -86,7 +89,10 @@ export function MobileShell({
         </div>
       </header>
 
-      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <main style={{
+        flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
+        paddingBottom: navOffset,
+      }}>
         {children}
       </main>
 
@@ -94,8 +100,8 @@ export function MobileShell({
         <>
           <div onClick={() => setMoreOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 400 }} />
           <div style={{
-            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 401,
-            background: '#fff', borderRadius: '16px 16px 0 0', padding: '12px 8px calc(12px + env(safe-area-inset-bottom, 0px))',
+            position: 'fixed', left: 0, right: 0, bottom: navOffset, zIndex: 401,
+            background: '#fff', borderRadius: '16px 16px 0 0', padding: '12px 8px',
             boxShadow: '0 -8px 32px rgba(0,0,0,.12)',
           }}>
             {MORE_ITEMS.map((m) => (
@@ -113,11 +119,18 @@ export function MobileShell({
         </>
       )}
 
-      <nav style={{
-        height: 'calc(56px + env(safe-area-inset-bottom, 0px))',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        background: SIDEBAR, display: 'flex', flexShrink: 0, borderTop: '1px solid rgba(255,255,255,.08)',
-      }}>
+      <nav
+        aria-label="하단 메뉴"
+        style={{
+          position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 450,
+          height: navOffset,
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          background: SIDEBAR,
+          display: 'flex',
+          borderTop: '1px solid rgba(255,255,255,.08)',
+          boxSizing: 'border-box',
+        }}
+      >
         {TAB_ITEMS.map((t) => {
           const active = menuId === t.id;
           return (
@@ -125,7 +138,7 @@ export function MobileShell({
               style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 0',
-                fontFamily: 'inherit',
+                fontFamily: 'inherit', height: NAV_H,
               }}>
               <TabIcon id={t.id} active={active} />
               <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? BRAND : 'rgba(255,255,255,.45)' }}>{t.label}</span>
@@ -136,7 +149,7 @@ export function MobileShell({
           style={{
             flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 0',
-            fontFamily: 'inherit',
+            fontFamily: 'inherit', height: NAV_H,
           }}>
           <TabIcon id="more" active={isMoreActive || moreOpen} />
           <span style={{ fontSize: 11, fontWeight: isMoreActive ? 600 : 400, color: isMoreActive ? BRAND : 'rgba(255,255,255,.45)' }}>더보기</span>

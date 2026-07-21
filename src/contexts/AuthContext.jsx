@@ -185,6 +185,7 @@ export function AuthProvider({ children }) {
 
   const memberPermsRef = useRef(null);
   const sessionAutoSyncedUserIdRef = useRef(null);
+  const profileLoadedUserIdRef = useRef(null);
 
   const refreshMemberPermissions = useCallback(async () => {
     if (!user?.id || user.id === 'dev-local') {
@@ -307,6 +308,7 @@ export function AuthProvider({ children }) {
 
   const refreshProfile = useCallback(async () => {
     if (!user?.id) {
+      profileLoadedUserIdRef.current = null;
       setProfile(null);
       setCompany(null);
       setCompanyRole(null);
@@ -315,6 +317,7 @@ export function AuthProvider({ children }) {
       return;
     }
     if (user.id === 'dev-local') {
+      profileLoadedUserIdRef.current = user.id;
       setProfile({
         id: 'dev-local',
         display_name: '로컬 개발',
@@ -328,7 +331,8 @@ export function AuthProvider({ children }) {
     }
     if (!isSupabaseConfigured) return;
 
-    setProfileLoading(true);
+    const blockUi = profileLoadedUserIdRef.current !== user.id;
+    if (blockUi) setProfileLoading(true);
     let loadedProfile = null;
     try {
       loadedProfile = await loadUserProfile(user);
@@ -346,15 +350,16 @@ export function AuthProvider({ children }) {
         setCompany(null);
         setCompanyRole(loadedProfile.user_type === 'SOLO' ? 'SOLO' : null);
       }
+      profileLoadedUserIdRef.current = user.id;
     } catch (err) {
       console.error('[profile] load', err);
       if (loadedProfile?.role) {
         setCompanyRole(normalizeCompanyRole(loadedProfile.role));
       }
     } finally {
-      setProfileLoading(false);
+      if (blockUi) setProfileLoading(false);
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     refreshProfile();

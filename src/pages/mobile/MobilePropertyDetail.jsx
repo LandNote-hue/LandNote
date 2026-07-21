@@ -114,8 +114,8 @@ export function MobilePropertyDetail() {
           <>
             <MobileSectionTitle>특징 / 메모</MobileSectionTitle>
             <MobileCard>
-              {prop.promo && <div style={{ fontSize: 14, color: M.tx, lineHeight: 1.6, marginBottom: prop.memo ? 10 : 0 }}>{prop.promo}</div>}
-              {prop.memo && <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{prop.memo}</div>}
+              {prop.promo && <div style={{ fontSize: 14, color: M.tx, lineHeight: 1.6, marginBottom: prop.memo ? 10 : 0, whiteSpace: 'pre-wrap' }}>{prop.promo}</div>}
+              {prop.memo && <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{prop.memo}</div>}
             </MobileCard>
           </>
         )}

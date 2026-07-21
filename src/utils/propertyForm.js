@@ -239,6 +239,5 @@ export function detailFormFromProperty(prop, defaults) {
     agentTel: formatPhone(prop?.agentTel || defaults?.phone || ''),
     promo: prop?.promo || '',
     memo: prop?.memo || '',
-    discoUrl: (prop?.discoUrl || prop?.disco_url || '').toString().trim(),
   };
 }

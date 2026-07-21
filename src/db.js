@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import { normalizeCustomerRecord } from './utils/customerTypes.js';
-import { looksLikeEokStored, EOK_TO_MAN } from './utils/formatMoney.js';
+import { looksLikeEokStored, EOK_TO_MAN, parseMoneyManOrNull } from './utils/formatMoney.js';
 import { DEV_LOCAL_OWNER, getActiveOwnerId, withOwnerId, canMutateRecord } from './services/sync/ownerScope.js';
 import { getSyncCompanyId } from './services/sync/syncContext.js';
 import { customerPhoneKey } from './utils/formatPhone.js';
@@ -1104,25 +1104,30 @@ export async function restoreBackupData(backup, options = {}) {
   return result;
 }
 
+/** 로컬 매물 id — Dexie pid 인덱스 타입(number) 통일 */
+export function normalizePropertyLocalId(pid) {
+  if (pid == null || pid === '') return pid;
+  if (typeof pid === 'string' && /^\d+$/.test(pid)) return Number(pid);
+  return pid;
+}
+
 export async function saveRentalsForProperty(pid, rows) {
-  const prop = await db.properties.get(pid);
+  const normalizedPid = normalizePropertyLocalId(pid);
+  if (normalizedPid == null || normalizedPid === '') {
+    throw new Error('PROPERTY_ID_REQUIRED');
+  }
+  const prop = await db.properties.get(normalizedPid);
   if (prop && !canMutateRecord(prop)) throw new Error('FORBIDDEN');
   const ownerId = prop?.ownerId ?? getActiveOwnerId();
-  const parseMoneyField = (v) => {
-    if (v === '' || v === undefined || v === null) return null;
-    const n = parseFloat(String(v).replace(/,/g, ''));
-    return Number.isFinite(n) ? n : null;
-  };
   await db.transaction('rw', db.rentals, async () => {
-    await db.rentals.where('pid').equals(pid).delete();
+    await db.rentals.where('pid').equals(normalizedPid).delete();
     for (const row of rows) {
       const { status, id: rowId, ...rest } = row;
-      const dep = status === 'vacant' ? null : parseMoneyField(rest.dep);
-      const rent = status === 'vacant' ? null : parseMoneyField(rest.rent);
-      const maint = status === 'vacant' ? null : parseMoneyField(rest.maint);
-      const payload = {
-        pid,
-        ownerId,
+      const dep = status === 'vacant' ? null : parseMoneyManOrNull(rest.dep);
+      const rent = status === 'vacant' ? null : parseMoneyManOrNull(rest.rent);
+      const maint = status === 'vacant' ? null : parseMoneyManOrNull(rest.maint);
+      const payload = withOwnerId({
+        pid: normalizedPid,
         floor: rest.floor || '',
         tenant: rest.tenant || '',
         purpose: rest.purpose || '',
@@ -1132,7 +1137,7 @@ export async function saveRentalsForProperty(pid, rows) {
         maint,
         leaseEnd: rest.leaseEnd || '',
         memo: rest.memo || '',
-      };
+      }, ownerId);
       if (rowId && typeof rowId === 'number' && rowId < 1e10) {
         await db.rentals.add({ ...payload, id: rowId });
       } else {
