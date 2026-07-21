@@ -15,6 +15,7 @@ import { normalizeJDepToMan } from '../../utils/formatMoney.js';
 
 const INDEX_KEYS = new Set([
   'id', 'cloudId', 'cloudLocalId', 'ownerId', 'companyId', 'status', 'main', 'sub', 'trade', 'fav', 'favAt', 'deletedAt',
+  'discoUrl', // cloud column disco_url로 매핑 — data JSON 중복 저장 방지
 ]);
 
 /** @param {Record<string, unknown>} prop @param {string} sessionUserId */
@@ -23,6 +24,7 @@ function propToCloudRow(prop, sessionUserId) {
   for (const [k, v] of Object.entries(prop)) {
     if (!INDEX_KEYS.has(k)) data[k] = v;
   }
+  const discoUrl = typeof prop.discoUrl === 'string' ? prop.discoUrl.trim() : '';
   const row = {
     user_id: cloudUserIdForRow(prop, sessionUserId),
     company_id: cloudCompanyIdForRow(prop),
@@ -35,6 +37,7 @@ function propToCloudRow(prop, sessionUserId) {
     fav: !!prop.fav,
     fav_at: prop.favAt || null,
     deleted_at: deletedAtToIso(prop.deletedAt),
+    disco_url: discoUrl || null,
     data: omitHeavyCloudFields(data),
     updated_at: new Date().toISOString(),
   };
@@ -48,6 +51,7 @@ function cloudRowToProp(row) {
   if (data.jDep != null && data.jDep !== '') {
     data.jDep = normalizeJDepToMan(data.jDep);
   }
+  const discoUrl = (row.disco_url || data.discoUrl || data.disco_url || '').toString().trim();
   delete data.discoUrl;
   delete data.disco_url;
   return {
@@ -62,6 +66,7 @@ function cloudRowToProp(row) {
     fav: row.fav,
     favAt: row.fav_at,
     deletedAt: deletedAtFromIso(row.deleted_at),
+    discoUrl: discoUrl || '',
   };
 }
 

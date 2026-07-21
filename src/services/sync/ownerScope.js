@@ -5,7 +5,15 @@ import { RESOURCE_READ_KEYS, RESOURCE_WRITE_KEYS } from '../../data/memberPermis
 export const DEV_LOCAL_OWNER = 'dev-local';
 
 export function getActiveOwnerId() {
-  return getSyncUserId() || DEV_LOCAL_OWNER;
+  const syncId = getSyncUserId();
+  if (syncId) return syncId;
+  try {
+    const active = localStorage.getItem('landnote.activeOwner');
+    if (active) return active;
+  } catch {
+    /* ignore */
+  }
+  return DEV_LOCAL_OWNER;
 }
 
 /** @param {Record<string, unknown>|null|undefined} item */
@@ -46,7 +54,8 @@ export function filterByDataScope(items, scope, opts = {}) {
   const resource = opts.resource ?? 'properties';
   const readKey = RESOURCE_READ_KEYS[resource];
 
-  if (!companyId || userId === DEV_LOCAL_OWNER) {
+  // 개인(SOLO)·회사 미설정·로컬 개발: 본인 소유만
+  if (isSoloRole(role) || !companyId || userId === DEV_LOCAL_OWNER) {
     return active.filter((item) => matchesOwner(item, userId));
   }
 

@@ -57,16 +57,29 @@ async function initialCloudSyncInner(userId) {
   }
 
   resetCloudLocalIdMaps();
-  const properties = await initialPropertySync(userId);
-  const customers = await initialCustomerSync(userId);
-  const schedules = await initialScheduleSync(userId);
-  const callLogs = await initialCallLogSync(userId);
+  /** @type {Record<string, unknown>} */
+  const results = {};
+  const tasks = [
+    ['properties', () => initialPropertySync(userId)],
+    ['customers', () => initialCustomerSync(userId)],
+    ['schedules', () => initialScheduleSync(userId)],
+    ['callLogs', () => initialCallLogSync(userId)],
+  ];
+  for (const [key, run] of tasks) {
+    try {
+      results[key] = await run();
+    } catch (err) {
+      console.error(`[initialCloudSync] ${key}`, err);
+      results[key] = { ok: false, error: err };
+    }
+  }
   try {
     await remapSharedForeignKeys({ schedules: db.schedules, call_logs: db.call_logs });
   } catch (err) {
     console.warn('[initialCloudSync] fk remap', err);
   }
-  return { properties, customers, schedules, callLogs };
+  const failed = tasks.some(([key]) => results[key]?.ok === false || results[key]?.error);
+  return { ...results, ok: !failed };
 }
 
 /** @param {string} userId */

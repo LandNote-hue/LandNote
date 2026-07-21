@@ -145,6 +145,9 @@ export async function pruneStaleCloudRows(table, remoteCloudIds, userId, company
       : rec.ownerId === userId;
     if (!inScope) continue;
 
+    // 구글/ICS 가져온 일정은 클라우드 pull에 없어도 로컬 유지 (동기화로 다시 맞춤)
+    if (resource === 'schedules' && rec.icsSourceId) continue;
+
     // 영구삭제 tombstone — 클라우드에 없으므로 로컬 잔여분 정리
     if (isPurgedCloudId(resource, cloudId, userId)) {
       await table.delete(rec.id);

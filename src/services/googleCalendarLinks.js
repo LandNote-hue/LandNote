@@ -1,6 +1,8 @@
-import { getActiveOwnerId } from './sync/ownerScope.js';
+import { getSyncUserId } from './sync/syncContext.js';
+import { DEV_LOCAL_OWNER } from './sync/ownerScope.js';
 
 const STORAGE_PREFIX = 'landnote.gcal.links.';
+const ACTIVE_OWNER_KEY = 'landnote.activeOwner';
 /** 수동 동기화가 아닌 경로에서 과도한 재요청을 막을 때 사용 */
 export const GCAL_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -10,6 +12,27 @@ export const GCAL_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
  * @see PRI_C in App.jsx (URGENT #DC2626, IMPORTANT #D97706, NORMAL #2563EB)
  */
 export const GCAL_LINK_COLORS = ['#499C89', '#4B99B1', '#8A69D1', '#6D7889', '#7EA356', '#6B68BE'];
+
+/** syncUserId가 아직 안 잡힌 순간의 잘못된 키(anon/dev-local) */
+const ORPHAN_OWNER_KEYS = ['anon', DEV_LOCAL_OWNER, 'null', 'undefined'];
+
+/**
+ * 연동 저장 키용 owner — React user.id 를 넘기는 것을 권장.
+ * fallback: syncUserId → landnote.activeOwner → dev-local
+ * @param {string|null|undefined} ownerId
+ */
+export function resolveGcalOwnerId(ownerId) {
+  if (ownerId && ownerId !== 'null' && ownerId !== 'undefined') return String(ownerId);
+  const syncId = getSyncUserId();
+  if (syncId) return syncId;
+  try {
+    const active = localStorage.getItem(ACTIVE_OWNER_KEY);
+    if (active && active !== DEV_LOCAL_OWNER) return active;
+  } catch {
+    /* ignore */
+  }
+  return DEV_LOCAL_OWNER;
+}
 
 /** @param {GoogleCalendarLink[]} existingLinks */
 function nextGcalColor(existingLinks) {
@@ -24,8 +47,8 @@ function nextGcalColor(existingLinks) {
   return [...counts.entries()].sort((a, b) => a[1] - b[1])[0][0];
 }
 
-/** @param {string} [ownerId] */
-function storageKey(ownerId = getActiveOwnerId()) {
+/** @param {string} ownerId */
+function storageKey(ownerId) {
   return `${STORAGE_PREFIX}${ownerId || 'anon'}`;
 }
 
@@ -43,8 +66,8 @@ function storageKey(ownerId = getActiveOwnerId()) {
  * }} GoogleCalendarLink
  */
 
-/** @param {string} [ownerId] @returns {GoogleCalendarLink[]} */
-export function listGoogleCalendarLinks(ownerId = getActiveOwnerId()) {
+/** @param {string} ownerId @returns {GoogleCalendarLink[]} */
+function readLinksRaw(ownerId) {
   try {
     const raw = localStorage.getItem(storageKey(ownerId));
     if (!raw) return [];
@@ -55,18 +78,57 @@ export function listGoogleCalendarLinks(ownerId = getActiveOwnerId()) {
   }
 }
 
+/**
+ * 잘못된 키(anon/dev-local)에 저장된 연동을 실제 계정 키로 합침
+ * @param {string} ownerId
+ */
+function migrateOrphanLinks(ownerId) {
+  if (!ownerId || ORPHAN_OWNER_KEYS.includes(ownerId)) return;
+  const primary = readLinksRaw(ownerId);
+  /** @type {Map<string, GoogleCalendarLink>} */
+  const byId = new Map(primary.map((l) => [l.sourceId, l]));
+  let changed = false;
+  for (const orphan of ORPHAN_OWNER_KEYS) {
+    const orphans = readLinksRaw(orphan);
+    if (!orphans.length) continue;
+    for (const link of orphans) {
+      if (!byId.has(link.sourceId)) {
+        byId.set(link.sourceId, link);
+        changed = true;
+      }
+    }
+    try {
+      localStorage.removeItem(storageKey(orphan));
+    } catch {
+      /* ignore */
+    }
+  }
+  if (changed) {
+    saveLinks(ownerId, [...byId.values()]);
+  }
+}
+
 /** @param {string} [ownerId] @param {GoogleCalendarLink[]} links */
 function saveLinks(ownerId, links) {
   localStorage.setItem(storageKey(ownerId), JSON.stringify(links));
+}
+
+/** @param {string} [ownerId] @returns {GoogleCalendarLink[]} */
+export function listGoogleCalendarLinks(ownerId) {
+  const id = resolveGcalOwnerId(ownerId);
+  migrateOrphanLinks(id);
+  return readLinksRaw(id);
 }
 
 /**
  * @param {GoogleCalendarLink} link
  * @param {string} [ownerId]
  */
-export function upsertGoogleCalendarLink(link, ownerId = getActiveOwnerId()) {
+export function upsertGoogleCalendarLink(link, ownerId) {
   if (!link?.icsUrl || !link?.sourceId) return;
-  const before = listGoogleCalendarLinks(ownerId);
+  const id = resolveGcalOwnerId(ownerId);
+  migrateOrphanLinks(id);
+  const before = readLinksRaw(id);
   const existing = before.find(
     (l) => l.icsUrl === link.icsUrl || l.sourceId === link.sourceId,
   );
@@ -84,19 +146,21 @@ export function upsertGoogleCalendarLink(link, ownerId = getActiveOwnerId()) {
     lastSyncAt: link.lastSyncAt ?? null,
     lastError: link.lastError ?? null,
   });
-  saveLinks(ownerId, links);
+  saveLinks(id, links);
 }
 
 /**
  * @param {string} sourceIdOrUrl
  * @param {string} [ownerId]
  */
-export function removeGoogleCalendarLink(sourceIdOrUrl, ownerId = getActiveOwnerId()) {
+export function removeGoogleCalendarLink(sourceIdOrUrl, ownerId) {
   const key = String(sourceIdOrUrl || '').trim();
   if (!key) return;
+  const id = resolveGcalOwnerId(ownerId);
+  migrateOrphanLinks(id);
   saveLinks(
-    ownerId,
-    listGoogleCalendarLinks(ownerId).filter((l) => l.sourceId !== key && l.icsUrl !== key),
+    id,
+    readLinksRaw(id).filter((l) => l.sourceId !== key && l.icsUrl !== key),
   );
 }
 
@@ -105,11 +169,13 @@ export function removeGoogleCalendarLink(sourceIdOrUrl, ownerId = getActiveOwner
  * @param {Partial<GoogleCalendarLink>} patch
  * @param {string} [ownerId]
  */
-export function patchGoogleCalendarLink(sourceId, patch, ownerId = getActiveOwnerId()) {
-  const links = listGoogleCalendarLinks(ownerId).map((l) =>
+export function patchGoogleCalendarLink(sourceId, patch, ownerId) {
+  const id = resolveGcalOwnerId(ownerId);
+  migrateOrphanLinks(id);
+  const links = readLinksRaw(id).map((l) =>
     l.sourceId === sourceId ? { ...l, ...patch } : l,
   );
-  saveLinks(ownerId, links);
+  saveLinks(id, links);
 }
 
 /** FNV-1a 32-bit — 캘린더 URL → 짧은 sourceId */

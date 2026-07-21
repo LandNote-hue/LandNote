@@ -18,7 +18,7 @@ function CloudSyncGuideWin({ onClose, isEmployee }) {
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 500,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 560,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         backdropFilter: 'blur(2px)', padding: 20, boxSizing: 'border-box',
       }}
@@ -66,9 +66,9 @@ function CloudSyncGuideWin({ onClose, isEmployee }) {
               </div>
             )}
             <div style={{ padding: '14px 16px', background: C.surf2, borderRadius: 10, border: `1px solid ${C.bdr}` }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.tx, marginBottom: 8 }}>참고</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.tx, marginBottom: 8 }}>개인 계정</div>
               <div style={{ fontSize: 13, color: C.txM, lineHeight: 1.65 }}>
-                개인 계정에는 동기화 버튼이 표시되지 않습니다. 구글 캘린더·.ics 가져오기는 일정 화면의 별도 기능입니다.
+                개인(Solo) 계정에는 동기화 버튼이 없습니다. 로그인 시 자동으로 불러오고, 등록·수정·삭제할 때만 클라우드에 반영합니다.
               </div>
             </div>
           </div>
@@ -94,10 +94,10 @@ function CloudSyncGuideWin({ onClose, isEmployee }) {
 
 /**
  * 대시보드 등 페이지 헤더용 클라우드 동기화 + 안내(?)
- * 팀(대표·직원) 계정만 표시 — 개인(SOLO)은 숨김
- * @param {{ onNotify?: (message: string, type?: string) => void }} props
+ * 팀(대표·직원) 계정만 표시 — 개인(SOLO)은 숨김 (로그인 pull + 변경 시 push)
+ * @param {{ onNotify?: (message: string, type?: string) => void, compact?: boolean }} props
  */
-export function CloudSyncHeaderActions({ onNotify }) {
+export function CloudSyncHeaderActions({ onNotify, compact = false }) {
   const { user, companyRole, profile, profileLoading } = useAuth();
   const [syncing, setSyncing] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -142,10 +142,10 @@ export function CloudSyncHeaderActions({ onNotify }) {
     lineHeight: 1,
     userSelect: 'none',
     opacity: syncing ? 0.6 : 1,
-    height: BTN_SIZE.md.height,
-    padding: `0 ${BTN_SIZE.md.padX}px`,
+    height: compact ? 34 : BTN_SIZE.md.height,
+    padding: compact ? '0 12px' : `0 ${BTN_SIZE.md.padX}px`,
     borderRadius: BTN_SIZE.md.borderRadius,
-    fontSize: BTN_SIZE.md.fontSize,
+    fontSize: compact ? 13 : BTN_SIZE.md.fontSize,
   };
 
   return (
@@ -174,7 +174,7 @@ export function CloudSyncHeaderActions({ onNotify }) {
           aria-label="클라우드 동기화 안내"
           style={{
             ...btnBase,
-            width: BTN_SIZE.md.height,
+            width: compact ? 34 : BTN_SIZE.md.height,
             padding: 0,
             background: C.surf2,
             border: `1.5px solid ${C.bdr}`,

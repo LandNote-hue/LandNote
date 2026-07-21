@@ -10,6 +10,7 @@ const DEFAULT_DETAIL = () => ({
   agentTel: '',
   promo: '',
   memo: '',
+  discoUrl: '',
 });
 
 /** @param {string} [userId] */

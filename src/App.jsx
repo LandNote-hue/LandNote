@@ -40,6 +40,7 @@ import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/cus
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
 import { loadStoragePathLabel, saveStoragePathLabel, pickStorageFolder } from "./utils/storageFolder.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
+import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
 import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
 import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars } from "./utils/icsImport.js";
@@ -888,7 +889,7 @@ const WinBar=({title,ic,onClose,acts})=>(
 );
 const PROP_DETAIL_WIN_W=1440;
 const Win=({title,ic,onClose,ch,acts,w=1020,fullWidth=false})=>(
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.42)',zIndex:200,display:'flex',flexDirection:'column',padding:fullWidth?0:WIN_OUTER_PAD,backdropFilter:'blur(3px)',boxSizing:'border-box',overflow:'hidden'}}>
+  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.42)',zIndex:520,display:'flex',flexDirection:'column',padding:fullWidth?0:WIN_OUTER_PAD,backdropFilter:'blur(3px)',boxSizing:'border-box',overflow:'hidden'}}>
     <div style={{background:C.surf,borderRadius:fullWidth?0:12,width:'100%',maxWidth:fullWidth?'100%':w,flex:1,minHeight:0,margin:'0 auto',alignSelf:'stretch',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:fullWidth?'none':'0 24px 64px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.08)'}}>
       <WinBar title={title} ic={ic} onClose={onClose} acts={acts}/>
       <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column',minHeight:0}}>{ch}</div>
@@ -2364,7 +2365,7 @@ const PropRegister=({onNav})=>{
   const [roadSearch,setRoadSearch]=useState(()=>registerDraft?.roadSearch??'');
   const [addressModalOpen,setAddressModalOpen]=useState(false);
   const [detailForm,setDetailForm]=useState(()=>registerDraft?.detailForm??{
-    title:'', agentName:'', agentTel:'', promo:'', memo:'',
+    title:'', agentName:'', agentTel:'', promo:'', memo:'', discoUrl:'',
   });
   useEffect(()=>{
     setDetailForm(f=>({
@@ -2439,6 +2440,7 @@ const PropRegister=({onNav})=>{
       roadInfo:locationForm.roadInfo||'',
       promo:detailForm.promo||'',
       memo:detailForm.memo||'',
+      discoUrl:normalizeDiscoUrl(detailForm.discoUrl)||'',
       agentName:detailForm.agentName||'',
       agentTel:normalizePhone(detailForm.agentTel)||'',
       photos:photoSlotsToSave(photoSlots),
@@ -2553,6 +2555,8 @@ const PropRegister=({onNav})=>{
               <textarea className="ta" rows={6} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>내부 메모 (비공개)</div>
               <textarea className="ta" rows={2} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항"/></div>
+            <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>디스코 상세 링크 <span style={{fontWeight:400,color:C.txP}}>(선택)</span></div>
+              <input className="inp" value={detailForm.discoUrl||''} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
           </div>
         </div>
       </div>
@@ -3112,7 +3116,7 @@ const ScheduleImportGuideWin=({onClose})=>{
   );
 };
 
-const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onUnlinkOne,gcalMeta})=>{
+const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onUnlinkOne,gcalMeta,ownerId})=>{
   const [link,setLink]=useState('');
   const [label,setLabel]=useState('');
   const [loading,setLoading]=useState(false);
@@ -3121,7 +3125,7 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
     if(loading||!link.trim()) return;
     setLoading(true);
     try{
-      const imported=await importGoogleCalendarFromLink(link,{label:label.trim()});
+      const imported=await importGoogleCalendarFromLink(link,{label:label.trim(),ownerId});
       onImported(imported);
       showNotification(`구글 캘린더를 연동했습니다. 총 ${imported.total}건 중 ${imported.added}건 가져옴, ${imported.duplicated}건 중복 제외.`,'success');
       setLink('');
@@ -3214,7 +3218,8 @@ const Calendar=({onOpen})=>{
   const icsInputRef=useRef(null);
   const [icsNotice,setIcsNotice]=useState('');
   const [googleCalOpen,setGoogleCalOpen]=useState(false);
-  const [gcalLinks,setGcalLinks]=useState(()=>listGoogleCalendarLinks());
+  const gcalOwnerId=user?.id&&user.id!=='dev-local'?user.id:undefined;
+  const [gcalLinks,setGcalLinks]=useState(()=>listGoogleCalendarLinks(gcalOwnerId));
   const [gcalSyncing,setGcalSyncing]=useState(false);
   const [importGuideOpen,setImportGuideOpen]=useState(()=>{
     try{ return localStorage.getItem(SCHEDULE_IMPORT_GUIDE_SEEN_KEY)!=='1'; }catch{ return true; }
@@ -3253,7 +3258,32 @@ const Calendar=({onOpen})=>{
     }
   };
 
-  const refreshGcalLinks=()=>setGcalLinks(listGoogleCalendarLinks());
+  const refreshGcalLinks=useCallback(()=>{
+    setGcalLinks(listGoogleCalendarLinks(gcalOwnerId));
+  },[gcalOwnerId]);
+
+  useEffect(()=>{
+    refreshGcalLinks();
+  },[refreshGcalLinks]);
+
+  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정을 현재 계정으로 복구
+  useEffect(()=>{
+    if(!gcalOwnerId) return;
+    let cancelled=false;
+    (async()=>{
+      try{
+        const misplaced=await db.schedules.where('ownerId').equals('dev-local').toArray();
+        const toFix=misplaced.filter((s)=>s.icsSourceId&&!s.deletedAt);
+        for(const s of toFix){
+          if(cancelled) return;
+          await db.schedules.update(s.id,{ownerId:gcalOwnerId});
+        }
+      }catch(err){
+        console.error('[Calendar] repair gcal ownerId',err);
+      }
+    })();
+    return()=>{ cancelled=true; };
+  },[gcalOwnerId]);
 
   const formatImportNotice=(result)=>{
     if(Array.isArray(result)){
@@ -3301,7 +3331,7 @@ const Calendar=({onOpen})=>{
     if(gcalSyncing) return;
     setGcalSyncing(true);
     try{
-      const result=await syncLinkedGoogleCalendars({force:true});
+      const result=await syncLinkedGoogleCalendars({force:true,ownerId:gcalOwnerId});
       refreshGcalLinks();
       if(result.errors&&!result.synced){
         window.alert('구글 캘린더 동기화에 실패했습니다. 연동 링크를 확인해 주세요.');
@@ -3334,7 +3364,7 @@ const Calendar=({onOpen})=>{
 
   const handleGcalUnlinkOne=(sourceId,label)=>{
     if(!window.confirm(`'${label}' 캘린더의 연동을 해제할까요? (이미 가져온 일정은 삭제되지 않습니다. 다른 연동 캘린더에는 영향이 없습니다.)`)) return;
-    removeGoogleCalendarLink(sourceId);
+    removeGoogleCalendarLink(sourceId,gcalOwnerId);
     refreshGcalLinks();
     setIcsNotice(`'${label}' 캘린더 연동을 해제했습니다.`);
   };
@@ -3407,6 +3437,7 @@ const Calendar=({onOpen})=>{
           onSyncNow={handleGcalSyncNow}
           onUnlinkOne={handleGcalUnlinkOne}
           gcalMeta={gcalMeta}
+          ownerId={gcalOwnerId}
         />
       )}
       <PH title="일정 관리" sub={fmtTodayKorean()}
@@ -4705,15 +4736,19 @@ const fmtSalePriceEokWon=(priceMan)=>{
 /* 매물 상세 - 지도영역 외부 사이트 연결 (지번주소로 검색결과 연결) */
 const EXT_SITES=[
   {key:'K',label:'카카오맵',bg:'#FEE500',fg:'#3C1E1E',url:(addr)=>`https://map.kakao.com/?q=${encodeURIComponent(addr)}`},
+  {key:'D',label:'디스코',bg:'#1F2937',fg:'#FFFFFF',handler:'disco'},
   {key:'V',label:'밸류맵',bg:'#2563EB',fg:'#FFFFFF',url:()=>`https://www.valueupmap.com/`},
   {key:'N',label:'네이버 부동산',bg:'#03C75A',fg:'#FFFFFF',url:()=>`https://land.naver.com/`},
 ];
-const ExtSiteBtn=({site,addr})=>(
+const ExtSiteBtn=({site,addr,property})=>(
   <button
     type="button"
-    title={`${site.label}에서 "${addr}" 검색결과 보기`}
+    title={site.handler==='disco'
+      ? ((property?.discoUrl||property?.disco_url) ? `${site.label} 상세 링크로 이동` : `${site.label}에서 "${addr}" 검색`)
+      : `${site.label}에서 "${addr}" 검색결과 보기`}
     onClick={()=>{
-      if(typeof site.url==='function') window.open(site.url(addr),'_blank','noopener,noreferrer');
+      if(site.handler==='disco') handleDiscoLink(property);
+      else if(typeof site.url==='function') window.open(site.url(addr),'_blank','noopener,noreferrer');
     }}
     style={{width:32,height:32,borderRadius:8,background:site.bg,color:site.fg,border:'none',cursor:'pointer',fontSize:13,fontWeight:700,letterSpacing:'-.02em',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px rgba(0,0,0,.04)',transition:'transform .12s,box-shadow .12s',flexShrink:0}}
     onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 4px 8px rgba(0,0,0,.18)';}}
@@ -5201,7 +5236,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   );
   return(
     <Win title={detailWinTitle} ic="ti-building" onClose={onClose} w={PROP_DETAIL_WIN_W}
-      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr}/>)}</>}
+      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr} property={propData}/>)}</>}
       ch={detailBody}
     />
   );
@@ -6133,6 +6168,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
       bldg: detailForm.title || '',
       promo: detailForm.promo || '',
       memo: detailForm.memo || '',
+      discoUrl: normalizeDiscoUrl(detailForm.discoUrl) || '',
       agentName: detailForm.agentName || '',
       agentTel: normalizePhone(detailForm.agentTel || ''),
       ...buildPriceFields(trade, priceForm),
@@ -6316,13 +6352,15 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                   <textarea className="ta" rows={9} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
                 <div style={{gridColumn:'1/-1'}}><FL label="내부 메모 (비공개)"/>
                   <textarea className="ta" rows={3} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항 (공개 안 됨)"/></div>
+                <div style={{gridColumn:'1/-1'}}><FL label="디스코 상세 링크" hint="선택"/>
+                  <input className="inp" value={detailForm.discoUrl||''} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
               </div>
             </div>
-          </div>
-      <ActionBar saveLabel="저장" onSave={handleSave} onDelete={onDelete?()=>onDelete(prop):null} onCancel={onClose}/>
-    </div>
-  );
-};
+        </div>
+        <ActionBar saveLabel="저장" onSave={handleSave} onDelete={onDelete?()=>onDelete(prop):null} onCancel={onClose}/>
+      </div>
+    );
+  };
 
 
 /** 북마크/직접 URL 접근 시 목록으로 돌아가며 Win 팝업으로 상세 표시 */
@@ -6479,10 +6517,11 @@ function AppShell(){
   const showNotification=useCallback((message,type='success')=>{
     if(toastHideTimerRef.current) clearTimeout(toastHideTimerRef.current);
     setToast({show:true,message,type});
+    const hideMs=1000;
     toastHideTimerRef.current=setTimeout(()=>{
       setToast(prev=>({...prev,show:false}));
       toastHideTimerRef.current=null;
-    },5000);
+    },hideMs);
   },[]);
   useEffect(()=>{
     notifyRef.fn=showNotification;

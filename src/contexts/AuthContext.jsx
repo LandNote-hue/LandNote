@@ -101,6 +101,12 @@ export function AuthProvider({ children }) {
       if (!mounted) return;
       setSession(s);
       setUser(s?.user ?? null);
+      // syncUserId는 useEffect보다 먼저 맞춰야 구글 캘린더 연동 키·일정 ownerId가 어긋나지 않음
+      if (s?.user?.id && s.user.id !== 'dev-local') setSyncUserId(s.user.id);
+      else if (!s?.user) {
+        setSyncUserId(null);
+        clearSyncCompanyContext();
+      }
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true);
       }
@@ -141,6 +147,8 @@ export function AuthProvider({ children }) {
       if (mounted) {
         setSession(s);
         setUser(s?.user ?? null);
+        if (s?.user?.id && s.user.id !== 'dev-local') setSyncUserId(s.user.id);
+        else if (!s?.user) setSyncUserId(null);
         if (s) syncAuthTokensToRememberStore(getSupabaseProjectRef());
         if (isRecoveryCallbackUrl() || window.location.pathname === PASSWORD_RESET_REDIRECT_PATH) {
           setPasswordRecovery(true);
@@ -180,12 +188,59 @@ export function AuthProvider({ children }) {
     } else if (user?.id === 'dev-local') {
       setSyncCompanyContext({ companyId: 'dev-local-company', role: 'CEO' });
       setSyncMemberPermissions(CEO_FULL_PERMISSIONS);
+    } else if (user?.id) {
+      // SOLO 등 회사 미배정: 이전 세션 company 컨텍스트가 남으면 필터가 깨질 수 있음
+      clearSyncCompanyContext();
+      if (role) setSyncCompanyContext({ companyId: null, role });
     }
   }, [user?.id, company?.id, profile?.company_id, profile?.role, companyRole, memberPermissions]);
 
   const memberPermsRef = useRef(null);
   const sessionAutoSyncedUserIdRef = useRef(null);
   const profileLoadedUserIdRef = useRef(null);
+  const [sessionCloudSyncStatus, setSessionCloudSyncStatus] = useState(
+    /** @type {'idle'|'syncing'|'done'|'error'} */ ('idle'),
+  );
+
+  /** @param {string|null|undefined} companyRoleVal @param {Record<string, unknown>|null|undefined} profileVal */
+  const resolveSessionRole = useCallback((companyRoleVal, profileVal) => {
+    const fromRole = companyRoleVal ?? profileVal?.role;
+    if (fromRole) return String(fromRole);
+    if (profileVal?.user_type === 'SOLO') return 'SOLO';
+    return null;
+  }, []);
+
+  const runInitialCloudSyncForUser = useCallback(async (userId) => {
+    setSessionCloudSyncStatus('syncing');
+    try {
+      const { initialCloudSync } = await import('../services/sync/cloudSync.js');
+      await initialCloudSync(userId);
+      setSessionCloudSyncStatus('done');
+      return { ok: true };
+    } catch (err) {
+      console.error('[auth] session auto cloud sync', err);
+      setSessionCloudSyncStatus('error');
+      throw err;
+    }
+  }, []);
+
+  /** 개인 계정 등 — 빈 화면일 때 로그인 pull 재시도 (동기화 버튼 UI 아님) */
+  const reloadSessionCloudData = useCallback(async () => {
+    if (!user?.id || user.id === 'dev-local' || !isSupabaseConfigured) {
+      return { ok: false, reason: 'skip' };
+    }
+    sessionAutoSyncedUserIdRef.current = null;
+    try {
+      sessionAutoSyncedUserIdRef.current = user.id;
+      await runInitialCloudSyncForUser(user.id);
+      return { ok: true };
+    } catch (err) {
+      if (sessionAutoSyncedUserIdRef.current === user.id) {
+        sessionAutoSyncedUserIdRef.current = null;
+      }
+      return { ok: false, error: err };
+    }
+  }, [user?.id, runInitialCloudSyncForUser]);
 
   const refreshMemberPermissions = useCallback(async () => {
     if (!user?.id || user.id === 'dev-local') {
@@ -243,23 +298,22 @@ export function AuthProvider({ children }) {
     refreshMemberPermissions();
   }, [refreshMemberPermissions]);
 
-  // 최초 로그인(세션) — 계정 유형별 자동 동기화 (개인 SOLO도 본인 데이터만 pull/push)
+  // 최초 로그인(세션) — 개인: 로그인 pull 1회 / 팀: 로그인·수동 동기화
   useEffect(() => {
     if (loading || profileLoading) return;
     if (!user?.id || user.id === 'dev-local') return;
     if (!isSupabaseConfigured) return;
     if (sessionAutoSyncedUserIdRef.current === user.id) return;
 
-    const role = companyRole ?? profile?.role;
+    const role = resolveSessionRole(companyRole, profile);
+    const solo = isSoloRole(role) || profile?.user_type === 'SOLO';
 
     const runSync = (fn) => {
       sessionAutoSyncedUserIdRef.current = user.id;
       (async () => {
         try {
           await fn();
-        } catch (err) {
-          console.error('[auth] session auto cloud sync', err);
-          // 실패 시 같은 세션에서 재시도 가능하도록
+        } catch {
           if (sessionAutoSyncedUserIdRef.current === user.id) {
             sessionAutoSyncedUserIdRef.current = null;
           }
@@ -267,12 +321,9 @@ export function AuthProvider({ children }) {
       })();
     };
 
-    // 개인(SOLO) 계정: 회사/권한 개념이 없으므로 본인 소유 데이터만 바로 pull+push
-    if (isSoloRole(role)) {
-      runSync(async () => {
-        const { initialCloudSync } = await import('../services/sync/cloudSync.js');
-        await initialCloudSync(user.id);
-      });
+    // 개인(SOLO): 로그인 시 1회 pull — 이후는 등록·수정·삭제 시에만 push
+    if (solo || !role) {
+      runSync(() => runInitialCloudSyncForUser(user.id));
       return;
     }
 
@@ -281,18 +332,21 @@ export function AuthProvider({ children }) {
     const workspaceId = company?.id ?? profile?.company_id;
     if (!workspaceId) return;
 
-    // 직원: 권한 로드 완료 대기 (null이면 아직 미수신)
     if (!isCeoRole(role) && memberPermissions == null) return;
 
     if (isCeoRole(role)) {
-      runSync(async () => {
-        const { initialCloudSync } = await import('../services/sync/cloudSync.js');
-        await initialCloudSync(user.id);
-      });
+      runSync(() => runInitialCloudSyncForUser(user.id));
     } else if (hasAnySharedReadPermission(memberPermissions)) {
       runSync(async () => {
-        const { refreshSharedCloudData } = await import('../services/sync/cloudSync.js');
-        await refreshSharedCloudData(user.id);
+        setSessionCloudSyncStatus('syncing');
+        try {
+          const { refreshSharedCloudData } = await import('../services/sync/cloudSync.js');
+          await refreshSharedCloudData(user.id);
+          setSessionCloudSyncStatus('done');
+        } catch (err) {
+          setSessionCloudSyncStatus('error');
+          throw err;
+        }
       });
     }
   }, [
@@ -300,10 +354,11 @@ export function AuthProvider({ children }) {
     profileLoading,
     user?.id,
     companyRole,
-    profile?.role,
+    profile,
     company?.id,
-    profile?.company_id,
     memberPermissions,
+    resolveSessionRole,
+    runInitialCloudSyncForUser,
   ]);
 
   const refreshProfile = useCallback(async () => {
@@ -782,6 +837,7 @@ export function AuthProvider({ children }) {
     clearSyncCompanyContext();
     sessionAutoSyncedUserIdRef.current = null;
     memberPermsRef.current = null;
+    setSessionCloudSyncStatus('idle');
     const { resetSyncSession } = await import('../services/sync/syncGate.js');
     resetSyncSession();
     setProfile(null);
@@ -927,6 +983,7 @@ export function AuthProvider({ children }) {
     teamNameMap,
     teamRoleMap,
     profileLoading,
+    sessionCloudSyncStatus,
     needsSignupCompletion,
     accountDefaults,
     loading,
@@ -952,8 +1009,9 @@ export function AuthProvider({ children }) {
     verifyCurrentPassword,
     refreshProfile,
     refreshMemberPermissions,
+    reloadSessionCloudData,
     clearAuthError: () => setAuthError(null),
-  }), [user, session, profile, company, companyRole, memberPermissions, teamMembers, teamNameMap, teamRoleMap, profileLoading, needsSignupCompletion, accountDefaults, loading, authError, passwordRecovery, signInWithEmail, signUpWithEmail, signInWithOAuth, signInWithGoogleCredential, completeOAuthSignup, abandonOAuthSignup, signOut, deleteAccount, resetPassword, confirmPasswordReset, updateProfile, updatePassword, verifyCurrentPassword, refreshProfile, refreshMemberPermissions]);
+  }), [user, session, profile, company, companyRole, memberPermissions, teamMembers, teamNameMap, teamRoleMap, profileLoading, sessionCloudSyncStatus, needsSignupCompletion, accountDefaults, loading, authError, passwordRecovery, signInWithEmail, signUpWithEmail, signInWithOAuth, signInWithGoogleCredential, completeOAuthSignup, abandonOAuthSignup, signOut, deleteAccount, resetPassword, confirmPasswordReset, updateProfile, updatePassword, verifyCurrentPassword, refreshProfile, refreshMemberPermissions, reloadSessionCloudData]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

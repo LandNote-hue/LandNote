@@ -767,7 +767,7 @@ export async function importGoogleCalendarFromLink(link, options = {}) {
       enabled: true,
       lastSyncAt: new Date().toISOString(),
       lastError: null,
-    });
+    }, options.ownerId);
   }
   return result;
 }
@@ -783,7 +783,8 @@ export async function syncLinkedGoogleCalendars(options = {}) {
 
   linkedSyncInFlight = (async () => {
     const force = options.force !== false;
-    const links = listGoogleCalendarLinks().filter((l) => l.enabled !== false);
+    const ownerId = options.ownerId;
+    const links = listGoogleCalendarLinks(ownerId).filter((l) => l.enabled !== false);
     if (!links.length) {
       return { added: 0, updated: 0, skipped: 0, duplicated: 0, total: 0, synced: 0, errors: 0 };
     }
@@ -814,12 +815,12 @@ export async function syncLinkedGoogleCalendars(options = {}) {
         patchGoogleCalendarLink(link.sourceId, {
           lastSyncAt: new Date().toISOString(),
           lastError: null,
-        });
+        }, ownerId);
       } catch (err) {
         errors += 1;
         patchGoogleCalendarLink(link.sourceId, {
           lastError: err instanceof Error ? err.message : String(err),
-        });
+        }, ownerId);
         console.error('[googleCalendarSync]', link.sourceId, err);
       }
     }
