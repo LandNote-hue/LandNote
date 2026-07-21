@@ -46,6 +46,53 @@ export function MobileScheduleDetail() {
           </>
         )}
 
+        {(() => {
+          const chkList = Array.isArray(sched.chk)
+            ? sched.chk.filter((c) => c && String(c.t || '').trim())
+            : [];
+          if (!chkList.length) return null;
+          const done = chkList.filter((c) => c.d).length;
+          return (
+            <>
+              <MobileSectionTitle>체크리스트 ({done}/{chkList.length})</MobileSectionTitle>
+              <MobileCard style={{ padding: '8px 0' }}>
+                {chkList.map((c, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                      padding: '10px 16px',
+                      borderBottom: i < chkList.length - 1 ? `1px solid ${M.bdr}` : 'none',
+                    }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 18, height: 18, borderRadius: 4, flexShrink: 0, marginTop: 1,
+                        border: `1.5px solid ${c.d ? M.brand : M.bdr}`,
+                        background: c.d ? M.brand : '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      {c.d && (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </span>
+                    <span style={{
+                      fontSize: 14, lineHeight: 1.45, color: c.d ? M.txP : M.tx,
+                      textDecoration: c.d ? 'line-through' : 'none', wordBreak: 'keep-all',
+                    }}>
+                      {String(c.t).trim()}
+                    </span>
+                  </div>
+                ))}
+              </MobileCard>
+            </>
+          );
+        })()}
+
         {sched.memo && (
           <>
             <MobileSectionTitle>메모</MobileSectionTitle>

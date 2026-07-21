@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
 import {
   MAP_CONTROL_RIGHT,
   MAP_ZOOM_RAIL_TOP,
   MAP_ZOOM_RAIL_WIDTH,
+  MAP_MOBILE_INSET,
+  MAP_MOBILE_ZOOM_TOP,
 } from './mapSiteLayout.js';
 
 const C = {
@@ -17,6 +20,7 @@ const KAKAO_MAX_LEVEL = 14;
 
 /** @param {{ map: object | null, mapReady: boolean, onZoom?: (level: number) => void }} props */
 export function MapZoomRail({ map, mapReady, onZoom }) {
+  const isMobile = useIsMobile();
   const [level, setLevel] = useState(KAKAO_MAX_LEVEL);
 
   useEffect(() => {
@@ -72,8 +76,8 @@ export function MapZoomRail({ map, mapReady, onZoom }) {
     <div
       style={{
         position: 'absolute',
-        top: MAP_ZOOM_RAIL_TOP,
-        right: MAP_CONTROL_RIGHT,
+        top: isMobile ? MAP_MOBILE_ZOOM_TOP : MAP_ZOOM_RAIL_TOP,
+        right: isMobile ? MAP_MOBILE_INSET : MAP_CONTROL_RIGHT,
         zIndex: 110,
         display: 'flex',
         flexDirection: 'column',

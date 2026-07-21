@@ -31,18 +31,26 @@ export function MobileCallList() {
             return (
               <MobileCard key={c.id} style={{ margin: 0, cursor: 'pointer' }}>
                 <div onClick={() => navigate(`/calls/${c.id}`)}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: M.tx }}>{cust?.name || '고객 미지정'}</span>
-                    <span style={{ fontSize: 12, color: M.txM, flexShrink: 0 }}>{c.date} {c.time}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{
+                      fontSize: 15, fontWeight: 700, color: M.tx, lineHeight: 1.45, minWidth: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis',
+                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    }}>
+                      {c.content || '내용 없음'}
+                    </div>
+                    <span style={{ fontSize: 12, color: M.txM, flexShrink: 0, textAlign: 'right', lineHeight: 1.4 }}>
+                      {c.date}{c.time ? ` ${String(c.time).slice(0, 5)}` : ''}
+                    </span>
                   </div>
-                  {prop && (
-                    <div style={{ fontSize: 12, color: M.txP, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {propDisplayAddr(prop)}
+                  {(cust?.name || prop) && (
+                    <div style={{
+                      marginTop: 8, fontSize: 12, color: M.txM, lineHeight: 1.45,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {[cust?.name, prop ? propDisplayAddr(prop) : null].filter(Boolean).join(' · ')}
                     </div>
                   )}
-                  <div style={{ fontSize: 13, color: M.txS, marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {c.content}
-                  </div>
                 </div>
               </MobileCard>
             );

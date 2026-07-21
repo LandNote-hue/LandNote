@@ -90,8 +90,8 @@ import { MobileCustomerList } from "./pages/mobile/MobileCustomerList.jsx";
 import { MobileCustomerDetail } from "./pages/mobile/MobileCustomerDetail.jsx";
 import { MobileCallList } from "./pages/mobile/MobileCallList.jsx";
 import { MobileCallDetail } from "./pages/mobile/MobileCallDetail.jsx";
-import { MobileScheduleList } from "./pages/mobile/MobileScheduleList.jsx";
 import { MobileScheduleDetail } from "./pages/mobile/MobileScheduleDetail.jsx";
+import { MobileCalendar } from "./pages/mobile/MobileCalendar.jsx";
 import { initialCloudSync, pushRestoredLocalData } from "./services/sync/cloudSync.js";
 import {
   useOwnerCustomers,
@@ -888,7 +888,14 @@ const WinBar=({title,ic,onClose,acts})=>(
 );
 const PROP_DETAIL_WIN_W=1440;
 const Win=({title,ic,onClose,ch,acts,w=1020,fullWidth=false})=>(
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.42)',zIndex:520,display:'flex',flexDirection:'column',padding:fullWidth?0:WIN_OUTER_PAD,backdropFilter:'blur(3px)',boxSizing:'border-box',overflow:'hidden'}}>
+  <div style={{
+    position:'fixed',inset:0,background:'rgba(0,0,0,.42)',zIndex:520,
+    display:'flex',flexDirection:'column',
+    padding:fullWidth?0:WIN_OUTER_PAD,
+    /* 모바일 브라우저 주소창 등으로 하단이 잘리지 않도록 */
+    maxHeight:'100dvh', boxSizing:'border-box',
+    backdropFilter:'blur(3px)', overflow:'hidden',
+  }}>
     <div style={{background:C.surf,borderRadius:fullWidth?0:12,width:'100%',maxWidth:fullWidth?'100%':w,flex:1,minHeight:0,margin:'0 auto',alignSelf:'stretch',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:fullWidth?'none':'0 24px 64px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.08)'}}>
       <WinBar title={title} ic={ic} onClose={onClose} acts={acts}/>
       <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column',minHeight:0}}>{ch}</div>
@@ -4118,7 +4125,7 @@ const Trash=()=>{
   );
 };
 /* ═══ SETTINGS OVERLAY ═══ */
-const Settings=({onClose})=>{
+const Settings=({onClose,onSignOut})=>{
   const navigate=useNavigate();
   const { user, profile, accountDefaults, updateProfile, updatePassword, verifyCurrentPassword, company, companyRole, profileLoading, isConfigured, isDevBypass, refreshProfile }=useAuth();
   const displayRole=companyRole??(profile?.role?normalizeCompanyRole(profile.role):null);
@@ -4487,6 +4494,25 @@ const Settings=({onClose})=>{
                 회원탈퇴
               </span>
             </button>
+          </div>
+        )}
+        {onSignOut&&(
+          <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}>
+            <div style={{padding:'12px 18px',background:C.surf2,borderBottom:`1px solid ${C.bdr}`,fontSize:14,fontWeight:600,color:C.tx,borderRadius:'10px 10px 0 0'}}>계정</div>
+            <div style={{padding:'16px 18px'}}>
+              <button
+                type="button"
+                onClick={()=>{ onClose?.(); onSignOut(); }}
+                style={{
+                  width:'100%', height:42, borderRadius:8, border:`1.5px solid ${C.bdr}`,
+                  background:'#fff', color:C.tx, fontSize:14, fontWeight:600, cursor:'pointer',
+                  fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                로그아웃
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -6650,7 +6676,7 @@ function AppShell(){
         <Route path="/customers/:id" element={<MobileCustomerDetail/>} />
         <Route path="/calls" element={<MobileCallList/>} />
         <Route path="/calls/:id" element={<MobileCallDetail/>} />
-        <Route path="/calendar" element={<MobileScheduleList/>} />
+        <Route path="/calendar" element={<MobileCalendar/>} />
         <Route path="/calendar/:id" element={<MobileScheduleDetail/>} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
@@ -6660,7 +6686,7 @@ function AppShell(){
   const overlays=(
     <>
       {globalConfirm&&<ConfirmDialog msg={globalConfirm.msg} subMsg={globalConfirm.subMsg} confirmLabel={globalConfirm.confirmLabel} danger={globalConfirm.danger||false} onConfirm={globalConfirm.onConfirm} onCancel={()=>setGlobalConfirm(null)}/>}
-      {showSet&&<Settings onClose={()=>setShowSet(false)}/>}
+      {showSet&&<Settings onClose={()=>setShowSet(false)} onSignOut={handleSignOut}/>}
       {wins.map(w=>{
           const close=()=>closeWin(w.wid);
           if(w.type==='fm') return (<FolderManageWin key={w.wid} folders={folders} setFolders={setFolders} propFolders={propFolders} setPropFolders={setPropFolders} onClose={close} onOpen={openWin}/>);
@@ -6699,12 +6725,12 @@ function AppShell(){
     return(
       <>
         <MobileShell screenTitle={titleLabel} menuId={menuId}
-          onSettings={()=>setShowSet(true)} onSignOut={handleSignOut} onViewDesktop={viewDesktop}>
+          onSettings={()=>setShowSet(true)} onViewDesktop={viewDesktop}>
           <div style={{flex:1,overflow:'hidden',background:C.bg,display:'flex',flexDirection:'column',minHeight:0}}>
             {mobileRoutes}
           </div>
         </MobileShell>
-        {showSet&&<Settings onClose={()=>setShowSet(false)}/>}
+        {showSet&&<Settings onClose={()=>setShowSet(false)} onSignOut={handleSignOut}/>}
         <ToastPopup toast={toast} onClose={dismissToast}/>
       </>
     );

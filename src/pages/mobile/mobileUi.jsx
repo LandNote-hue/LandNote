@@ -19,7 +19,16 @@ export const M = {
 
 export function MobilePage({ children }) {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '14px 14px 24px' }}>
+    <div style={{
+      flex: 1,
+      minHeight: 0,
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      WebkitOverflowScrolling: 'touch',
+      /* 짧은 세로 화면에서도 마지막 항목이 잘리지 않도록 여유 패딩 */
+      padding: '14px 14px calc(48px + env(safe-area-inset-bottom, 0px))',
+      boxSizing: 'border-box',
+    }}>
       {children}
     </div>
   );

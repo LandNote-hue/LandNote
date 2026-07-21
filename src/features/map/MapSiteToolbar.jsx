@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
 import {
   MAP_CONTROL_RIGHT,
   MAP_TOOLBAR_TOP,
   MAP_TOOLBAR_MAX_WIDTH,
+  MAP_MOBILE_INSET,
+  MAP_MOBILE_TOOLBAR_TOP,
+  MAP_MOBILE_TOOLBAR_MAX_WIDTH,
 } from './mapSiteLayout.js';
 
 const KAKAO_BLUE = '#3396FF';
@@ -48,6 +52,7 @@ export function MapSiteToolbar({
   roadviewActive = false,
   onRoadviewToggle,
 }) {
+  const isMobile = useIsMobile();
   const [surface, setSurface] = useState(/** @type {MapSurfaceType} */ ('roadmap'));
   const [layerOpen, setLayerOpen] = useState(false);
   const [activeLayers, setActiveLayers] = useState(/** @type {Set<MapLayerId>} */ (new Set()));
@@ -89,10 +94,10 @@ export function MapSiteToolbar({
 
     try {
       await navigator.clipboard.writeText(url);
-      setExportMsg('링크 복사됨');
+      setExportMsg('복사됨');
     } catch {
       window.prompt('아래 링크를 복사하세요.', url);
-      setExportMsg('링크 표시됨');
+      setExportMsg('표시됨');
     }
     setTimeout(() => setExportMsg(''), 1800);
   }, [map]);
@@ -131,9 +136,26 @@ export function MapSiteToolbar({
 
   if (!mapReady || !map || !kakao) return null;
 
+  const padX = isMobile ? 8 : 12;
+  const btnH = 32;
+
   return (
     <div
-      style={{
+      style={isMobile ? {
+        position: 'absolute',
+        top: MAP_MOBILE_TOOLBAR_TOP,
+        left: MAP_MOBILE_INSET,
+        zIndex: 110,
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'nowrap',
+        gap: 4,
+        maxWidth: MAP_MOBILE_TOOLBAR_MAX_WIDTH,
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        pointerEvents: 'auto',
+        scrollbarWidth: 'none',
+      } : {
         position: 'absolute',
         top: MAP_TOOLBAR_TOP,
         right: MAP_CONTROL_RIGHT,
@@ -153,6 +175,7 @@ export function MapSiteToolbar({
           borderRadius: 4,
           overflow: 'hidden',
           boxShadow: '0 1px 4px rgba(0,0,0,.18)',
+          flexShrink: 0,
         }}
       >
         {[
@@ -167,12 +190,13 @@ export function MapSiteToolbar({
               onClick={() => applySurface(/** @type {MapSurfaceType} */ (id))}
               style={{
                 ...btnBase,
-                height: 32,
-                padding: '0 12px',
-                fontSize: 13,
+                height: btnH,
+                padding: `0 ${padX}px`,
+                fontSize: isMobile ? 12 : 13,
                 fontWeight: 500,
                 color: active ? '#fff' : '#222',
                 background: active ? KAKAO_BLUE : '#fff',
+                whiteSpace: 'nowrap',
               }}
             >
               {label}
@@ -189,11 +213,12 @@ export function MapSiteToolbar({
         onClick={onRoadviewToggle}
         style={{
           ...btnBase,
-          width: 36,
-          height: 32,
+          width: isMobile ? 32 : 36,
+          height: btnH,
           borderRadius: 4,
           boxShadow: '0 1px 4px rgba(0,0,0,.18)',
           background: roadviewActive ? '#E8F3FF' : '#fff',
+          flexShrink: 0,
         }}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={roadviewActive ? KAKAO_BLUE : '#222'} strokeWidth="1.8">
@@ -203,7 +228,7 @@ export function MapSiteToolbar({
         </svg>
       </button>
 
-      <div ref={layerRef} style={{ position: 'relative' }}>
+      <div ref={layerRef} style={{ position: 'relative', flexShrink: 0 }}>
         <button
           type="button"
           title="레이어"
@@ -211,8 +236,8 @@ export function MapSiteToolbar({
           onClick={() => setLayerOpen((v) => !v)}
           style={{
             ...btnBase,
-            width: 36,
-            height: 32,
+            width: isMobile ? 32 : 36,
+            height: btnH,
             borderRadius: 4,
             boxShadow: '0 1px 4px rgba(0,0,0,.18)',
             background: activeLayers.size > 0 ? '#E8F3FF' : '#fff',
@@ -229,7 +254,8 @@ export function MapSiteToolbar({
             style={{
               position: 'absolute',
               top: 'calc(100% + 4px)',
-              right: 0,
+              left: isMobile ? 0 : 'auto',
+              right: isMobile ? 'auto' : 0,
               minWidth: 132,
               background: '#fff',
               borderRadius: 6,
@@ -262,19 +288,23 @@ export function MapSiteToolbar({
 
       <button
         type="button"
+        title="지도 링크 내보내기"
+        aria-label="내보내기"
         onClick={exportMapLink}
         style={{
           ...btnBase,
-          height: 32,
-          padding: '0 12px',
+          height: btnH,
+          padding: isMobile ? '0 8px' : '0 12px',
           borderRadius: 4,
           boxShadow: '0 1px 4px rgba(0,0,0,.18)',
-          fontSize: 13,
+          fontSize: isMobile ? 12 : 13,
           fontWeight: 500,
           color: '#222',
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
         }}
       >
-        {exportMsg || '내보내기'}
+        {exportMsg || (isMobile ? '공유' : '내보내기')}
       </button>
     </div>
   );

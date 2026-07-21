@@ -47,13 +47,33 @@ body {
 }
 
 @media (max-width: 768px) {
+  :root {
+    /* 짧은 세로·모바일에서 110% zoom이 하단 nav/콘텐츠를 잘라냄 */
+    --ui-scale: 1;
+  }
+
+  html {
+    zoom: 1;
+    width: 100%;
+    height: 100%;
+  }
+
   #root {
     max-width: none;
-    min-height: 100dvh;
+    min-height: 100%;
+    height: 100%;
   }
 
   html,
   body {
     background: #f5f6fa;
+  }
+
+  @supports not (zoom: 1) {
+    html {
+      transform: none;
+      width: 100%;
+      height: 100%;
+    }
   }
 }

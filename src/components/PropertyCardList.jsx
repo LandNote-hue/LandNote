@@ -67,47 +67,47 @@ export function PropertyCardList({
             cursor: 'pointer',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
-            <button
-              type="button"
-              onClick={(e) => onToggleFav(p, e)}
-              aria-label={p.fav ? '즐겨찾기 해제' : '즐겨찾기'}
-              style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                fontSize: 20, lineHeight: 1, color: p.fav ? '#F59E0B' : '#CBD5E1', flexShrink: 0,
-              }}
-            >
-              {p.fav ? '★' : '☆'}
-            </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: 15, fontWeight: 600, color: '#0F172A', lineHeight: 1.35,
-                wordBreak: 'keep-all',
-              }}>
-                {propDisplayAddr(p)}
-              </div>
-              {sharedLabel && <div style={{ marginTop: 5 }}><SharedTag label={sharedLabel} /></div>}
-              {p.bldg && (
-                <div style={{ fontSize: 13, color: '#6B7280', marginTop: 3 }}>{p.bldg}</div>
+          <div style={{
+            fontSize: 15, fontWeight: 600, color: '#0F172A', lineHeight: 1.4,
+            wordBreak: 'keep-all', overflowWrap: 'anywhere',
+            marginBottom: 10,
+          }}>
+            {propDisplayAddr(p)}
+            {p.bldg ? ` · ${p.bldg}` : ''}
+          </div>
+          {sharedLabel && <div style={{ marginBottom: 8 }}><SharedTag label={sharedLabel} /></div>}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={(e) => onToggleFav(p, e)}
+                aria-label={p.fav ? '즐겨찾기 해제' : '즐겨찾기'}
+                style={{
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  fontSize: 18, lineHeight: 1, color: p.fav ? '#F59E0B' : '#CBD5E1', flexShrink: 0,
+                }}
+              >
+                {p.fav ? '★' : '☆'}
+              </button>
+              <StatusChip status={p.status} />
+              {p.tag && (
+                <span style={{
+                  fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 4,
+                  background: '#F1F5F9', color: '#475569',
+                }}>
+                  {p.tag}
+                </span>
+              )}
+              {p.trade && (
+                <span style={{ fontSize: 12, color: '#6B7280' }}>{TL[p.trade] || p.trade}</span>
               )}
             </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#2563EB', flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <div style={{
+              fontSize: 15, fontWeight: 700, color: '#2563EB', flexShrink: 0,
+              whiteSpace: 'nowrap', textAlign: 'right',
+            }}>
               {propPrice(p)}
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <StatusChip status={p.status} />
-            {p.tag && (
-              <span style={{
-                fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 4,
-                background: '#F1F5F9', color: '#475569',
-              }}>
-                {p.tag}
-              </span>
-            )}
-            {p.trade && (
-              <span style={{ fontSize: 12, color: '#6B7280' }}>{TL[p.trade] || p.trade}</span>
-            )}
           </div>
         </article>
         );

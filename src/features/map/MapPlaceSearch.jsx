@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadKakaoMaps, searchMapLocations } from '../../services/kakao/kakaoMaps.js';
 import { ZOOM_PLACE_SEARCH_PERCENT } from './mapZoom.js';
+import {
+  MAP_MOBILE_INSET,
+  MAP_MOBILE_PLACE_SEARCH_HEIGHT,
+  MAP_MOBILE_PLACE_SEARCH_TOP,
+} from './mapSiteLayout.js';
 
 const KAKAO_BLUE = '#3396FF';
 const C = {
@@ -86,15 +91,25 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
     }
   };
 
+  const inputH = isMobile ? MAP_MOBILE_PLACE_SEARCH_HEIGHT : 42;
+
   return (
     <div
       ref={wrapRef}
-      style={{
+      style={isMobile ? {
+        position: 'absolute',
+        top: MAP_MOBILE_PLACE_SEARCH_TOP,
+        left: MAP_MOBILE_INSET,
+        right: MAP_MOBILE_INSET,
+        width: 'auto',
+        zIndex: 105,
+        pointerEvents: 'auto',
+      } : {
         position: 'absolute',
         top: 10,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: isMobile ? 'calc(100% - 24px)' : 'min(440px, calc(100% - 120px))',
+        width: 'min(440px, calc(100% - 120px))',
         zIndex: 105,
         pointerEvents: 'auto',
       }}
@@ -110,7 +125,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
           overflow: 'hidden',
         }}
       >
-        <span style={{ padding: '0 12px', color: KAKAO_BLUE, display: 'flex' }} aria-hidden>
+        <span style={{ padding: isMobile ? '0 10px' : '0 12px', color: KAKAO_BLUE, display: 'flex' }} aria-hidden>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
             <circle cx="11" cy="11" r="7" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -122,13 +137,13 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => { if (results.length) setOpen(true); }}
           onKeyDown={onKeyDown}
-          placeholder="장소, 주소, 지하철역 검색"
+          placeholder={isMobile ? '장소·주소 검색' : '장소, 주소, 지하철역 검색'}
           autoComplete="off"
           style={{
             flex: 1,
             border: 'none',
             outline: 'none',
-            height: 42,
+            height: inputH,
             fontSize: 14,
             color: C.tx,
             background: 'transparent',
@@ -142,8 +157,8 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
             border: 'none',
             background: KAKAO_BLUE,
             color: '#fff',
-            height: 42,
-            padding: '0 16px',
+            height: inputH,
+            padding: isMobile ? '0 12px' : '0 16px',
             fontSize: 13,
             fontWeight: 600,
             cursor: 'pointer',
@@ -163,7 +178,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
             borderRadius: 8,
             border: `1px solid ${C.bdr}`,
             boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-            maxHeight: 320,
+            maxHeight: isMobile ? 220 : 320,
             overflowY: 'auto',
           }}
         >
@@ -215,9 +230,11 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
           ))}
         </div>
       )}
-      <div style={{ fontSize: 10, color: C.txP, textAlign: 'center', marginTop: 4 }}>
-        카카오맵 지도검색 · 선택 시 해당 위치로 이동 (줌 {ZOOM_PLACE_SEARCH_PERCENT}%)
-      </div>
+      {!isMobile && (
+        <div style={{ fontSize: 10, color: C.txP, textAlign: 'center', marginTop: 4 }}>
+          카카오맵 지도검색 · 선택 시 해당 위치로 이동 (줌 {ZOOM_PLACE_SEARCH_PERCENT}%)
+        </div>
+      )}
     </div>
   );
 }
