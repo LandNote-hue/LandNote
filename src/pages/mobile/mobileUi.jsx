@@ -17,10 +17,13 @@ export const M = {
   info: '#2563EB',
 };
 
-/** 로그인 클라우드 sync / 프로필 로딩 중이면 true (ready면 앱 진입 가능) */
+/** 로그인 클라우드 sync / 프로필 로딩 중이면 true (ready·done이면 false) */
 export function useMobileCloudBusy() {
   const { user, profileLoading, sessionCloudSyncStatus } = useAuth();
   if (!isSupabaseConfigured || !user?.id || user.id === 'dev-local') return false;
+  if (sessionCloudSyncStatus === 'ready' || sessionCloudSyncStatus === 'done' || sessionCloudSyncStatus === 'error') {
+    return false;
+  }
   return profileLoading
     || sessionCloudSyncStatus === 'idle'
     || sessionCloudSyncStatus === 'syncing';

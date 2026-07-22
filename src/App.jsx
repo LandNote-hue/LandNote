@@ -145,10 +145,20 @@ class RouteErrorBoundary extends React.Component {
   }
 
   static getDerivedStateFromError(error) {
+    // 브라우저 번역·확장/DOM 경합으로 나는 removeChild는 화면 전체를 깨지 않음
+    const msg = String(error?.message || error || '');
+    if (error?.name === 'NotFoundError' || /removeChild/i.test(msg)) {
+      return { error: null };
+    }
     return { error };
   }
 
   componentDidCatch(error, info) {
+    const msg = String(error?.message || error || '');
+    if (error?.name === 'NotFoundError' || /removeChild/i.test(msg)) {
+      console.warn('[RouteErrorBoundary] ignored DOM removeChild', error);
+      return;
+    }
     console.error('[RouteErrorBoundary]', error, info);
   }
 
@@ -3233,26 +3243,74 @@ const CAL_EVT_GAP=2;
 const CAL_EVT_MAX=2;
 const CAL_EVT_AREA_H=CAL_EVT_MAX*(CAL_EVT_H+CAL_EVT_GAP)+CAL_EVT_H;
 const CAL_SIDEBAR_W=340;
+/** 세션당 1회만 구글 일정 owner 복구·중복 합치기 (클릭 중 liveQuery 폭주 방지) */
+const gcalCalendarRepairedOwners=new Set();
 
 const CalEvtSlot=({children,style})=>(
   <div style={{height:CAL_EVT_H,minHeight:CAL_EVT_H,maxHeight:CAL_EVT_H,flexShrink:0,...style}}>{children}</div>
 );
 
-const CalSchedChip=({s,gcalMeta,onClick})=>{
+const CalSchedChip=React.memo(function CalSchedChip({s,gcalMeta,onOpen}){
   const {c,bg,label}=scheduleSourceInfo(s,gcalMeta);
   const period=fmtSchedulePeriodDot(s);
   return(
     <CalEvtSlot>
       <div
         title={`${label} · ${period}${s.time?` ${s.time}`:''} ${s.title||''}`.trim()}
-        onClick={onClick}
+        onClick={(e)=>{e.stopPropagation();onOpen?.('sd',s);}}
         style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',borderRadius:4,background:bg,borderLeft:`3px solid ${c}`,cursor:'pointer',overflow:'hidden',minWidth:0}}>
         {s.time&&<span style={{fontSize:10,color:C.txM,flexShrink:0}}>{s.time.slice(0,5)}</span>}
         <span style={{fontSize:11,color:c,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{s.title}</span>
       </div>
     </CalEvtSlot>
   );
-};
+});
+
+const CalendarDayCell=React.memo(function CalendarDayCell({
+  d, cellIndex, year, month, today, selD, daySchds, dayCalls, cellBg,
+  onSelectDay, onHoverDay, onUnhoverDay, onOpen, gcalMeta,
+}){
+  const extraScheds=Math.max(0,daySchds.length-CAL_EVT_MAX);
+  return(
+    <div
+      onClick={()=>{if(d) onSelectDay(d);}}
+      onMouseEnter={()=>{if(d&&!selD) onHoverDay(d);}}
+      onMouseLeave={()=>{onUnhoverDay(d);}}
+      style={{height:CAL_CELL_H,minHeight:CAL_CELL_H,maxHeight:CAL_CELL_H,boxSizing:'border-box',padding:'6px 8px',borderRight:(cellIndex+1)%7!==0?`1px solid ${C.bdr}`:'none',borderBottom:cellIndex<35?`1px solid ${C.bdr}`:'none',cursor:d?'pointer':'default',background:cellBg,transition:'background .1s',position:'relative',overflow:'hidden',display:'flex',flexDirection:'column'}}
+    >
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',height:24,minHeight:24,flexShrink:0,marginBottom:4}}>
+        <span style={{fontSize:13,fontWeight:today||selD?700:400,width:24,height:24,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:(today&&selD)?C.brand:selD?C.info:'transparent',color:!d?C.txP:(today&&selD)||selD?'#fff':cellIndex%7===0?C.err:cellIndex%7===6?C.info:C.tx}}>{d||''}</span>
+        {d&&(
+          <span
+            onClick={e=>{e.stopPropagation();onOpen('sf',{_newDate:`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`});}}
+            style={{width:18,height:18,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:C.txP,cursor:'pointer',flexShrink:0}}
+            onMouseEnter={e=>{e.currentTarget.style.background=C.brandL;e.currentTarget.style.color=C.brand;}}
+            onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color=C.txP;}}
+          >+</span>
+        )}
+      </div>
+      <div style={{height:CAL_EVT_AREA_H,minHeight:CAL_EVT_AREA_H,maxHeight:CAL_EVT_AREA_H,display:'flex',flexDirection:'column',gap:CAL_EVT_GAP,overflow:'hidden'}}>
+        {Array.from({length:CAL_EVT_MAX}).map((_,idx)=>{
+          const s=daySchds[idx];
+          if(!s) return <CalEvtSlot key={`empty-${idx}`}/>;
+          return <CalSchedChip key={s.id} s={s} gcalMeta={gcalMeta} onOpen={onOpen}/>;
+        })}
+        <CalEvtSlot>
+          {extraScheds>0?(
+            <div style={{height:'100%',display:'flex',alignItems:'center',padding:'0 4px',fontSize:10,color:C.txM,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+              외 {extraScheds}건
+            </div>
+          ):dayCalls.length>0?(
+            <div translate="no" style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',fontSize:10,color:C.info,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}} aria-hidden><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.58 2.34.7A2 2 0 0 1 22 16.92z"/></svg>
+              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>통화 {dayCalls.length}건</span>
+            </div>
+          ):null}
+        </CalEvtSlot>
+      </div>
+    </div>
+  );
+});
 
 const Calendar=({onOpen})=>{
   const { user, companyRole, memberPermissions }=useAuth();
@@ -3317,24 +3375,33 @@ const Calendar=({onOpen})=>{
   },[refreshGcalLinks]);
 
   // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정을 현재 계정으로 복구 + ICS 중복 합치기
+  // 클릭과 겹치면 removeChild가 나므로 지연·세션 1회·트랜잭션 배치
   useEffect(()=>{
     if(!gcalOwnerId) return;
+    if(gcalCalendarRepairedOwners.has(gcalOwnerId)) return;
     let cancelled=false;
-    (async()=>{
-      try{
-        const misplaced=await db.schedules.where('ownerId').equals('dev-local').toArray();
-        const toFix=misplaced.filter((s)=>s.icsSourceId&&!s.deletedAt);
-        for(const s of toFix){
+    const timer=window.setTimeout(()=>{
+      (async()=>{
+        try{
+          const misplaced=await db.schedules.where('ownerId').equals('dev-local').toArray();
+          const toFix=misplaced.filter((s)=>s.icsSourceId&&!s.deletedAt);
+          if(toFix.length){
+            await db.transaction('rw',db.schedules,async()=>{
+              for(const s of toFix){
+                if(cancelled) return;
+                await db.schedules.update(s.id,{ownerId:gcalOwnerId});
+              }
+            });
+          }
           if(cancelled) return;
-          await db.schedules.update(s.id,{ownerId:gcalOwnerId});
+          await collapseDuplicateIcsSchedules(gcalOwnerId);
+          gcalCalendarRepairedOwners.add(gcalOwnerId);
+        }catch(err){
+          console.error('[Calendar] repair gcal ownerId',err);
         }
-        if(cancelled) return;
-        await collapseDuplicateIcsSchedules(gcalOwnerId);
-      }catch(err){
-        console.error('[Calendar] repair gcal ownerId',err);
-      }
-    })();
-    return()=>{ cancelled=true; };
+      })();
+    },1200);
+    return()=>{ cancelled=true; window.clearTimeout(timer); };
   },[gcalOwnerId]);
 
   const formatImportNotice=(result)=>{
@@ -3433,6 +3500,9 @@ const Calendar=({onOpen})=>{
   const hasItems=selScheds.length>0;
   const [hoverDay,setHoverDay]=useState(null);
   const [hoverSchedId,setHoverSchedId]=useState(null);
+  const selectDay=useCallback((d)=>setSel(d),[]);
+  const hoverDayOn=useCallback((d)=>setHoverDay(d),[]);
+  const hoverDayOff=useCallback((d)=>setHoverDay((h)=>h===d?null:h),[]);
 
   const dayData=useMemo(()=>{
     const map={};
@@ -3517,60 +3587,38 @@ const Calendar=({onOpen})=>{
           {icsNotice}
         </div>
       )}
-      <div style={{flex:1,minHeight:0,display:'flex',gap:16,padding:'20px 28px',overflow:'hidden'}}>
+      <div style={{flex:1,minHeight:0,display:'flex',gap:16,padding:'20px 28px',overflow:'hidden'}} translate="no">
         <div style={{flex:1,minWidth:0,overflow:'auto'}}>
           <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:`1px solid ${C.bdr}`}}>
               {days.map((d,i)=><div key={i} style={{textAlign:'center',padding:'10px 0',fontSize:12,fontWeight:600,color:i===0?C.err:i===6?C.info:C.txM,letterSpacing:'.04em'}}>{d}</div>)}
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gridAutoRows:`${CAL_CELL_H}px`}} translate="no">
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gridAutoRows:`${CAL_CELL_H}px`}}>
               {cells.map((d,i)=>{
                 const today=isTodayCell(d);
                 const selD=d!=null&&d===sel;
                 const hovered=d!=null&&d===hoverDay&&!selD;
                 const daySchds=d?dayData[d]?.scheds||[]:[];
                 const dayCalls=d?dayData[d]?.calls||[]:[];
-                const extraScheds=Math.max(0,daySchds.length-CAL_EVT_MAX);
                 const cellBg=!d?C.surf3:(today&&selD)?C.brandL:selD?'#fff':hovered?C.surf2:today?`${C.brand}06`:'transparent';
                 return(
-                  <div key={i}
-                    onClick={()=>{if(d){setSel(d);}}}
-                    onMouseEnter={()=>{if(d&&!selD) setHoverDay(d);}}
-                    onMouseLeave={()=>{setHoverDay((h)=>h===d?null:h);}}
-                    style={{height:CAL_CELL_H,minHeight:CAL_CELL_H,maxHeight:CAL_CELL_H,boxSizing:'border-box',padding:'6px 8px',borderRight:(i+1)%7!==0?`1px solid ${C.bdr}`:'none',borderBottom:i<35?`1px solid ${C.bdr}`:'none',cursor:d?'pointer':'default',background:cellBg,transition:'background .1s',position:'relative',overflow:'hidden',display:'flex',flexDirection:'column'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',height:24,minHeight:24,flexShrink:0,marginBottom:4}}>
-                      <span style={{fontSize:13,fontWeight:today||selD?700:400,width:24,height:24,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:(today&&selD)?C.brand:selD?C.info:'transparent',color:!d?C.txP:(today&&selD)||selD?'#fff':i%7===0?C.err:i%7===6?C.info:C.tx}}>{d||''}</span>
-                      {d&&<span onClick={e=>{e.stopPropagation();onOpen('sf',{_newDate:`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`});}} style={{width:18,height:18,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:C.txP,cursor:'pointer',flexShrink:0}}
-                        onMouseEnter={e=>{e.currentTarget.style.background=C.brandL;e.currentTarget.style.color=C.brand;}}
-                        onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color=C.txP;}}>+</span>}
-                    </div>
-                    <div style={{height:CAL_EVT_AREA_H,minHeight:CAL_EVT_AREA_H,maxHeight:CAL_EVT_AREA_H,display:'flex',flexDirection:'column',gap:CAL_EVT_GAP,overflow:'hidden'}}>
-                      {Array.from({length:CAL_EVT_MAX}).map((_,idx)=>{
-                        const s=daySchds[idx];
-                        if(!s) return <CalEvtSlot key={`empty-${idx}`}/>;
-                        return (
-                          <CalSchedChip
-                            key={s.id}
-                            s={s}
-                            gcalMeta={gcalMeta}
-                            onClick={e=>{e.stopPropagation();onOpen('sd',s);}}
-                          />
-                        );
-                      })}
-                      <CalEvtSlot>
-                        {extraScheds>0?(
-                          <div style={{height:'100%',display:'flex',alignItems:'center',padding:'0 4px',fontSize:10,color:C.txM,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
-                            외 {extraScheds}건
-                          </div>
-                        ):dayCalls.length>0?(
-                          <div translate="no" style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',fontSize:10,color:C.info,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.58 2.34.7A2 2 0 0 1 22 16.92z"/></svg>
-                            <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>통화 {dayCalls.length}건</span>
-                          </div>
-                        ):null}
-                      </CalEvtSlot>
-                    </div>
-                  </div>
+                  <CalendarDayCell
+                    key={d!=null?`d-${year}-${month}-${d}`:`e-${i}`}
+                    d={d}
+                    cellIndex={i}
+                    year={year}
+                    month={month}
+                    today={today}
+                    selD={selD}
+                    daySchds={daySchds}
+                    dayCalls={dayCalls}
+                    cellBg={cellBg}
+                    onSelectDay={selectDay}
+                    onHoverDay={hoverDayOn}
+                    onUnhoverDay={hoverDayOff}
+                    onOpen={onOpen}
+                    gcalMeta={gcalMeta}
+                  />
                 );
               })}
             </div>
@@ -6417,13 +6465,17 @@ const PropDetailRedirect=({onOpen})=>{
   const { id }=useParams();
   const navigate=useNavigate();
   const props=usePropertiesQuery();
+  const { sessionCloudSyncStatus }=useAuth();
   useEffect(()=>{
     if(props===undefined) return;
     const prop=findPropertyByRouteId(props,id);
     if(prop) onOpen('pd',prop);
     navigate('/properties',{replace:true});
   },[props,id,navigate,onOpen]);
-  return <RouteLoading label="매물 상세 여는 중…"/>;
+  if(props===undefined&&(sessionCloudSyncStatus==='idle'||sessionCloudSyncStatus==='syncing')){
+    return <RouteLoading label="매물 상세 여는 중…"/>;
+  }
+  return null;
 };
 
 const TeamManageRoute=()=>{
@@ -6451,8 +6503,13 @@ const PropEditRoute=({softDelete,onOpen})=>{
   const { id }=useParams();
   const navigate=useNavigate();
   const props=usePropertiesQuery();
-  const { user, companyRole, memberPermissions }=useAuth();
-  if(props===undefined) return <RouteLoading label="매물 정보 불러오는 중…"/>;
+  const { user, companyRole, memberPermissions, sessionCloudSyncStatus }=useAuth();
+  if(props===undefined){
+    if(sessionCloudSyncStatus==='idle'||sessionCloudSyncStatus==='syncing'){
+      return <RouteLoading label="매물 정보 불러오는 중…"/>;
+    }
+    return null;
+  }
   const prop=findPropertyByRouteId(props,id);
   if(!prop) return <Navigate to="/properties" replace />;
   if(!canWriteRecord(prop,user?.id,companyRole,memberPermissions,'properties')){
@@ -6676,10 +6733,15 @@ function AppShell(){
   if(!user&&!legacyUnlocked) return <AuthPublicRoutes {...legacyLoginProps} />;
 
   // 매물·고객 준비(ready)되면 진입 — 일정/통화는 백그라운드 수신
+  // 세션에 이미 동기화됐으면 idle이어도 전체 화면 로딩으로 막지 않음
   const waitCloudBootstrap = isSupabaseConfigured
     && !!user?.id
     && user.id !== 'dev-local'
-    && (sessionCloudSyncStatus === 'idle' || sessionCloudSyncStatus === 'syncing');
+    && (sessionCloudSyncStatus === 'idle' || sessionCloudSyncStatus === 'syncing')
+    && (() => {
+      try { return sessionStorage.getItem(`landnote.sessionCloudReady.${user.id}`) !== '1'; }
+      catch { return true; }
+    })();
   if(waitCloudBootstrap){
     return (
       <RouteLoading

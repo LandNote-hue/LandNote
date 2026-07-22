@@ -28,6 +28,20 @@ import {
 import { fetchUserCompany } from '../services/companyService.js';
 import { setSyncUserId, setSyncCompanyContext, clearSyncCompanyContext, setSyncMemberPermissions } from '../services/sync/syncContext.js';
 import { hasAnySharedReadPermission } from '../services/sync/cloudSync.js';
+
+const sessionCloudReadyKey = (userId) => `landnote.sessionCloudReady.${userId}`;
+function readSessionCloudReady(userId) {
+  if (!userId) return false;
+  try { return sessionStorage.getItem(sessionCloudReadyKey(userId)) === '1'; } catch { return false; }
+}
+function writeSessionCloudReady(userId) {
+  if (!userId) return;
+  try { sessionStorage.setItem(sessionCloudReadyKey(userId), '1'); } catch { /* ignore */ }
+}
+function clearSessionCloudReady(userId) {
+  if (!userId) return;
+  try { sessionStorage.removeItem(sessionCloudReadyKey(userId)); } catch { /* ignore */ }
+}
 import { normalizeCompanyRole, isBusinessRole, isCeoRole, isSoloRole, usesTeamCloudSync } from '../data/companyRoles.js';
 import { CEO_FULL_PERMISSIONS } from '../data/memberPermissions.js';
 import { fetchMyMemberPermissions } from '../services/memberPermissionsService.js';
@@ -231,15 +245,17 @@ export function AuthProvider({ children }) {
   }, []);
 
   const runInitialCloudSyncForUser = useCallback(async (userId, options = {}) => {
-    setSessionCloudSyncStatus('syncing');
-    setSessionCloudSyncSummary(null);
+    const quiet = options.quiet === true;
+    // quiet: 로컬 데이터가 있어 UI를 막지 않고 백그라운드만 맞춤
+    if (!quiet) {
+      setSessionCloudSyncStatus('syncing');
+      setSessionCloudSyncSummary(null);
+    }
     try {
-      // clear와 pull 경합 방지 — 스토어 준비 후 동기화
       const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
       await prepareLocalStoreForUser(userId);
 
       const { initialCloudSync, isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
-      // 로컬에 매물·고객이 있으면 전체 forcePull 생략(재로그인 가속). 빈 기기만 강제 pull.
       const essentialEmpty = await isEssentialLocalEmpty();
       const forcePull = options.forcePull === true || (options.forcePull !== false && essentialEmpty);
 
@@ -247,14 +263,13 @@ export function AuthProvider({ children }) {
         ...options,
         forcePull,
         onEssentialReady: () => {
-          // 매물·고객 준비되면 앱 진입 허용 — 일정/통화는 이어서 수신
           setSessionCloudSyncStatus('ready');
+          writeSessionCloudReady(userId);
           options.onEssentialReady?.();
         },
       });
       let summary = summarizeCloudSyncResult(result);
 
-      // pull 0건 + 로컬 비어 있으면 forcePull 1회 재시도 (복원 플래그 구멍)
       if (result?.ok !== false && summary.pulled === 0 && !forcePull) {
         const { getLocalTableCounts } = await import('../db.js');
         const counts = await getLocalTableCounts();
@@ -265,7 +280,10 @@ export function AuthProvider({ children }) {
           result = await initialCloudSync(userId, {
             ...options,
             forcePull: true,
-            onEssentialReady: () => setSessionCloudSyncStatus('ready'),
+            onEssentialReady: () => {
+              setSessionCloudSyncStatus('ready');
+              writeSessionCloudReady(userId);
+            },
           });
           summary = summarizeCloudSyncResult(result);
         }
@@ -273,24 +291,27 @@ export function AuthProvider({ children }) {
 
       setSessionCloudSyncSummary(summary);
       if (result?.ok === false) {
-        setSessionCloudSyncStatus('error');
+        if (!quiet) setSessionCloudSyncStatus('error');
         console.error('[auth] session cloud sync incomplete', result);
         throw new Error(summary.errorMessage || 'cloud sync incomplete');
       }
       setSessionCloudSyncStatus('done');
+      writeSessionCloudReady(userId);
       return { ok: true, result, summary };
     } catch (err) {
       console.error('[auth] session auto cloud sync', err);
-      setSessionCloudSyncStatus('error');
-      setSessionCloudSyncSummary((prev) => prev ?? {
-        ok: false,
-        pulled: 0,
-        properties: 0,
-        customers: 0,
-        schedules: 0,
-        callLogs: 0,
-        errorMessage: err?.message || String(err),
-      });
+      if (!quiet) {
+        setSessionCloudSyncStatus('error');
+        setSessionCloudSyncSummary((prev) => prev ?? {
+          ok: false,
+          pulled: 0,
+          properties: 0,
+          customers: 0,
+          schedules: 0,
+          callLogs: 0,
+          errorMessage: err?.message || String(err),
+        });
+      }
       throw err;
     }
   }, [summarizeCloudSyncResult]);
@@ -300,10 +321,10 @@ export function AuthProvider({ children }) {
     if (!user?.id || user.id === 'dev-local' || !isSupabaseConfigured) {
       return { ok: false, reason: 'skip' };
     }
+    clearSessionCloudReady(user.id);
     sessionAutoSyncedUserIdRef.current = null;
     try {
       sessionAutoSyncedUserIdRef.current = user.id;
-      // 모바일 빈 IndexedDB — 복원 플래그 무시하고 pull 강제
       const out = await runInitialCloudSyncForUser(user.id, { forcePull: true });
       if (out?.ok === false) {
         if (sessionAutoSyncedUserIdRef.current === user.id) {
@@ -376,37 +397,55 @@ export function AuthProvider({ children }) {
   }, [refreshMemberPermissions]);
 
   // 최초 로그인(세션) — 개인: 로그인 pull 1회 / 팀: 로그인·수동 동기화
+  // 같은 탭에서는 재진입·페이지 이동 시 전체 sync/로딩 게이트를 다시 열지 않음
   useEffect(() => {
     if (loading || profileLoading) return;
     if (!user?.id || user.id === 'dev-local') return;
     if (!isSupabaseConfigured) return;
-    if (sessionAutoSyncedUserIdRef.current === user.id) return;
+
+    if (sessionAutoSyncedUserIdRef.current === user.id || readSessionCloudReady(user.id)) {
+      sessionAutoSyncedUserIdRef.current = user.id;
+      setSessionCloudSyncStatus((s) => (s === 'idle' || s === 'syncing' ? 'done' : s));
+      writeSessionCloudReady(user.id);
+      return;
+    }
 
     const role = resolveSessionRole(companyRole, profile);
     const solo = isSoloRole(role) || profile?.user_type === 'SOLO';
 
-    const runSync = (fn) => {
+    const runSync = (fn, { keepOnError = false } = {}) => {
       sessionAutoSyncedUserIdRef.current = user.id;
       (async () => {
         try {
           await fn();
         } catch {
-          if (sessionAutoSyncedUserIdRef.current === user.id) {
+          if (!keepOnError && sessionAutoSyncedUserIdRef.current === user.id) {
             sessionAutoSyncedUserIdRef.current = null;
           }
         }
       })();
     };
 
-    // 개인(SOLO): 로그인 시 1회 sync — 로컬 비어 있을 때만 forcePull (가속)
+    // 개인(SOLO): 로컬에 데이터가 있으면 즉시 진입 + quiet 백그라운드, 없으면 1회 blocking sync
     if (solo || !role) {
-      runSync(() => runInitialCloudSyncForUser(user.id));
+      runSync(async () => {
+        const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
+        const empty = await isEssentialLocalEmpty();
+        if (!empty) {
+          setSessionCloudSyncStatus('ready');
+          writeSessionCloudReady(user.id);
+          await runInitialCloudSyncForUser(user.id, { quiet: true, forcePull: false });
+          return;
+        }
+        await runInitialCloudSyncForUser(user.id);
+      }, { keepOnError: true });
       return;
     }
 
     if (!usesTeamCloudSync(role)) {
       sessionAutoSyncedUserIdRef.current = user.id;
       setSessionCloudSyncStatus('done');
+      writeSessionCloudReady(user.id);
       return;
     }
 
@@ -416,7 +455,17 @@ export function AuthProvider({ children }) {
     if (!isCeoRole(role) && memberPermissions == null) return;
 
     if (isCeoRole(role)) {
-      runSync(() => runInitialCloudSyncForUser(user.id));
+      runSync(async () => {
+        const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
+        const empty = await isEssentialLocalEmpty();
+        if (!empty) {
+          setSessionCloudSyncStatus('ready');
+          writeSessionCloudReady(user.id);
+          await runInitialCloudSyncForUser(user.id, { quiet: true, forcePull: false });
+          return;
+        }
+        await runInitialCloudSyncForUser(user.id);
+      }, { keepOnError: true });
     } else if (hasAnySharedReadPermission(memberPermissions)) {
       runSync(async () => {
         setSessionCloudSyncStatus('syncing');
@@ -433,6 +482,7 @@ export function AuthProvider({ children }) {
           });
           setSessionCloudSyncSummary(summary);
           setSessionCloudSyncStatus('done');
+          writeSessionCloudReady(user.id);
         } catch (err) {
           setSessionCloudSyncStatus('error');
           setSessionCloudSyncSummary({
@@ -448,16 +498,18 @@ export function AuthProvider({ children }) {
         }
       });
     } else {
-      // 공유 읽기 권한 없음 — pull 대상 없음
       sessionAutoSyncedUserIdRef.current = user.id;
       setSessionCloudSyncStatus('done');
+      writeSessionCloudReady(user.id);
     }
   }, [
     loading,
     profileLoading,
     user?.id,
     companyRole,
-    profile,
+    profile?.user_type,
+    profile?.role,
+    profile?.company_id,
     company?.id,
     memberPermissions,
     resolveSessionRole,
@@ -939,8 +991,10 @@ export function AuthProvider({ children }) {
     setAuthError(null);
     setSyncUserId(null);
     clearSyncCompanyContext();
+    const prevId = user?.id;
     sessionAutoSyncedUserIdRef.current = null;
     memberPermsRef.current = null;
+    clearSessionCloudReady(prevId);
     setSessionCloudSyncStatus('idle');
     const { resetSyncSession } = await import('../services/sync/syncGate.js');
     resetSyncSession();
@@ -960,7 +1014,7 @@ export function AuthProvider({ children }) {
     clearSupabaseAuthTokens(getSupabaseProjectRef());
     setUser(null);
     setSession(null);
-  }, []);
+  }, [user?.id]);
 
   const deleteAccount = useCallback(async ({ password } = {}) => {
     setAuthError(null);

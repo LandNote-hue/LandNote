@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePropertiesQuery } from '../../hooks/useProperties.js';
+import { useProperties } from '../../hooks/useProperties.js';
 import { setPropertyFav } from '../../db.js';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { PropertyCardList } from '../../components/PropertyCardList.jsx';
@@ -36,10 +36,8 @@ function readFolderSnapshot() {
 
 export function MobilePropertyList() {
   const navigate = useNavigate();
-  const propertiesQuery = usePropertiesQuery();
+  const properties = useProperties();
   const cloudBusy = useMobileCloudBusy();
-  const properties = propertiesQuery ?? [];
-  const listLoading = cloudBusy || propertiesQuery === undefined;
   const [statusTab, setStatusTab] = useState('ALL');
   const [search, setSearch] = useState('');
   const [expandedFolders, setExpandedFolders] = useState({});
@@ -82,12 +80,12 @@ export function MobilePropertyList() {
 
   return (
     <MobilePage>
-      <MobileCloudDataHint empty={!listLoading && properties.length === 0} resourceLabel="매물" />
-      {listLoading ? (
+      <MobileCloudDataHint empty={!cloudBusy && properties.length === 0} resourceLabel="매물" />
+      {cloudBusy ? (
         <MobileCard style={{ background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>매물 불러오는 중…</div>
           <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55 }}>
-            로그인 시 클라우드에서 가져온 매물을 표시합니다. 잠시만 기다려 주세요.
+            로그인 직후 클라우드에서 매물을 가져오는 중입니다. 이후에는 저장된 목록을 바로 보여 줍니다.
           </div>
         </MobileCard>
       ) : (
