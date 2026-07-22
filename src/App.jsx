@@ -39,7 +39,6 @@ import { CUSTOMER_TRADE_OPTS, formatPreferredTradesLabel, preferredTradesOf } fr
 import { fmtCustomerBudgetRange, fmtCustomerMoney } from "./utils/customerMoney.js";
 import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/customerStatus.js";
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
-import { loadStoragePathLabel, saveStoragePathLabel, pickStorageFolder } from "./utils/storageFolder.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
@@ -81,7 +80,7 @@ import { PASSWORD_RESET_REDIRECT_PATH, validatePassword } from "./utils/authVali
 import {
   scheduleCoversDay, dateEndForSave, fmtSchedulePeriodKo, fmtSchedulePeriodDot,
 } from "./utils/schedulePeriod.js";
-import { isBusinessRole, isCeoRole, isSoloRole, companyRoleLabel } from "./data/companyRoles.js";
+import { isBusinessRole, isCeoRole, isSoloRole, companyRoleLabel, usesTeamCloudSync } from "./data/companyRoles.js";
 import { PROP_MAIN, PROP_SUB } from "./data/propertyTypes.js";
 import { matchesOwner } from "./services/sync/ownerScope.js";
 import { canWriteRecord, isSharedRecord, displayPhone, PERMISSION_DENIED_TOOLTIP, getEffectivePermissions, canReadSharedResource, formatSharedPropertyLabel, canViewTeamProperties } from "./utils/permissions.js";
@@ -3767,6 +3766,7 @@ const Backup=()=>{
   const { user, company, companyRole }=useAuth();
   const ownerId=user?.id||null;
   const ownOnlyExport=isBackupOwnRecordsOnlyExport();
+  const isTeamAccount=usesTeamCloudSync(companyRole);
   const [busy,setBusy]=useState(false);
   const [confirm,setConfirm]=useState(null);
   const [alertMsg,setAlertMsg]=useState('');
@@ -3932,7 +3932,11 @@ const Backup=()=>{
         <div style={{maxWidth:760,display:'flex',flexDirection:'column',gap:14}}>
           <div style={{background:C.warnBg,border:`1px solid ${C.warnBd}`,borderRadius:10,padding:'14px 18px',display:'flex',gap:12}}>
             <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:20,height:20,flexShrink:0,color:C.warn,marginTop:1}} aria-hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-            <div style={{fontSize:14,color:'#854F0B',lineHeight:1.6}}>IndexedDB는 브라우저 데이터입니다. 브라우저 캐시 삭제 시 모든 데이터가 손실될 수 있습니다. <strong>정기적인 백업을 권장합니다.</strong> 클라우드 동기화는 <strong>대시보드 상단</strong>의「동기화」버튼을 사용하세요.</div>
+            <div style={{fontSize:14,color:'#854F0B',lineHeight:1.6}}>
+              {isTeamAccount
+                ?<>동기화로 클라우드에 보관됩니다. <strong>대시보드 상단「동기화」</strong>로 최신 상태를 맞춰 주세요. 파일 백업(.rmxbak)은 기기 이전·사고 대비를 위한 <strong>추가 안전장치</strong>입니다.</>
+                :<>데이터가 이 브라우저(IndexedDB)에 로컬로 저장됩니다. 캐시 삭제 시 손실될 수 있으니 <strong>정기적인 파일 백업</strong>을 권장합니다.</>}
+            </div>
           </div>
           {ownOnlyExport&&(
             <div style={{background:C.surf2,border:`1px solid ${C.bdr}`,borderRadius:10,padding:'14px 18px',display:'flex',gap:12}}>
@@ -4263,16 +4267,10 @@ const Settings=({onClose,onSignOut})=>{
   const [pwModal,setPwModal]=useState(null); // { currentPassword } when open
   const [pwForm,setPwForm]=useState({ next:'', confirm:'' });
   const [pwBusy,setPwBusy]=useState(false);
-  const [storagePath,setStoragePath]=useState(()=>loadStoragePathLabel());
-  const [pickingFolder,setPickingFolder]=useState(false);
   const [bizModalOpen,setBizModalOpen]=useState(false);
   const [bizCompanyName,setBizCompanyName]=useState('');
   const [bizBusy,setBizBusy]=useState(false);
   const [bizError,setBizError]=useState('');
-
-  useEffect(()=>{
-    setStoragePath(loadStoragePathLabel());
-  },[user?.id]);
 
   useEffect(()=>{
     setForm({
@@ -4362,7 +4360,6 @@ const Settings=({onClose,onSignOut})=>{
       setForm(f=>({...f,website:''}));
       showToast('홈페이지에 이메일 형식은 저장하지 않습니다. 브라우저 자동완성을 확인해 주세요.');
     }
-    saveStoragePathLabel(storagePath.trim());
     setSaving(false);
     onClose();
   };
@@ -4424,24 +4421,6 @@ const Settings=({onClose,onSignOut})=>{
       showToast(err?.message||'비밀번호 변경 실패');
     }finally{
       setPwBusy(false);
-    }
-  };
-
-  const selectStorageFolder=async()=>{
-    if(pickingFolder) return;
-    setPickingFolder(true);
-    try{
-      const { label, cancelled, error }=await pickStorageFolder();
-      if(error){ showToast(error.message||'폴더 선택에 실패했습니다'); return; }
-      if(!cancelled&&label){
-        setStoragePath(label);
-        showToast(`폴더 선택: ${label}`);
-      }
-    }catch(err){
-      if(err?.name==='AbortError') return;
-      showToast(err?.message||'폴더 선택에 실패했습니다');
-    }finally{
-      setPickingFolder(false);
     }
   };
 
@@ -4580,16 +4559,6 @@ const Settings=({onClose,onSignOut})=>{
                 </div>
               </>
             )}
-          </div>
-        </div>
-        <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}>
-          <div style={{padding:'12px 18px',background:C.surf2,borderBottom:`1px solid ${C.bdr}`,fontSize:14,fontWeight:600,color:C.tx,borderRadius:'10px 10px 0 0'}}>파일 저장 위치</div>
-          <div style={{padding:'16px 18px',display:'flex',gap:10,alignItems:'center'}}>
-            <input className="inp" value={storagePath} onChange={e=>setStoragePath(e.target.value)} placeholder="폴더를 선택하거나 경로를 입력하세요" style={{flex:1}}/>
-            <Btn role="settings-secondary" ch={pickingFolder?'선택 중…':'폴더 선택'} ic="ti-folder" on={selectStorageFolder}/>
-          </div>
-          <div style={{padding:'0 18px 14px',fontSize:12,color:C.txM,lineHeight:1.5}}>
-            Chrome·Edge에서는 폴더 선택 창이 열립니다. 브라우저 보안상 전체 경로(C:\…)는 표시되지 않을 수 있으며, 선택한 폴더 이름이 저장됩니다.
           </div>
         </div>
         {isConfigured && (

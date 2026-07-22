@@ -2,9 +2,29 @@ import { db } from '../../db.js';
 import { DEV_LOCAL_OWNER } from './ownerScope.js';
 import { clearFolderState } from '../../navigation/folderPersist.js';
 import { clearPropListState } from '../../navigation/propListPersist.js';
-import { clearStorageFolderSettings } from '../../utils/storageFolder.js';
 
 const LOCAL_TABLES = ['properties', 'customers', 'call_logs', 'schedules', 'rentals'];
+const LEGACY_STORAGE_PATH_KEY = 'landnote.storagePath';
+const LEGACY_STORAGE_IDB = 'LandNoteStorage';
+
+/** 제거된「파일 저장 위치」설정 잔여 데이터 정리 */
+async function clearLegacyStorageFolderSettings() {
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_PATH_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    await new Promise((resolve) => {
+      const req = indexedDB.deleteDatabase(LEGACY_STORAGE_IDB);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  } catch {
+    /* ignore */
+  }
+}
 
 const ACTIVE_OWNER_KEY = 'landnote.activeOwner';
 const PENDING_INVITE_KEY = 'landnote.pendingInvite';
@@ -61,7 +81,7 @@ export async function clearAllUserLocalPreferences(userId = null) {
     /* ignore */
   }
 
-  await clearStorageFolderSettings();
+  await clearLegacyStorageFolderSettings();
 }
 
 /** @param {string} userId */
