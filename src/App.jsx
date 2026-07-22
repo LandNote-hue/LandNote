@@ -982,12 +982,27 @@ const LockScreen=({onLogin})=>{
 
 /* ═══ DASHBOARD ═══ */
 const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
+  const { user }=useAuth();
   const P=useProperties();
   const SCHEDS=useOwnerSchedules();
   const CALLS=useOwnerCallLogs();
   const RENTALS=useRentals();
   const today=useMemo(()=>{const d=new Date();d.setHours(0,0,0,0);return d;},[]);
   const todayLabel=fmtTodayKorean();
+  const gcalOwnerId=user?.id&&user.id!=='dev-local'?user.id:undefined;
+  const gcalMeta=useMemo(()=>{
+    const m=new Map();
+    listGoogleCalendarLinks(gcalOwnerId).forEach(l=>{
+      const color=l.color&&GCAL_LINK_COLORS.includes(l.color)?l.color:gcalFallbackColor(l.sourceId);
+      const label=(l.label&&l.label.trim())
+        || (()=>{
+          const src=l.sourceLink||l.icsUrl||'';
+          return src.length>42?`${src.slice(0,42)}…`:(src||'연동된 캘린더');
+        })();
+      m.set(l.sourceId,{color,label});
+    });
+    return m;
+  },[gcalOwnerId]);
   const alerts=useMemo(()=>{
     const items=[];
     const inWindow=(diff)=>diff>=0&&diff<=DASH_ALERT_MAX_DAYS;
@@ -1003,22 +1018,22 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
       const upcoming=startDiff>0&&startDiff<=DASH_ALERT_MAX_DAYS;
       if(!ongoing&&!upcoming) return;
       const sortKey=ongoing?0:startDiff;
-      const priC=schedulePriColor(s.pri);
+      const {c,bg,label:sourceLabel}=scheduleSourceInfo(s,gcalMeta);
       const period=fmtSchedulePeriodDot(s);
       const chkList=Array.isArray(s.chk)?s.chk.filter(c=>c&&String(c.t||'').trim()):[];
       const chkTotal=chkList.length;
       const chkDone=chkList.filter(c=>c.d).length;
       items.push({
         kind:'sched',target:s,sortKey,
-        c:priC,
-        bg:schedulePriBg(s.pri),
+        c,
+        bg,
         icon:DASH_CALENDAR_ICON,
         label:`${ongoing?'진행 중 일정':dashSchedPrefix(startDiff)} — ${s.title}`,
         dayLabel:ongoing?'오늘':dashRelativeDayLabel(startDiff),
-        priLabel:PRI_L[s.pri]||'보통',
+        priLabel:sourceLabel,
         whenLabel:period+(s.time?` ${s.time}`:''),
         chkLabel:chkTotal>0?`${chkDone}/${chkTotal}`:null,
-        sub:`${ongoing?'오늘':dashRelativeDayLabel(startDiff)} · ${PRI_L[s.pri]||'보통'} · ${period}${s.time?` ${s.time}`:''}`,
+        sub:`${ongoing?'오늘':dashRelativeDayLabel(startDiff)} · ${sourceLabel} · ${period}${s.time?` ${s.time}`:''}`,
       });
     });
     CALLS.filter(c=>c.nDate&&c.next).forEach(c=>{
@@ -1053,7 +1068,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
       });
     });
     return items.sort((a,b)=>a.sortKey-b.sortKey||a.label.localeCompare(b.label,'ko'));
-  },[SCHEDS,CALLS,RENTALS,P,today]);
+  },[SCHEDS,CALLS,RENTALS,P,today,gcalMeta]);
   const alertSections=useMemo(()=>[
     {title:'오늘',items:alerts.filter(a=>a.sortKey===0)},
     {title:'내일',items:alerts.filter(a=>a.sortKey===1)},
