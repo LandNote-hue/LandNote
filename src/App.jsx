@@ -43,7 +43,7 @@ import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRo
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
 import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
-import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars, collapseDuplicateIcsSchedules, reviveOrphanSoftDeletedIcsSchedules } from "./utils/icsImport.js";
+import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars, repairIcsScheduleIntegrity } from "./utils/icsImport.js";
 import {
   listGoogleCalendarLinks,
   removeGoogleCalendarLink,
@@ -3388,9 +3388,7 @@ const Calendar=({onOpen})=>{
           if(cancelled) return;
           await flushPendingIcsSourceIdRemaps(gcalOwnerId);
           if(cancelled) return;
-          await reviveOrphanSoftDeletedIcsSchedules();
-          if(cancelled) return;
-          await collapseDuplicateIcsSchedules(gcalOwnerId);
+          await repairIcsScheduleIntegrity(gcalOwnerId);
           gcalCalendarRepairedOwners.add(gcalOwnerId);
         }catch(err){
           console.error('[Calendar] repair gcal ownerId',err);

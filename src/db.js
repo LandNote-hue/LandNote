@@ -390,7 +390,12 @@ export async function softDeleteCallLog(id) {
 }
 
 export async function softDeleteSchedule(id) {
-  await assertOwned(db.schedules, id, 'schedules');
+  const rec = await assertOwned(db.schedules, id, 'schedules');
+  // 구글/ICS 연동 일정은 휴지통 soft-delete 금지 — 중복 정리·동기화가 수천 건을 쌓던 경로와 분리
+  if (rec?.icsUid || rec?.icsKey || rec?.icsSourceId) {
+    await hardDeleteSchedule(id);
+    return;
+  }
   await db.schedules.update(id, { deletedAt: formatDeletedAt() });
   await afterScheduleChange(id);
 }

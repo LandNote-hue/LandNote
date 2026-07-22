@@ -5,7 +5,7 @@ import { useProperties } from '../../hooks/useProperties.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
-import { collapseDuplicateIcsSchedules, reviveOrphanSoftDeletedIcsSchedules } from '../../utils/icsImport.js';
+import { repairIcsScheduleIntegrity } from '../../utils/icsImport.js';
 import { flushPendingIcsSourceIdRemaps } from '../../services/googleCalendarLinks.js';
 import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
@@ -38,11 +38,10 @@ export function MobileCalendar() {
     (async () => {
       try {
         if (!cancelled) await flushPendingIcsSourceIdRemaps(ownerId);
-        if (!cancelled) await reviveOrphanSoftDeletedIcsSchedules();
-        if (!cancelled) await collapseDuplicateIcsSchedules(ownerId);
+        if (!cancelled) await repairIcsScheduleIntegrity(ownerId);
         if (!cancelled) gcalMobileRepairedOwners.add(ownerId);
       } catch (err) {
-        console.warn('[MobileCalendar] collapse ics', err);
+        console.warn('[MobileCalendar] repair ics', err);
       }
     })();
     return () => { cancelled = true; };

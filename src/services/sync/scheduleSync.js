@@ -10,6 +10,13 @@ import {
 } from './ownerScope.js';
 import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
 import { remapFk, bulkUpsertSharedCloudRecords } from './cloudIdMap.js';
+import {
+  isIcsLinkedSchedule,
+  loadIcsIndex,
+  applyCloudIcsSchedule,
+  repairIcsScheduleIntegrity,
+  enforceIcsUniqueness,
+} from './icsScheduleStore.js';
 
 const INDEX_KEYS = new Set([
   'id', 'cloudId', 'cloudLocalId', 'ownerId', 'companyId', 'title', 'date', 'time', 'pri', 'pid', 'memo', 'chk', 'callId', 'deletedAt',
@@ -86,18 +93,9 @@ function canSync(userId) {
   return isSupabaseConfigured && userId && userId !== DEV_LOCAL_OWNER;
 }
 
-/** @param {Record<string, unknown>} existing @param {Record<string, unknown>} incoming */
-function mergeScheduleFromCloud(existing, incoming) {
+/** 수동(비 ICS) 일정 cloud merge */
+function mergeManualScheduleFromCloud(existing, incoming) {
   const merged = { ...existing, ...incoming };
-  // 클라우드에 ICS 출처가 비어 있거나 달라도, 로컬 연동 출처를 우선 유지(색 깜빡임 방지)
-  if (existing.icsSourceId) {
-    if (!incoming.icsSourceId || incoming.icsSourceId !== existing.icsSourceId) {
-      merged.icsSourceId = existing.icsSourceId;
-    }
-  }
-  if (existing.icsUid && !incoming.icsUid) merged.icsUid = existing.icsUid;
-  if (existing.icsKey && !incoming.icsKey) merged.icsKey = existing.icsKey;
-  // 활성 로컬 일정을 삭제된 클라우드 쌍둥이(collapse soft-delete)로 덮지 않음
   if (!existing.deletedAt && incoming.deletedAt) {
     merged.deletedAt = null;
   }
@@ -108,77 +106,59 @@ function mergeScheduleFromCloud(existing, incoming) {
 export async function syncSchedulesFromCloud(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
 
+  // 레거시 soft-delete ICS 정리 + 유일성 (soft-delete push 전에)
+  try {
+    await repairIcsScheduleIntegrity(userId);
+  } catch (err) {
+    console.warn('[scheduleSync] repair ics integrity', err);
+  }
+
   await pushOwnedSoftDeletes('schedules', syncScheduleToCloud, userId, 'schedules');
 
   const companyId = getSyncCompanyId();
-
   const rows = await fetchAllCloudRows(supabase, 'schedules');
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
-  const { occurrenceKeyFromSchedule } = await import('../../utils/icsImport.js');
-  const { isActive } = await import('../../db.js');
   const { flushPendingIcsSourceIdRemaps } = await import('../googleCalendarLinks.js');
 
-  // 클라우드 pull 전에 로컬 ICS occurrence 맵 — 동일 일정 이중 삽입 방지
-  const localIcs = (await db.schedules.toArray()).filter(
-    (s) => isActive(s) && (s.icsUid || s.icsKey || s.icsSourceId),
-  );
-  /** @type {Map<string, object>} */
-  const byOcc = new Map();
-  for (const s of localIcs) {
-    const k = occurrenceKeyFromSchedule(s);
-    if (k && !byOcc.has(k)) byOcc.set(k, s);
-  }
+  const icsIndex = await loadIcsIndex(userId);
 
   /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown>, mergeExisting?: Function }>} */
-  const batch = [];
+  const manualBatch = [];
 
   for (const row of rows) {
     if (isPurgedCloudId('schedules', row.id, userId)) continue;
-    if (row.id) remoteCloudIds.add(String(row.id));
     const sched = cloudRowToSched(row);
-    const occ = occurrenceKeyFromSchedule(sched);
-    const local = occ ? byOcc.get(occ) : null;
 
-    // 삭제된 클라우드 행이 활성 로컬(동일 occurrence)을 덮거나 cloudId를 훔치지 않음
-    if (sched.deletedAt && local && !local.deletedAt) {
+    // ICS/Google: bulkUpsert 금지 — occurrence upsert 단일 경로
+    if (isIcsLinkedSchedule(sched)) {
+      const result = await applyCloudIcsSchedule(sched, row, userId, icsIndex);
+      if (result === 'applied' && row.id) remoteCloudIds.add(String(row.id));
+      // purged/skipped: 원격에 남아 있어도 로컬 prune 대상이 아님(ICS는 prune 보호)
+      if (result !== 'purged' && row.id) remoteCloudIds.add(String(row.id));
       continue;
     }
 
-    if (local && row.id && !sched.deletedAt) {
-      if (!local.cloudId || String(local.cloudId) !== String(row.id)) {
-        await db.schedules.update(local.id, {
-          cloudId: row.id,
-          icsKey: local.icsKey || occ || sched.icsKey,
-          icsUid: local.icsUid || sched.icsUid,
-          icsSourceId: local.icsSourceId || sched.icsSourceId,
-          ownerId: local.ownerId || userId,
-        });
-        local.cloudId = row.id;
-      }
-    }
-    const record = local
-      ? {
-        ...sched,
-        icsSourceId: local.icsSourceId || sched.icsSourceId,
-        icsUid: local.icsUid || sched.icsUid,
-        icsKey: local.icsKey || sched.icsKey || occ,
-        deletedAt: local.deletedAt && !sched.deletedAt ? null : (sched.deletedAt || null),
-      }
-      : sched;
-    // 활성 로컬이면 삭제 상태 강제 해제
-    if (local && !local.deletedAt) {
-      record.deletedAt = null;
-    }
-    batch.push({
+    if (row.id) remoteCloudIds.add(String(row.id));
+    manualBatch.push({
       sessionUserId: userId,
       cloudRow: row,
-      record,
-      mergeExisting: mergeScheduleFromCloud,
+      record: sched,
+      mergeExisting: mergeManualScheduleFromCloud,
     });
   }
-  await bulkUpsertSharedCloudRecords(db.schedules, batch, 'schedules');
+
+  if (manualBatch.length) {
+    await bulkUpsertSharedCloudRecords(db.schedules, manualBatch, 'schedules');
+  }
+
+  // pull 후 다시 한 번 유일성 (키 정규화 차이로 생긴 잔여 중복 제거)
+  try {
+    await enforceIcsUniqueness(userId);
+  } catch (err) {
+    console.warn('[scheduleSync] enforce ics uniqueness', err);
+  }
 
   await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules', {
     skipPrune: options.skipPrune === true,
@@ -188,7 +168,6 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
   } catch (err) {
     console.warn('[scheduleSync] flush ics source remaps', err);
   }
-  // sync 끝마다 collapse 금지 — soft-delete↔pull 오염 루프 방지. import/수동 동기화 경로에서만 collapse.
 
   localStorage.setItem(`landnote.sync.schedules.${userId}`, new Date().toISOString());
   return {
@@ -205,6 +184,11 @@ export async function syncScheduleToCloud(schedId, sessionUserId = getSyncUserId
 
   const sched = await db.schedules.get(schedId);
   if (!sched || !canMutateRecord(sched, 'schedules')) return { ok: false, reason: 'forbidden' };
+
+  // ICS soft-delete는 클라우드에 올리지 않음 — hard-delete 경로만 허용
+  if (isIcsLinkedSchedule(sched) && sched.deletedAt) {
+    return { ok: false, reason: 'ics_soft_delete_forbidden' };
+  }
 
   const row = schedToCloudRow(sched, sessionUserId);
 
@@ -254,6 +238,7 @@ export async function pushUnsyncedSchedulesToCloud(userId) {
   let pushed = 0;
   let failed = 0;
   for (const s of locals) {
+    if (s.deletedAt) continue;
     if (!s.cloudId && canMutateRecord(s, 'schedules')) {
       try {
         await syncScheduleToCloud(s.id, userId);
