@@ -1,5 +1,6 @@
 import { getSyncUserId } from './sync/syncContext.js';
 import { DEV_LOCAL_OWNER } from './sync/ownerScope.js';
+import { clearDeletedIcsUids } from './sync/deletedIcsUids.js';
 
 const STORAGE_PREFIX = 'landnote.gcal.links.';
 const ACTIVE_OWNER_KEY = 'landnote.activeOwner';
@@ -377,10 +378,12 @@ export function removeGoogleCalendarLink(sourceIdOrUrl, ownerId) {
   if (!key) return;
   const id = resolveGcalOwnerId(ownerId);
   migrateOrphanLinks(id);
-  saveLinks(
-    id,
-    readLinksRaw(id).filter((l) => l.sourceId !== key && l.icsUrl !== key && l.calendarKey !== key),
+  const remaining = readLinksRaw(id).filter(
+    (l) => l.sourceId !== key && l.icsUrl !== key && l.calendarKey !== key,
   );
+  saveLinks(id, remaining);
+  // 연동을 모두 해제하면 삭제 이력 초기화 → 재연결 시 전체 일정 수신 가능
+  if (remaining.length === 0) clearDeletedIcsUids(id);
 }
 
 /**

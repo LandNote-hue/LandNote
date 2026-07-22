@@ -1,5 +1,6 @@
 import { db } from '../../db.js';
 import { DEV_LOCAL_OWNER } from './ownerScope.js';
+import { getSyncCompanyId } from './syncContext.js';
 import { clearFolderState } from '../../navigation/folderPersist.js';
 import { clearPropListState } from '../../navigation/propListPersist.js';
 
@@ -29,6 +30,7 @@ async function clearLegacyStorageFolderSettings() {
 const ACTIVE_OWNER_KEY = 'landnote.activeOwner';
 const PENDING_INVITE_KEY = 'landnote.pendingInvite';
 const AUTH_FLASH_KEY = 'authFlash';
+const RESTORE_LOCAL_WINS_KEY = 'landnote.restoreLocalWins';
 
 /** 로그아웃·계정 전환 시 Dexie 캐시 전체 삭제 */
 export async function clearLocalUserData() {
@@ -41,7 +43,7 @@ export async function clearLocalUserData() {
 
 /** 탈퇴·계정 전환 시 브라우저에 남은 UI·동기화·폴더 설정 삭제 */
 export async function clearAllUserLocalPreferences(userId = null) {
-  clearFolderState();
+  clearFolderState(userId);
   clearPropListState();
 
   try {
@@ -62,16 +64,23 @@ export async function clearAllUserLocalPreferences(userId = null) {
         continue;
       }
       if (key.startsWith('landnote.purgedCloudIds.')) {
-        if (!userId || key.includes(`.${userId}`) || key.endsWith(`.${userId}`)) {
-          // landnote.purgedCloudIds.properties.<userId>
-          if (!userId || key.endsWith(`.${userId}`)) keysToRemove.push(key);
-        }
+        if (!userId || key.endsWith(`.${userId}`)) keysToRemove.push(key);
+        continue;
+      }
+      if (key.startsWith('landnote.folders.')) {
+        if (!userId || key === `landnote.folders.${userId}`) keysToRemove.push(key);
+        continue;
+      }
+      if (key.startsWith('landnote.deletedIcsUids.')) {
+        if (!userId || key === `landnote.deletedIcsUids.${userId}`) keysToRemove.push(key);
         continue;
       }
       if (
         key === 'landnote.folders'
         || key === 'upground.folders'
         || key === 'landnote.storagePath'
+        || key === RESTORE_LOCAL_WINS_KEY
+        || (userId && key === `${RESTORE_LOCAL_WINS_KEY}.${userId}`)
       ) {
         keysToRemove.push(key);
       }
@@ -84,46 +93,95 @@ export async function clearAllUserLocalPreferences(userId = null) {
   await clearLegacyStorageFolderSettings();
 }
 
-/** @param {string} userId */
-export async function prepareLocalStoreForUser(userId) {
-  if (!userId || userId === DEV_LOCAL_OWNER) return { cleared: false };
-
-  const prev = localStorage.getItem(ACTIVE_OWNER_KEY);
-  // 같은 계정 재로그인: 로컬 유지 (클라우드 pull이 최신으로 맞춤)
-  // 다른 계정으로 전환될 때만 Dexie 비움
-  if (prev && prev !== userId) {
-    await clearLocalUserData();
-    await clearAllUserLocalPreferences(prev);
+/**
+ * 현재 계정·회사와 무관한 로컬 행이 있는지 (교차 계정 잔존)
+ * — 같은 회사 동료 ownerId는 허용
+ * @param {string} userId
+ * @param {string|null} [companyId]
+ */
+async function hasCrossAccountLocalData(userId, companyId = null) {
+  const sessionCompany = companyId != null ? String(companyId) : '';
+  for (const name of LOCAL_TABLES) {
+    const rows = await db.table(name).toArray();
+    for (const row of rows) {
+      const oid = row.ownerId == null ? '' : String(row.ownerId);
+      const cid = row.companyId == null ? '' : String(row.companyId);
+      if (!oid || oid === DEV_LOCAL_OWNER || oid === 'null' || oid === 'undefined') {
+        return true;
+      }
+      if (oid === String(userId)) continue;
+      // 팀 공유: 동일 companyId만 허용
+      if (sessionCompany && cid === sessionCompany) continue;
+      return true;
+    }
   }
-  localStorage.setItem(ACTIVE_OWNER_KEY, userId);
-  // 로그인 전/전환 과정에서 ownerId가 비거나 dev-local로 남은 행을 현재 계정으로 귀속
-  const claimed = await claimOrphanLocalOwners(userId);
-  return { cleared: !!(prev && prev !== userId), claimed };
+  return false;
 }
 
 /**
- * ownerId가 비어 있거나 dev-local인 활성 행을 현재 userId로 맞춤
- * (UI 스코프 필터로 "데이터는 있는데 안 보이는" 상태 방지)
- * @param {string} userId
+ * ownerId가 비어 있거나 dev-local인 행 삭제 (타 계정으로 귀속하지 않음)
+ * @returns {Promise<{ deleted: number }>}
  */
-export async function claimOrphanLocalOwners(userId) {
-  if (!userId || userId === DEV_LOCAL_OWNER) return { updated: 0 };
+export async function purgeOrphanOwnerRows() {
+  let deleted = 0;
   const orphanOwners = new Set(['', 'null', 'undefined', DEV_LOCAL_OWNER]);
-  let updated = 0;
   await db.transaction('rw', LOCAL_TABLES, async () => {
     for (const name of LOCAL_TABLES) {
       const rows = await db.table(name).toArray();
       for (const row of rows) {
         const owner = row.ownerId == null ? '' : String(row.ownerId);
         if (!orphanOwners.has(owner)) continue;
-        if (row.deletedAt) continue;
-        await db.table(name).update(row.id, { ownerId: userId });
-        updated += 1;
+        await db.table(name).delete(row.id);
+        deleted += 1;
       }
     }
   });
-  if (updated) console.info('[localData] claimed orphan owner rows', { userId, updated });
-  return { updated };
+  if (deleted) console.info('[localData] purged orphan owner rows', { deleted });
+  return { deleted };
+}
+
+/**
+ * 로그인·동기화 직전: 계정 전환/교차 잔존 시 로컬을 비우고 현재 계정 마커 설정
+ * @param {string} userId
+ * @param {{ companyId?: string|null }} [options]
+ */
+export async function prepareLocalStoreForUser(userId, options = {}) {
+  if (!userId || userId === DEV_LOCAL_OWNER) return { cleared: false, purged: 0 };
+
+  const companyId = options.companyId !== undefined ? options.companyId : getSyncCompanyId();
+  const prev = localStorage.getItem(ACTIVE_OWNER_KEY);
+  const switched = !!(prev && prev !== userId);
+
+  let needsClear = switched;
+  if (!needsClear) {
+    try {
+      needsClear = await hasCrossAccountLocalData(userId, companyId);
+    } catch (err) {
+      console.warn('[localData] cross-account check failed — clearing', err);
+      needsClear = true;
+    }
+  }
+
+  if (needsClear) {
+    console.info('[localData] clearing local store for account boundary', {
+      prev: prev || null,
+      next: userId,
+      switched,
+    });
+    await clearLocalUserData();
+    await clearAllUserLocalPreferences(prev || undefined);
+  }
+
+  localStorage.setItem(ACTIVE_OWNER_KEY, userId);
+  // 잔여 orphan은 귀속하지 않고 삭제 (교차 계정 오염 방지)
+  const { deleted: purged } = await purgeOrphanOwnerRows();
+  return { cleared: needsClear, purged };
+}
+
+/** @deprecated use purgeOrphanOwnerRows — 타 계정 orphan을 현재 계정으로 가져오지 않음 */
+export async function claimOrphanLocalOwners(userId) {
+  void userId;
+  return purgeOrphanOwnerRows().then((r) => ({ updated: r.deleted }));
 }
 
 export function clearActiveOwnerMarker() {

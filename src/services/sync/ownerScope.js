@@ -18,19 +18,17 @@ export function getActiveOwnerId() {
 
 /** @param {Record<string, unknown>|null|undefined} item */
 export function matchesOwner(item, ownerId = getActiveOwnerId()) {
-  if (!item) return false;
+  if (!item || ownerId == null || ownerId === '') return false;
   const oid = item.ownerId;
-  // owner 미기입·dev-local 잔여분은 현재 로그인 세션에서 보이게 (claim 직전 깜빡임 방지)
-  if (oid == null || oid === '') return !!ownerId;
-  if (String(oid) === DEV_LOCAL_OWNER && ownerId && ownerId !== DEV_LOCAL_OWNER) return true;
+  if (oid == null || oid === '') return false;
   return String(oid) === String(ownerId);
 }
 
-/** 같은 회사 스코프인지 (로컬 companyId 누락도 세션 회사로 허용) */
+/** 같은 회사 스코프인지 — companyId가 명시적으로 일치할 때만 */
 function sameCompanyScope(item, companyId) {
   if (!companyId) return false;
-  if (item.companyId == null || item.companyId === '') return true;
-  return item.companyId === companyId;
+  if (item.companyId == null || item.companyId === '') return false;
+  return String(item.companyId) === String(companyId);
 }
 
 /** @param {Record<string, unknown>|null|undefined} item @param {import('../../data/memberPermissions.js').ShareResource} [resource='properties'] */
@@ -66,15 +64,15 @@ export function filterByDataScope(items, scope, opts = {}) {
   }
 
   if (isCeoRole(role) && !isSoloRole(role)) {
-    return active.filter((item) => !item.companyId || item.companyId === companyId);
+    // 본인 소유 + 동일 회사(명시 companyId)만 — null companyId 타 계정 잔존은 제외
+    return active.filter((item) => matchesOwner(item, userId) || sameCompanyScope(item, companyId));
   }
 
   return active.filter((item) => {
     if (matchesOwner(item, userId)) return true;
     if (!permissions || !permissions[readKey]) return false;
-    // companyId NULL(구데이터·미백필)도 권한 있으면 표시 — RLS가 이미 회사 범위로 내려줌
-    if (item.companyId != null && item.companyId !== '' && item.companyId !== companyId) return false;
-    return true;
+    // 공유 열람: 동일 회사 ID가 있을 때만 (null companyId로 타 계정 잔존 노출 금지)
+    return sameCompanyScope(item, companyId);
   });
 }
 

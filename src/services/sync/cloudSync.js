@@ -56,6 +56,9 @@ export async function isEssentialLocalEmpty() {
  *   onEssentialReady: 매물·고객 pull 직후 콜백(앱 조기 진입용)
  */
 async function initialCloudSyncInner(userId, options = {}) {
+  const { prepareLocalStoreForUser } = await import('./localDataCleanup.js');
+  await prepareLocalStoreForUser(userId);
+
   const { consumeRestoreLocalWinsFlag } = await import('../../db.js');
   const { resetCloudLocalIdMaps, remapSharedForeignKeys } = await import('./cloudIdMap.js');
   const { db } = await import('../../db.js');
@@ -186,6 +189,9 @@ export function initialCloudSync(userId, options = {}) {
 export async function refreshSharedCloudData(userId) {
   if (!userId || userId === 'dev-local') return { ok: false, reason: 'skip' };
   return withSyncMutex(async () => {
+    const { prepareLocalStoreForUser } = await import('./localDataCleanup.js');
+    await prepareLocalStoreForUser(userId);
+
     const { resetCloudLocalIdMaps, remapSharedForeignKeys } = await import('./cloudIdMap.js');
     const { db } = await import('../../db.js');
     const { syncPropertiesFromCloud, pushUnsyncedPropertiesToCloud } = await import('./propertySync.js');

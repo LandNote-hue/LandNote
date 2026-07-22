@@ -256,6 +256,7 @@ export function AuthProvider({ children }) {
     }
     try {
       const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
+      // UI ready 전에 계정 경계 정리 (전환·교차 잔존 제거)
       await prepareLocalStoreForUser(userId);
 
       const { initialCloudSync, isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
@@ -265,7 +266,8 @@ export function AuthProvider({ children }) {
       let result = await initialCloudSync(userId, {
         ...options,
         forcePull,
-        mergeOnly: options.mergeOnly !== false, // 로그인 sync는 기본 prune 없음
+        // 계정 전환 직후는 prune 허용(호출측에서 mergeOnly:false 가능). 기본은 merge-only.
+        mergeOnly: options.mergeOnly !== false,
         onEssentialReady: () => {
           // UI 진입만 허용 — sessionCloudReady는 최종 성공 후에만 기록
           setSessionCloudSyncStatus('ready');
@@ -438,6 +440,8 @@ export function AuthProvider({ children }) {
     const alreadyMarked = sessionAutoSyncedUserIdRef.current === user.id || readSessionCloudReady(user.id);
     if (alreadyMarked) {
       runSync(async () => {
+        const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
+        await prepareLocalStoreForUser(user.id);
         const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
         const empty = await isEssentialLocalEmpty();
         if (empty) {
@@ -458,18 +462,20 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // 개인(SOLO): 로컬에 데이터가 있으면 즉시 진입 + quiet 백그라운드, 없으면 1회 blocking sync
+    // 개인(SOLO): 로컬 경계 정리 후, 데이터가 있으면 즉시 진입 + quiet 백그라운드
     if (solo || !role) {
       runSync(async () => {
+        const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
+        const prep = await prepareLocalStoreForUser(user.id);
         const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
         const empty = await isEssentialLocalEmpty();
-        if (!empty) {
+        if (!empty && !prep.cleared) {
           // UI만 ready — sessionCloudReady는 sync 성공 후 기록
           setSessionCloudSyncStatus('ready');
           await runInitialCloudSyncForUser(user.id, { quiet: true, forcePull: false });
           return;
         }
-        await runInitialCloudSyncForUser(user.id);
+        await runInitialCloudSyncForUser(user.id, { forcePull: prep.cleared || empty });
       }, { keepOnError: true });
       return;
     }
@@ -488,20 +494,25 @@ export function AuthProvider({ children }) {
 
     if (isCeoRole(role)) {
       runSync(async () => {
+        const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
+        const prep = await prepareLocalStoreForUser(user.id, { companyId: workspaceId });
         const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
         const empty = await isEssentialLocalEmpty();
-        if (!empty) {
+        if (!empty && !prep.cleared) {
           setSessionCloudSyncStatus('ready');
           await runInitialCloudSyncForUser(user.id, { quiet: true, forcePull: false });
           return;
         }
-        await runInitialCloudSyncForUser(user.id);
+        await runInitialCloudSyncForUser(user.id, { forcePull: prep.cleared || empty });
       }, { keepOnError: true });
     } else if (hasAnySharedReadPermission(memberPermissions)) {
+      // 직원도 계정 전환 시 로컬 clear 필수 (이전엔 refresh만 해서 타 계정 잔존)
       runSync(async () => {
         setSessionCloudSyncStatus('syncing');
         setSessionCloudSyncSummary(null);
         try {
+          const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
+          await prepareLocalStoreForUser(user.id, { companyId: workspaceId });
           const { refreshSharedCloudData } = await import('../services/sync/cloudSync.js');
           const result = await refreshSharedCloudData(user.id);
           const summary = summarizeCloudSyncResult({
@@ -1064,8 +1075,9 @@ export function AuthProvider({ children }) {
     setProfileSettledUserId(null);
     setProfileLoading(false);
     profileLoadedUserIdRef.current = null;
-    // IndexedDB는 지우지 않음 — 같은 계정 재로그인 시 가져오기/로컬 데이터 유지.
-    // 다른 계정으로 로그인하면 prepareLocalStoreForUser가 전환 시에만 클리어.
+    // IndexedDB는 같은 계정 재로그인용으로 유지.
+    // 다른 계정 로그인 시 prepareLocalStoreForUser가 전환·교차 잔존을 클리어.
+    // activeOwner 마커는 유지해 다음 로그인에서 전환 여부를 판별한다.
     if (!isSupabaseConfigured) {
       return;
     }

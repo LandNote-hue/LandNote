@@ -809,7 +809,9 @@ let linkedSyncInFlight = null;
 
 /**
  * 연동된 구글 캘린더를「동기화」할 때만 호출. 기존 일정은 icsKey로 유지·중복 방지.
- * @param {{ force?: boolean }} [options] force=true(기본)면 즉시 다시 가져옴
+ * @param {{ force?: boolean, resetDeletedUids?: boolean, ownerId?: string }} [options]
+ *   force=true(기본)면 최소 간격 무시하고 즉시 가져옴
+ *   resetDeletedUids=true면 앱에서 삭제한 ICS UID 블랙리스트를 비운 뒤 가져옴(전체 다시 동기화)
  */
 export async function syncLinkedGoogleCalendars(options = {}) {
   if (linkedSyncInFlight) return linkedSyncInFlight;
@@ -817,6 +819,15 @@ export async function syncLinkedGoogleCalendars(options = {}) {
   linkedSyncInFlight = (async () => {
     const force = options.force !== false;
     const ownerId = options.ownerId;
+    if (options.resetDeletedUids === true) {
+      try {
+        const { clearDeletedIcsUids } = await import('../services/sync/deletedIcsUids.js');
+        const { getActiveOwnerId } = await import('../services/sync/ownerScope.js');
+        clearDeletedIcsUids(ownerId || getActiveOwnerId());
+      } catch (err) {
+        console.warn('[googleCalendarSync] clearDeletedIcsUids', err);
+      }
+    }
     const links = listGoogleCalendarLinks(ownerId).filter((l) => l.enabled !== false);
     if (!links.length) {
       return { added: 0, updated: 0, skipped: 0, duplicated: 0, total: 0, synced: 0, errors: 0 };

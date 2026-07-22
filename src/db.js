@@ -642,6 +642,13 @@ export async function hardDeleteCallLog(id) {
 export async function hardDeleteSchedule(id) {
   const rec = await assertOwned(db.schedules, id, 'schedules');
   const cloudId = rec.cloudId;
+  // 구글/ICS 연동 일정: hard-delete + UID 블랙리스트 (다음 sync에서 부활 방지)
+  if (rec?.icsUid || rec?.icsKey || rec?.icsSourceId) {
+    try {
+      const { rememberDeletedIcsUidFromSchedule } = await import('./services/sync/deletedIcsUids.js');
+      rememberDeletedIcsUidFromSchedule(rec, getActiveOwnerId());
+    } catch { /* ignore */ }
+  }
   try {
     await removeScheduleFromCloud(id);
   } catch (err) {
@@ -712,6 +719,10 @@ export async function updateScheduleDirect(id, changes) {
 }
 
 const RESTORE_LOCAL_WINS_KEY = 'landnote.restoreLocalWins';
+
+function restoreLocalWinsStorageKey(ownerId = getActiveOwnerId()) {
+  return ownerId ? `${RESTORE_LOCAL_WINS_KEY}.${ownerId}` : RESTORE_LOCAL_WINS_KEY;
+}
 
 /** 백업 테이블별 구버전/별칭 키 지원 */
 const BACKUP_TABLE_ALIASES = {
@@ -810,14 +821,21 @@ export function formatRestoreMergeLabel(restored) {
 }
 
 export function markRestoreLocalWins() {
-  try { localStorage.setItem(RESTORE_LOCAL_WINS_KEY, '1'); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(restoreLocalWinsStorageKey(), '1');
+    try { localStorage.removeItem(RESTORE_LOCAL_WINS_KEY); } catch { /* ignore */ }
+  } catch { /* ignore */ }
 }
 
 /** @returns {boolean} */
 export function consumeRestoreLocalWinsFlag() {
   try {
-    const v = localStorage.getItem(RESTORE_LOCAL_WINS_KEY);
-    if (v) localStorage.removeItem(RESTORE_LOCAL_WINS_KEY);
+    const key = restoreLocalWinsStorageKey();
+    const v = localStorage.getItem(key) || localStorage.getItem(RESTORE_LOCAL_WINS_KEY);
+    if (v) {
+      localStorage.removeItem(key);
+      localStorage.removeItem(RESTORE_LOCAL_WINS_KEY);
+    }
     return v === '1';
   } catch {
     return false;

@@ -6,9 +6,18 @@
  * 2. ICS는 soft-delete 금지 — 중복·사용자 삭제는 hard-delete만
  * 3. import / cloud pull / repair 는 이 모듈의 upsert·enforce만 사용
  * 4. 클라우드 soft-delete ICS는 로컬 휴지통에 넣지 않고 클라우드에서 제거
+ * 5. 앱에서 삭제한 icsUid는 deletedIcsUids 블랙리스트에 넣어 pull/import 시 skip
  */
 import { db, isActive } from '../../db.js';
 import { getActiveOwnerId, matchesOwner, withOwnerId } from './ownerScope.js';
+import {
+  extractIcsUid,
+  isDeletedIcsUid,
+  rememberDeletedIcsUidFromSchedule,
+  clearDeletedIcsUids,
+} from './deletedIcsUids.js';
+
+export { clearDeletedIcsUids, rememberDeletedIcsUidFromSchedule, isDeletedIcsUid, extractIcsUid };
 
 /** @param {unknown} time */
 export function normalizeScheduleTime(time) {
@@ -170,6 +179,23 @@ export async function upsertIcsOccurrence(fields, options = {}) {
     }
   }
   if (base.time != null) base.time = normalizeScheduleTime(base.time) || base.time;
+
+  // 앱에서 삭제한 UID → 구글/ICS pull·import 시 되살리지 않음
+  const uid = extractIcsUid(base);
+  if (uid && isDeletedIcsUid(uid, ownerId)) {
+    /** @type {object|null} */
+    let blocked = null;
+    if (occ && index.byOcc.has(occ)) blocked = index.byOcc.get(occ);
+    if (!blocked && base.cloudId && index.byCloudId.has(String(base.cloudId))) {
+      blocked = index.byCloudId.get(String(base.cloudId));
+    }
+    if (blocked?.id) {
+      await hardRemoveIcsDuplicate(blocked, null);
+      if (occ) index.byOcc.delete(occ);
+      if (blocked.cloudId) index.byCloudId.delete(String(blocked.cloudId));
+    }
+    return { action: 'skipped', id: blocked?.id ?? 0, row: blocked || base };
+  }
 
   /** @type {object|null} */
   let ex = null;
@@ -353,6 +379,22 @@ export async function repairIcsScheduleIntegrity(preferredOwnerId = getActiveOwn
  */
 export async function applyCloudIcsSchedule(sched, cloudRow, userId, index) {
   if (!isIcsLinkedSchedule(sched)) return 'skipped';
+
+  const blockedUid = extractIcsUid(sched);
+  if (blockedUid && isDeletedIcsUid(blockedUid, userId)) {
+    // 블랙리스트: 로컬 잔여분 제거 + 클라우드 ICS 행도 정리(재유입 방지)
+    const occ = occurrenceKeyFromSchedule(sched);
+    const local = (occ && index.byOcc.get(occ))
+      || (cloudRow.id && index.byCloudId.get(String(cloudRow.id)))
+      || null;
+    if (local?.id) {
+      await hardRemoveIcsDuplicate(local, null);
+      if (occ) index.byOcc.delete(occ);
+      if (local.cloudId) index.byCloudId.delete(String(local.cloudId));
+    }
+    if (cloudRow.id) await purgeIcsCloudRow(cloudRow.id, userId);
+    return 'skipped';
+  }
 
   // soft-delete 클라우드 ICS → 휴지통 금지, 클라우드에서 제거
   if (sched.deletedAt) {

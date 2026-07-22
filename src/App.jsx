@@ -3136,7 +3136,7 @@ const ScheduleImportGuideWin=({onClose})=>{
   );
 };
 
-const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onUnlinkOne,gcalMeta,ownerId})=>{
+const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow,onFullResync,onUnlinkOne,gcalMeta,ownerId})=>{
   const [link,setLink]=useState('');
   const [label,setLabel]=useState('');
   const [loading,setLoading]=useState(false);
@@ -3161,18 +3161,33 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
     }
   };
 
+  const handleFullResync=()=>{
+    if(gcalSyncing||!onFullResync) return;
+    const ok=window.confirm(
+      '앱에서 삭제했던 구글 일정도 다시 가져옵니다.\n삭제 이력을 초기화하고 전체를 다시 동기화할까요?',
+    );
+    if(ok) onFullResync();
+  };
+
   return(
     <Win title="구글 캘린더 동기화" ic="ti-brand-google" onClose={onClose} w={560}
       ch={<>
         <div style={{...WIN_BODY_SCROLL,padding:'20px 24px',display:'flex',flexDirection:'column',gap:18}}>
           {gcalLinks.length>0&&(
             <div>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:10,flexWrap:'wrap'}}>
                 <span style={{fontSize:13,fontWeight:700,color:C.tx}}>연동된 캘린더 ({gcalLinks.length})</span>
-                <button type="button" disabled={gcalSyncing} onClick={onSyncNow}
-                  style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.tx,fontWeight:600}}>
-                  {gcalSyncing?'동기화 중…':'전체 동기화'}
-                </button>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                  <button type="button" disabled={gcalSyncing} onClick={onSyncNow}
+                    style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.tx,fontWeight:600}}>
+                    {gcalSyncing?'동기화 중…':'전체 동기화'}
+                  </button>
+                  <button type="button" disabled={gcalSyncing} onClick={handleFullResync}
+                    title="삭제했던 일정도 포함해 다시 가져오기"
+                    style={{border:`1px solid ${C.bdr}`,background:'#fff',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:gcalSyncing?'wait':'pointer',color:C.txM,fontWeight:500}}>
+                    전체 다시 동기화
+                  </button>
+                </div>
               </div>
               <div style={{border:`1px solid ${C.bdr}`,borderRadius:8,overflow:'hidden'}}>
                 {gcalLinks.map((l,i)=>{
@@ -3366,8 +3381,8 @@ const Calendar=({onOpen})=>{
     refreshGcalLinks();
   },[refreshGcalLinks]);
 
-  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정을 현재 계정으로 복구 + ICS 중복 합치기
-  // 클릭과 겹치면 removeChild가 나므로 지연·세션 1회·트랜잭션 배치
+  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정은 귀속하지 않고 제거
+  // (타 계정 잔존이 현재 계정으로 흡수되는 것을 방지 — ICS는 이후 재동기화)
   useEffect(()=>{
     if(!gcalOwnerId) return;
     if(gcalCalendarRepairedOwners.has(gcalOwnerId)) return;
@@ -3376,12 +3391,12 @@ const Calendar=({onOpen})=>{
       (async()=>{
         try{
           const misplaced=await db.schedules.where('ownerId').equals('dev-local').toArray();
-          const toFix=misplaced.filter((s)=>s.icsSourceId&&!s.deletedAt);
-          if(toFix.length){
+          const toRemove=misplaced.filter((s)=>s.icsSourceId&&!s.deletedAt);
+          if(toRemove.length){
             await db.transaction('rw',db.schedules,async()=>{
-              for(const s of toFix){
+              for(const s of toRemove){
                 if(cancelled) return;
-                await db.schedules.update(s.id,{ownerId:gcalOwnerId});
+                await db.schedules.delete(s.id);
               }
             });
           }
@@ -3440,11 +3455,15 @@ const Calendar=({onOpen})=>{
     }
   };
 
-  const handleGcalSyncNow=async()=>{
+  const handleGcalSyncNow=async(opts={})=>{
     if(gcalSyncing) return;
     setGcalSyncing(true);
     try{
-      const result=await syncLinkedGoogleCalendars({force:true,ownerId:gcalOwnerId});
+      const result=await syncLinkedGoogleCalendars({
+        force:true,
+        ownerId:gcalOwnerId,
+        resetDeletedUids:opts.resetDeletedUids===true,
+      });
       refreshGcalLinks();
       if(result.errors&&!result.synced){
         window.alert('구글 캘린더 동기화에 실패했습니다. 연동 링크를 확인해 주세요.');
@@ -3519,6 +3538,7 @@ const Calendar=({onOpen})=>{
           gcalLinks={gcalLinks}
           gcalSyncing={gcalSyncing}
           onSyncNow={handleGcalSyncNow}
+          onFullResync={()=>handleGcalSyncNow({resetDeletedUids:true})}
           onUnlinkOne={handleGcalUnlinkOne}
           gcalMeta={gcalMeta}
           ownerId={gcalOwnerId}
@@ -3989,8 +4009,10 @@ const Backup=()=>{
 
 /* ═══ TRASH ═══ */
 /* ═══ CONFIRM DIALOG ═══ */
+/* Win(매물상세 등) zIndex:520 보다 위에 두어 상세 위에서도 확인 가능 */
+const CONFIRM_DIALOG_Z=600;
 const ConfirmDialog=({msg,subMsg,confirmLabel='확인',onConfirm,onCancel,danger})=>(
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
+  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:CONFIRM_DIALOG_Z,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
     onClick={onCancel}>
     <div style={{background:'#fff',borderRadius:14,padding:'28px 32px',maxWidth:420,width:'90%',boxShadow:'0 16px 48px rgba(0,0,0,.2)',textAlign:'center'}}
       onClick={e=>e.stopPropagation()}>
@@ -4010,7 +4032,7 @@ const ConfirmDialog=({msg,subMsg,confirmLabel='확인',onConfirm,onCancel,danger
   </div>
 );
 const AlertDialog=({msg,onClose})=>(
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
+  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:CONFIRM_DIALOG_Z,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
     onClick={onClose}>
     <div style={{background:'#fff',borderRadius:14,padding:'28px 32px',maxWidth:360,width:'90%',boxShadow:'0 16px 48px rgba(0,0,0,.2)',textAlign:'center'}}
       onClick={e=>e.stopPropagation()}>
@@ -6664,11 +6686,14 @@ function AppShell(){
   const [sidebarExpanded,setSidebarExpanded]=useState(false);
   const [folders,setFolders]=useState(()=>loadFolderState()?.folders??FOLDERS);
   const [propFolders,setPropFolders]=useState(()=>loadFolderState()?.propFolders??PROP_FOLDERS);
-  useEffect(()=>{ saveFolderState(folders,propFolders); },[folders,propFolders]);
+  useEffect(()=>{
+    if (!user?.id || user.id === 'dev-local') return;
+    saveFolderState(folders, propFolders, user.id);
+  },[folders, propFolders, user?.id]);
 
   useEffect(() => {
     if (!user?.id || user.id === 'dev-local') return;
-    const saved = loadFolderState();
+    const saved = loadFolderState(user.id);
     if (saved) {
       setFolders(saved.folders);
       setPropFolders(saved.propFolders);
