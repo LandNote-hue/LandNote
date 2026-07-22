@@ -3726,17 +3726,29 @@ const Calendar=({onOpen})=>{
     </div>
   );
 };
-const BACKUP_LAST_INFO_KEY='landnote.lastBackup';
-const loadLastBackupInfo=()=>{
+const BACKUP_LAST_INFO_KEY_PREFIX='landnote.lastBackup';
+const BACKUP_LAST_INFO_LEGACY_KEY='landnote.lastBackup';
+/** @param {string|null|undefined} ownerId */
+const backupLastInfoKey=(ownerId)=>`${BACKUP_LAST_INFO_KEY_PREFIX}.${ownerId||'anonymous'}`;
+/** @param {string|null|undefined} ownerId */
+const loadLastBackupInfo=(ownerId)=>{
+  if(!ownerId) return null;
   try{
-    const raw=localStorage.getItem(BACKUP_LAST_INFO_KEY);
+    // 계정 공용 키는 더 이상 사용하지 않음 (다른 계정 이력 노출 방지)
+    try{ localStorage.removeItem(BACKUP_LAST_INFO_LEGACY_KEY); }catch{ /* ignore */ }
+    const raw=localStorage.getItem(backupLastInfoKey(ownerId));
     return raw?JSON.parse(raw):null;
   }catch{
     return null;
   }
 };
-const saveLastBackupInfo=(info)=>{
-  try{ localStorage.setItem(BACKUP_LAST_INFO_KEY,JSON.stringify(info)); }catch{ /* ignore */ }
+/** @param {string|null|undefined} ownerId @param {object} info */
+const saveLastBackupInfo=(ownerId,info)=>{
+  if(!ownerId) return;
+  try{
+    localStorage.setItem(backupLastInfoKey(ownerId),JSON.stringify(info));
+    try{ localStorage.removeItem(BACKUP_LAST_INFO_LEGACY_KEY); }catch{ /* ignore */ }
+  }catch{ /* ignore */ }
 };
 const pad2=(n)=>String(n).padStart(2,'0');
 const backupFileTimestamp=(d)=>`${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
@@ -3753,13 +3765,18 @@ const backupFileSize=(bytes)=>{
 
 const Backup=()=>{
   const { user, company, companyRole }=useAuth();
+  const ownerId=user?.id||null;
   const ownOnlyExport=isBackupOwnRecordsOnlyExport();
   const [busy,setBusy]=useState(false);
   const [confirm,setConfirm]=useState(null);
   const [alertMsg,setAlertMsg]=useState('');
-  const [lastBackup,setLastBackup]=useState(loadLastBackupInfo);
+  const [lastBackup,setLastBackup]=useState(()=>loadLastBackupInfo(ownerId));
   const [localCounts,setLocalCounts]=useState(null);
   const fileInputRef=useRef(null);
+
+  useEffect(()=>{
+    setLastBackup(loadLastBackupInfo(ownerId));
+  },[ownerId]);
 
   useEffect(()=>{
     let cancelled=false;
@@ -3797,7 +3814,7 @@ const Backup=()=>{
       a.remove();
       setTimeout(()=>URL.revokeObjectURL(url),1500);
       const info={at:new Date().toISOString(),filename,size:blob.size,counts:backup.counts};
-      saveLastBackupInfo(info);
+      saveLastBackupInfo(ownerId,info);
       setLastBackup(info);
       setLocalCounts(backup.counts);
       const gcalN=Array.isArray(backup.meta?.googleCalendarLinks)?backup.meta.googleCalendarLinks.length:0;
