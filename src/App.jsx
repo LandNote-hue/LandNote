@@ -6134,7 +6134,7 @@ const SchedDetail=({sched,onClose,onOpen,onDelete})=>{
           <div style={{padding:'18px 24px 14px',borderBottom:`1px solid ${C.bdr}`,background:C.surf,borderLeft:`4px solid ${headerAccent}`}}>
             {originHint&&(
               <div style={{fontSize:11,fontWeight:600,color:originHint.color,marginBottom:8,letterSpacing:'.02em'}}>
-                {originHint.badge}{originHint.detail?` · ${originHint.detail}`:''}
+                {originHint.badge}
               </div>
             )}
             <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>

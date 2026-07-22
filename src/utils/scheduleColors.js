@@ -90,13 +90,12 @@ export function scheduleOriginHint(s, gcalMeta) {
   const info = scheduleSourceInfo(s, gcalMeta);
   if (!info.isSource) return null;
   if (sid.startsWith('gcal:')) {
-    const detail = info.label && info.label !== '연동 캘린더' ? info.label : null;
-    return { kind: 'google', badge: 'Google 연동', detail, color: info.c };
+    return { kind: 'google', badge: 'Google 연동', detail: null, color: info.c };
   }
   if (sid === 'ics-file' || sid.startsWith('ics-')) {
     return { kind: 'ics', badge: 'ICS 연동', detail: null, color: info.c };
   }
-  return { kind: 'linked', badge: '연동 일정', detail: info.label || null, color: info.c };
+  return { kind: 'linked', badge: '연동 일정', detail: null, color: info.c };
 }
 
 /**

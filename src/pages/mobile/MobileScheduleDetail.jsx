@@ -44,7 +44,7 @@ export function MobileScheduleDetail() {
         <MobileCard style={{ borderLeft: `3px solid ${accent}` }}>
           {originHint && (
             <div style={{ fontSize: 11, fontWeight: 600, color: originHint.color, marginBottom: 6 }}>
-              {originHint.badge}{originHint.detail ? ` · ${originHint.detail}` : ''}
+              {originHint.badge}
             </div>
           )}
           <div style={{ fontSize: 18, fontWeight: 800, color: M.tx }}>{sched.title}</div>
