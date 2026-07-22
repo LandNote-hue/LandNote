@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from '../../lib/supabase.js';
 import { getSyncCompanyId, getSyncUserId } from './syncContext.js';
+import { compressDataUrl } from '../../utils/readImageFile.js';
 
 export const PROPERTY_PHOTOS_BUCKET = 'property-photos';
 
@@ -60,7 +61,8 @@ export function buildPropertyPhotoPath(prop, index, ext = 'jpg') {
  */
 export async function uploadPropertyPhotoDataUrl({ dataUrl, prop, index }) {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase not configured');
-  const { blob, ext, contentType } = dataUrlToBlob(dataUrl);
+  const optimized = await compressDataUrl(dataUrl);
+  const { blob, ext, contentType } = dataUrlToBlob(optimized);
   const path = buildPropertyPhotoPath(prop, index, ext);
   const { error } = await supabase.storage
     .from(PROPERTY_PHOTOS_BUCKET)
@@ -108,7 +110,7 @@ export async function clonePhotosForDuplicate(photos) {
   const out = [];
   for (const photo of list) {
     if (isDataUrlPhoto(photo)) {
-      out.push(photo);
+      out.push(await compressDataUrl(photo));
       continue;
     }
     if (!isRemotePhotoUrl(photo)) continue;
@@ -117,7 +119,8 @@ export async function clonePhotosForDuplicate(photos) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       if (!blob.type.startsWith('image/') && !blob.size) throw new Error('empty image');
-      const dataUrl = await blobToDataUrl(blob);
+      const rawDataUrl = await blobToDataUrl(blob);
+      const dataUrl = await compressDataUrl(rawDataUrl);
       if (!isDataUrlPhoto(dataUrl)) throw new Error('invalid data URL');
       out.push(dataUrl);
     } catch (err) {

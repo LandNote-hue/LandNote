@@ -107,7 +107,8 @@ const LEGACY_DB_NAME = 'UpgroundDB';
 export const DB_TABLES = ['properties', 'customers', 'call_logs', 'schedules', 'rentals'];
 
 const BACKUP_FORMAT = 'rmxbak';
-const BACKUP_VERSION = 1;
+/** v2: meta(구글 캘린더 연동)·주소/ICS 지문 강화. v1 파일도 복원 가능 */
+const BACKUP_VERSION = 2;
 
 export const db = new Dexie('LandNoteDB');
 
@@ -803,21 +804,45 @@ export function consumeRestoreLocalWinsFlag() {
 }
 
 /**
- * 전체 로컬 데이터를 백업 객체로 직렬화 (소프트 삭제 항목 포함)
+ * 전체 로컬 데이터를 백업 객체로 직렬화 (소프트 삭제 항목·사진·구글 연동 설정 포함)
  * — 매물·고객·통화이력·일정·임대차 전부 포함
  */
 export async function exportBackupData() {
+  /** @type {Record<string, unknown[]>} */
   const tables = {};
   for (const name of DB_TABLES) {
-    tables[name] = await db.table(name).toArray();
+    const rows = await db.table(name).toArray();
+    // structuredClone으로 직렬화 가능 여부 조기 검증 (함수/순환참조 등)
+    try {
+      tables[name] = typeof structuredClone === 'function'
+        ? structuredClone(rows)
+        : JSON.parse(JSON.stringify(rows));
+    } catch (err) {
+      console.error('[exportBackupData] table serialize failed', name, err);
+      throw new Error(`BACKUP_SERIALIZE_FAILED:${name}`);
+    }
   }
   const counts = getBackupTableCounts({ tables });
+
+  /** @type {unknown[]} */
+  let googleCalendarLinks = [];
+  try {
+    const { listGoogleCalendarLinks } = await import('./services/googleCalendarLinks.js');
+    googleCalendarLinks = listGoogleCalendarLinks(getActiveOwnerId()).map((l) => ({ ...l }));
+  } catch (err) {
+    console.warn('[exportBackupData] gcal links', err);
+  }
+
   return {
     app: 'LandNote',
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     counts,
+    meta: {
+      googleCalendarLinks,
+      ownerId: getActiveOwnerId(),
+    },
     tables,
   };
 }
@@ -825,8 +850,9 @@ export async function exportBackupData() {
 /** @param {unknown} backup */
 export function isValidBackupData(backup) {
   return !!backup && typeof backup === 'object'
-    && backup.format === BACKUP_FORMAT
-    && !!backup.tables && typeof backup.tables === 'object';
+    && /** @type {{ format?: string }} */ (backup).format === BACKUP_FORMAT
+    && !!/** @type {{ tables?: unknown }} */ (backup).tables
+    && typeof /** @type {{ tables?: unknown }} */ (backup).tables === 'object';
 }
 
 /** @param {unknown} v */
@@ -834,15 +860,21 @@ function backupNormText(v) {
   return String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/** 매물 주소 정규화 — jibun/addr/road 모두 반영 */
+function propertyBackupAddress(row) {
+  return backupNormText(row.jibunAddr || row.addr || row.roadAddr || '');
+}
+
 /** @param {Record<string, unknown>} row */
 function propertyBackupFingerprint(row) {
   const money = row.price ?? row.mDep ?? row.jDep ?? '';
   return [
     'p',
-    backupNormText(row.addr),
+    propertyBackupAddress(row),
     backupNormText(row.bldg),
     row.trade ?? '',
     row.main ?? '',
+    row.sub ?? '',
     money,
     row.mRent ?? '',
     row.deletedAt ?? '',
@@ -862,6 +894,23 @@ function customerBackupFingerprint(row) {
 
 /** @param {Record<string, unknown>} row @param {unknown} pid @param {unknown} callId */
 function scheduleBackupFingerprint(row, pid, callId) {
+  // ICS/구글 일정은 occurrence 키로 식별 — 제목만 같은 다른 일정과 섞이지 않음
+  const icsUid = String(row.icsUid || '').trim();
+  const icsKey = String(row.icsKey || '').trim();
+  if (icsUid || icsKey || row.icsSourceId) {
+    let occ = '';
+    if (icsUid && row.date) {
+      const t = String(row.time || '').trim();
+      const hm = t.match(/^(\d{1,2}):(\d{2})/);
+      const time = hm ? `${String(hm[1]).padStart(2, '0')}:${hm[2]}` : t;
+      occ = `${icsUid}|${row.date}|${time}`;
+    } else if (icsKey) {
+      occ = icsKey;
+    } else {
+      occ = `src:${row.icsSourceId}|${row.date || ''}|${row.time || ''}|${backupNormText(row.title)}`;
+    }
+    return ['s-ics', occ, row.deletedAt ?? ''].join('|');
+  }
   return [
     's',
     row.date ?? '',
@@ -898,6 +947,7 @@ function rentalBackupFingerprint(row, pid) {
     row.area ?? '',
     row.dep ?? '',
     row.rent ?? '',
+    row.leaseEnd ?? '',
   ].join('|');
 }
 
@@ -913,6 +963,10 @@ function prepareImportedBackupRow(row, ctx) {
   delete next.cloudCid;
   delete next.cloudSchedId;
   delete next.cloudCallId;
+  // 사진 배열은 그대로 유지 (data URL·원격 URL 모두 백업에 포함)
+  if (Array.isArray(next.photos)) {
+    next.photos = next.photos.filter((p) => typeof p === 'string' && p.length > 0);
+  }
   if (ctx.claimOwnership) {
     next.ownerId = ctx.ownerId;
     if (ctx.companyId) next.companyId = ctx.companyId;
@@ -999,9 +1053,10 @@ export async function restoreBackupData(backup, options = {}) {
         continue;
       }
       const prepared = prepareImportedBackupRow(row, ctx);
-      const newId = await db.customers.add(prepared);
+      const normalized = normalizeCustomerRecord(prepared);
+      const newId = await db.customers.add(normalized);
       if (oldId != null) custIdMap.set(oldId, newId);
-      custIndex.set(fp, { ...prepared, id: newId });
+      custIndex.set(fp, { ...normalized, id: newId });
       stats.customers.added += 1;
     }
 
@@ -1092,6 +1147,31 @@ export async function restoreBackupData(backup, options = {}) {
   });
 
   if (options.markLocalWins !== false) markRestoreLocalWins();
+
+  // 구글 캘린더 연동 설정 복원 (일정 색·동기화에 필요)
+  try {
+    const links = backup?.meta?.googleCalendarLinks;
+    if (Array.isArray(links) && links.length) {
+      const { upsertGoogleCalendarLink } = await import('./services/googleCalendarLinks.js');
+      for (const link of links) {
+        if (!link?.icsUrl || !link?.sourceId) continue;
+        upsertGoogleCalendarLink({
+          icsUrl: link.icsUrl,
+          sourceLink: link.sourceLink || link.icsUrl,
+          sourceId: link.sourceId,
+          calendarKey: link.calendarKey,
+          label: link.label,
+          color: link.color,
+          enabled: link.enabled !== false,
+          linkedAt: link.linkedAt || new Date().toISOString(),
+          lastSyncAt: link.lastSyncAt ?? null,
+          lastError: null,
+        }, ownerId);
+      }
+    }
+  } catch (err) {
+    console.warn('[restoreBackupData] gcal links', err);
+  }
 
   /** @type {Record<string, number> & { added?: Record<string, number>, skipped?: Record<string, number> }} */
   const result = {};

@@ -148,6 +148,7 @@ export function PropertyPhotoPicker({ slots, onChange, compact = false }) {
                 <span style={{ display: 'inline-flex', color: C.txP }} aria-hidden>{addIcon}</span>
                 <span style={{ fontSize: 12, color: C.txM }}>{SLOT_LABELS[i]}</span>
                 <span style={{ fontSize: 12, color: C.txP }}>클릭해서 불러오기</span>
+                <span style={{ fontSize: 11, color: C.txP }}>5MB 이하 · 저장 시 1280px 최적화</span>
               </>
             )}
           </div>

@@ -3770,23 +3770,45 @@ const Backup=()=>{
     setBusy(true);
     try{
       const backup=await exportBackupData();
-      const json=JSON.stringify(backup);
-      const blob=new Blob([json],{type:'application/json'});
+      let json;
+      try{
+        json=JSON.stringify(backup);
+      }catch(serErr){
+        console.error('[backup export stringify]',serErr);
+        setAlertMsg('데이터가 너무 크거나 직렬화할 수 없어 내보내기에 실패했습니다.\n(매물 사진이 많으면 일부 사진을 정리한 뒤 다시 시도해 주세요)');
+        return;
+      }
+      if(!json||json==='{}'){
+        setAlertMsg('내보낼 데이터가 비어 있습니다.');
+        return;
+      }
+      const blob=new Blob([json],{type:'application/json;charset=utf-8'});
       const filename=`landnote_backup_${backupFileTimestamp(new Date())}.rmxbak`;
       const url=URL.createObjectURL(blob);
       const a=document.createElement('a');
       a.href=url;
       a.download=filename;
+      a.rel='noopener';
+      a.style.display='none';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
       const info={at:new Date().toISOString(),filename,size:blob.size,counts:backup.counts};
       saveLastBackupInfo(info);
       setLastBackup(info);
       setLocalCounts(backup.counts);
-      setAlertMsg(`내보내기가 완료되었습니다.\n${formatBackupCountsLabel(backup.counts)}`);
+      const gcalN=Array.isArray(backup.meta?.googleCalendarLinks)?backup.meta.googleCalendarLinks.length:0;
+      const sizeNote=blob.size>20*1024*1024?`\n파일 크기 ${backupFileSize(blob.size)} — 안전한 곳에 보관하세요.`:'';
+      setAlertMsg(`내보내기가 완료되었습니다.\n${formatBackupCountsLabel(backup.counts)}${gcalN?`\n구글 캘린더 연동 ${gcalN}개`:''}${sizeNote}`);
     }catch(err){
       console.error('[backup export]',err);
-      setAlertMsg('데이터 내보내기에 실패했습니다.');
+      const code=err?.message||'';
+      if(String(code).startsWith('BACKUP_SERIALIZE_FAILED')){
+        setAlertMsg(`데이터 내보내기에 실패했습니다.\n(${String(code).replace('BACKUP_SERIALIZE_FAILED:','')} 테이블 직렬화 오류)`);
+      }else{
+        setAlertMsg('데이터 내보내기에 실패했습니다.');
+      }
     }finally{
       setBusy(false);
     }
@@ -3801,7 +3823,8 @@ const Backup=()=>{
     reader.onload=()=>{
       let parsed;
       try{
-        parsed=JSON.parse(String(reader.result||''));
+        const raw=String(reader.result||'').replace(/^\uFEFF/,'');
+        parsed=JSON.parse(raw);
       }catch{
         setBusy(false);
         setAlertMsg('올바른 백업 파일이 아닙니다.');
@@ -3813,8 +3836,9 @@ const Backup=()=>{
         return;
       }
       const counts=getBackupTableCounts(parsed);
+      const gcalN=Array.isArray(parsed.meta?.googleCalendarLinks)?parsed.meta.googleCalendarLinks.length:0;
       const total=(counts.properties||0)+(counts.customers||0)+(counts.call_logs||0)+(counts.schedules||0)+(counts.rentals||0);
-      if(total===0){
+      if(total===0&&gcalN===0){
         setBusy(false);
         setAlertMsg('백업 파일에 복원할 데이터가 없습니다.');
         return;
@@ -3822,7 +3846,7 @@ const Backup=()=>{
       setBusy(false);
       setConfirm({
         msg:'데이터를 가져오시겠습니까?',
-        subMsg:`기존 데이터는 유지하고, 백업에만 있는 항목을 추가합니다.\n이미 있는 동일 데이터(매물·고객·통화·일정·임대차)는 건너뜁니다.\n\n파일 항목: ${formatBackupCountsLabel(counts)}`,
+        subMsg:`기존 데이터는 유지하고, 백업에만 있는 항목을 추가합니다.\n이미 있는 동일 데이터는 건너뜁니다.\n\n파일 항목: ${formatBackupCountsLabel(counts)}${gcalN?`\n구글 캘린더 연동 ${gcalN}개`:''}`,
         label:'가져오기',
         danger:false,
         onConfirm:async()=>{
@@ -3871,9 +3895,9 @@ const Backup=()=>{
 
   const items=[
     {icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>,
-      title:'데이터 내보내기',desc:'매물·고객·통화이력·일정·임대차 데이터를 .rmxbak 파일로 저장합니다. 소프트 삭제(휴지통) 항목도 포함됩니다.',btn:busy?'내보내는 중…':'내보내기',role:'backup-primary',ic:'ti-upload',on:handleExport,disabled:busy},
+      title:'데이터 내보내기',desc:'매물·고객·통화이력·일정·임대차·매물 사진·구글 캘린더 연동 설정을 .rmxbak 파일로 저장합니다. 휴지통(소프트 삭제) 항목도 포함됩니다.',btn:busy?'내보내는 중…':'내보내기',role:'backup-primary',ic:'ti-upload',on:handleExport,disabled:busy},
     {icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.96"/></svg>,
-      title:'데이터 가져오기',desc:'백업 파일의 매물·고객·통화이력·일정·임대차를 기존 데이터에 병합합니다. 동일한 항목은 중복 추가하지 않으며, 새로 추가된 항목만 클라우드에 동기화합니다.',btn:busy?'파일 확인 중…':'파일 선택',role:'backup-danger',ic:'ti-upload',on:()=>fileInputRef.current?.click(),disabled:busy},
+      title:'데이터 가져오기',desc:'백업 파일을 기존 데이터에 병합합니다. 동일한 항목은 건너뛰고, 새로 추가된 매물·고객·일정·통화는 클라우드에 동기화합니다. 구글 캘린더 연동 설정도 함께 복원됩니다.',btn:busy?'파일 확인 중…':'파일 선택',role:'backup-danger',ic:'ti-upload',on:()=>fileInputRef.current?.click(),disabled:busy},
   ];
 
   return(
