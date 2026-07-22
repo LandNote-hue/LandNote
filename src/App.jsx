@@ -58,7 +58,6 @@ import { InviteSignUpPage, SignUpPage } from "./pages/InviteSignUpPage.jsx";
 import { AUTH_PATHS } from "./navigation/authRoutes.js";
 import {
   captureCurrentAppPathFromWindow,
-  isAuthPathname,
   resolveReturnAppPath,
   saveLastAppPath,
 } from "./navigation/returnPath.js";
@@ -133,6 +132,7 @@ const RouteLoading=({label='불러오는 중…', detail=null})=>(
     height:'100%', minHeight:'100dvh', padding:24, boxSizing:'border-box',
     background:C.bg, color:C.txM, gap:10, textAlign:'center',
   }}>
+    <div translate="no" lang="en" style={{fontSize:18,fontWeight:800,color:C.brand,letterSpacing:'-.02em',marginBottom:4}}>LandNote</div>
     <div style={{
       width:28, height:28, borderRadius:'50%',
       border:`3px solid ${C.bdr}`, borderTopColor:C.brand,
@@ -766,9 +766,9 @@ const TitleBar=({screen,onSignOut,onHome})=>(
           <Logo sz={SIDEBAR_ICON_SZ}/>
         </div>
       </div>
-      <span style={{fontSize:19.5,fontWeight:700,color:'rgba(255,255,255,.7)',letterSpacing:'-.01em'}}>LandNote</span>
+      <span translate="no" lang="en" style={{fontSize:19.5,fontWeight:700,color:'rgba(255,255,255,.7)',letterSpacing:'-.01em'}}>LandNote</span>
     </button>
-    {screen&&<><span style={{fontSize:12,color:'rgba(255,255,255,.2)',margin:'0 6px'}}>›</span>
+    {screen&&screen!=='LandNote'&&<><span style={{fontSize:12,color:'rgba(255,255,255,.2)',margin:'0 6px'}}>›</span>
     <span style={{fontSize:13,color:'rgba(255,255,255,.55)'}}>{screen}</span></>}
     {onSignOut&&(
       <button type="button" onClick={onSignOut}
@@ -947,7 +947,7 @@ const LockScreen=({onLogin})=>{
           <div style={{width:68,height:68,background:`linear-gradient(145deg,${C.brand},#A00E25)`,borderRadius:20,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 8px 32px rgba(200,16,46,.45)',marginBottom:20}}>
             <Logo sz={38}/>
           </div>
-          <div style={{fontSize:32,fontWeight:800,color:'#fff',letterSpacing:'-.02em',marginBottom:6}}>LandNote</div>
+          <div translate="no" lang="en" style={{fontSize:32,fontWeight:800,color:'#fff',letterSpacing:'-.02em',marginBottom:6}}>LandNote</div>
           <div style={{fontSize:13,color:'rgba(255,255,255,.42)',letterSpacing:'.08em',fontWeight:500}}>부동산 매물관리 시스템</div>
         </div>
 
@@ -4573,7 +4573,7 @@ const Settings=({onClose,onSignOut})=>{
                 lineHeight: 1.5,
               }}
             >
-              랜드노트를 더 이상 사용하지 않으시나요?{' '}
+              LandNote를 더 이상 사용하지 않으시나요?{' '}
               <span
                 data-withdraw-link
                 style={{
@@ -6585,13 +6585,9 @@ function AuthPublicCatchAll({ onLegacyLogin }) {
   return <LoginScreen variant="login" onLegacyLogin={onLegacyLogin} />;
 }
 
-/** 로그인된 상태에서 /login 등에 남아 있으면 직전 앱 경로로 복귀 */
-function RestoreLastAppPath() {
-  const navigate = useNavigate();
-  useLayoutEffect(() => {
-    navigate(resolveReturnAppPath('/dashboard'), { replace: true });
-  }, [navigate]);
-  return <RouteLoading label="이전 화면으로 이동 중…" />;
+/** 로그인된 상태에서 /login 등에 남아 있으면 직전 앱 경로로 즉시 복귀 (중간 로딩 화면 없음) */
+function AuthPathRedirect() {
+  return <Navigate to={resolveReturnAppPath('/dashboard')} replace />;
 }
 
 /** 알 수 없는 경로 — 가능하면 직전 페이지, 없으면 대시보드 (루프 방지) */
@@ -6650,23 +6646,6 @@ function AppShell(){
     if (authLoading || profileLoading) return;
     saveLastAppPath(`${location.pathname}${location.search || ''}`);
   }, [user?.id, legacyUnlocked, authLoading, profileLoading, location.pathname, location.search]);
-
-  // 세션 복원 후 /login 등에 남아 있으면 직전 페이지로 복귀
-  useLayoutEffect(() => {
-    if (authLoading || profileLoading) return;
-    if (!user?.id && !legacyUnlocked) return;
-    if (needsSignupCompletion) return;
-    if (!isAuthPathname(location.pathname)) return;
-    navigate(resolveReturnAppPath('/dashboard'), { replace: true });
-  }, [
-    authLoading,
-    profileLoading,
-    user?.id,
-    legacyUnlocked,
-    needsSignupCompletion,
-    location.pathname,
-    navigate,
-  ]);
 
   const properties=useProperties();
   const [wins,setWins]=useState([]);
@@ -6772,31 +6751,13 @@ function AppShell(){
     navigate(AUTH_PATHS.login,{replace:true});
   };
 
-  if(authLoading){
-    return (
-      <RouteLoading
-        label="로그인 중…"
-        detail="계정 인증을 확인하고 있습니다."
-      />
-    );
-  }
+  const legacyLoginProps = {
+    onLegacyLogin: () => { clearPropListState(); setLegacyUnlocked(true); navigate('/dashboard'); },
+  };
 
   if(passwordRecovery||location.pathname===PASSWORD_RESET_REDIRECT_PATH){
     return <ResetPasswordScreen/>;
   }
-
-  if(user?.id&&user.id!=='dev-local'&&profileLoading){
-    return (
-      <RouteLoading
-        label="로그인 중…"
-        detail="계정 정보를 확인하고 데이터를 준비합니다."
-      />
-    );
-  }
-
-  const legacyLoginProps = {
-    onLegacyLogin: () => { clearPropListState(); setLegacyUnlocked(true); navigate('/dashboard'); },
-  };
 
   if(user&&needsSignupCompletion){
     if (location.pathname === AUTH_PATHS.signupInvite) {
@@ -6808,7 +6769,17 @@ function AppShell(){
     return <Navigate to={AUTH_PATHS.signup} replace />;
   }
 
-  if(!user&&!legacyUnlocked) return <AuthPublicRoutes {...legacyLoginProps} />;
+  if(!user&&!legacyUnlocked){
+    if(authLoading){
+      return (
+        <RouteLoading
+          label="로그인 중…"
+          detail="계정 인증을 확인하고 있습니다."
+        />
+      );
+    }
+    return <AuthPublicRoutes {...legacyLoginProps} />;
+  }
 
   // 매물·고객 준비(ready)되면 진입 — 일정/통화는 백그라운드 수신
   // 세션에 이미 동기화됐으면 idle이어도 전체 화면 로딩으로 막지 않음
@@ -6820,11 +6791,14 @@ function AppShell(){
       try { return sessionStorage.getItem(`landnote.sessionCloudReady.${user.id}`) !== '1'; }
       catch { return true; }
     })();
-  if(waitCloudBootstrap){
+  const bootstrapping = authLoading
+    || (user?.id && user.id !== 'dev-local' && profileLoading)
+    || waitCloudBootstrap;
+  if(bootstrapping){
     return (
       <RouteLoading
         label="로그인 중…"
-        detail="매물·고객을 먼저 불러온 뒤 바로 시작합니다. 일정·통화는 이어서 가져옵니다."
+        detail="계정과 데이터를 준비하고 있습니다."
       />
     );
   }
@@ -6833,9 +6807,9 @@ function AppShell(){
     <RouteErrorBoundary>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path={AUTH_PATHS.login} element={<RestoreLastAppPath />} />
-        <Route path={AUTH_PATHS.signup} element={<RestoreLastAppPath />} />
-        <Route path={AUTH_PATHS.signupInvite} element={<RestoreLastAppPath />} />
+        <Route path={AUTH_PATHS.login} element={<AuthPathRedirect />} />
+        <Route path={AUTH_PATHS.signup} element={<AuthPathRedirect />} />
+        <Route path={AUTH_PATHS.signupInvite} element={<AuthPathRedirect />} />
         <Route path="/dashboard" element={<Dashboard onOpen={openWin} onNav={navTo} onNavWithTab={(tab)=>navigate(`/properties?tab=${tab}`)} onNotify={showNotification}/>} />
         <Route path="/properties" element={<PropList onOpen={openWin} onNav={navTo} folders={folders} propFolders={propFolders} setPropFolders={setPropFolders} onDeleteProperty={(p,after)=>softDelete('props',p,propDisplayAddr(p)||p.bldg,after||(()=>{}))}/>} />
         <Route path="/properties/:id/edit" element={<PropEditRoute softDelete={softDelete} onOpen={openWin}/>} />
@@ -6861,9 +6835,9 @@ function AppShell(){
     <RouteErrorBoundary>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path={AUTH_PATHS.login} element={<RestoreLastAppPath />} />
-        <Route path={AUTH_PATHS.signup} element={<RestoreLastAppPath />} />
-        <Route path={AUTH_PATHS.signupInvite} element={<RestoreLastAppPath />} />
+        <Route path={AUTH_PATHS.login} element={<AuthPathRedirect />} />
+        <Route path={AUTH_PATHS.signup} element={<AuthPathRedirect />} />
+        <Route path={AUTH_PATHS.signupInvite} element={<AuthPathRedirect />} />
         <Route path="/dashboard" element={<MobileDashboard/>} />
         <Route path="/properties" element={<MobilePropertyList/>} />
         <Route path="/properties/:id" element={<MobilePropertyDetail/>} />

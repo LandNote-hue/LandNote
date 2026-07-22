@@ -130,7 +130,7 @@ export function InviteTransferFlow({ token, companyName, invitedEmail, inviteRol
         </div>
         <p style={{ fontSize: 14, color: 'rgba(255,255,255,.55)', lineHeight: 1.6, marginBottom: 20 }}>
           <strong style={{ color: 'rgba(255,255,255,.85)' }}>{invitedEmail}</strong>
-          {' '}계정은 이미 랜드노트에 가입되어 있습니다.
+          {' '}계정은 이미 LandNote에 가입되어 있습니다.
           로그인 후 소속 변경을 진행해 주세요.
         </p>
 

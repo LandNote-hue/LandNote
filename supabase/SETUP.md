@@ -112,7 +112,7 @@ https://xxxxxxxx.supabase.co/auth/v1/callback
 - 제목: `supabase/email-templates/confirm-signup.subject.txt` 붙여넣기
 - 본문: `supabase/email-templates/confirm-signup.html` 전체 붙여넣기
 - 링크 변수: `{{ .ConfirmationURL }}` (Supabase 표준)
-- 발신인 이름: **LandNote 랜드노트** (SMTP Settings)
+- 발신인 이름: **LandNote** (SMTP Settings)
 - 상세: `supabase/email-templates/README.md`
 
 **Authentication** → **URL Configuration** — Redirect URLs:

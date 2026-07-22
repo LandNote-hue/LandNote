@@ -13,6 +13,7 @@ import {
 import { USER_TYPES } from '../data/userTypes.js';
 import { displayNameFromUser } from '../utils/registrationStatus.js';
 import { AUTH_PATHS } from '../navigation/authRoutes.js';
+import { resolveReturnAppPath } from '../navigation/returnPath.js';
 import { previewInviteToken } from '../services/teamService.js';
 import { InviteTransferFlow } from './InviteTransferFlow.jsx';
 import { InviteExistingUserModal } from './InviteExistingUserModal.jsx';
@@ -291,6 +292,7 @@ export function LoginScreen({
           setPasswordFieldReady(false);
           if (passwordInputRef.current) passwordInputRef.current.value = '';
           setMessage('');
+          navigate(resolveReturnAppPath('/dashboard'), { replace: true });
         } else if (isInvalidLoginCredentialsError(error)) {
           const status = recordLoginFailure(email);
           clearAuthError();
@@ -397,7 +399,7 @@ export function LoginScreen({
           }}>
             <Logo />
           </div>
-          <div style={{ fontSize: 32, fontWeight: 800, color: '#fff', letterSpacing: '-.02em', marginBottom: 6 }}>LandNote</div>
+          <div translate="no" lang="en" style={{ fontSize: 32, fontWeight: 800, color: '#fff', letterSpacing: '-.02em', marginBottom: 6 }}>LandNote</div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,.42)', letterSpacing: '.08em', fontWeight: 500 }}>
             {inviteMode && inviteCompanyName
               ? `${inviteCompanyName} 직원 가입`

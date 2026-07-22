@@ -73,7 +73,7 @@ export function MobileShell({
       }}>
         <button type="button" onClick={() => go('dashboard')} aria-label="대시보드로 이동"
           style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
-          <span style={{ fontSize: 17, fontWeight: 800, color: BRAND, letterSpacing: '-.02em' }}>LandNote</span>
+          <span translate="no" lang="en" style={{ fontSize: 17, fontWeight: 800, color: BRAND, letterSpacing: '-.02em' }}>LandNote</span>
         </button>
         {screenTitle && screenTitle !== 'LandNote' && (
           <>
