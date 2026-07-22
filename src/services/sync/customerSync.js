@@ -60,8 +60,8 @@ function canSync(userId) {
   return isSupabaseConfigured && userId && userId !== DEV_LOCAL_OWNER;
 }
 
-/** @param {string} userId */
-export async function syncCustomersFromCloud(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function syncCustomersFromCloud(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
 
   await pushOwnedSoftDeletes('customers', syncCustomerToCloud, userId, 'properties');
@@ -85,7 +85,9 @@ export async function syncCustomersFromCloud(userId) {
     });
   }
 
-  await pruneStaleCloudRows(db.customers, remoteCloudIds, userId, companyId, 'customers');
+  await pruneStaleCloudRows(db.customers, remoteCloudIds, userId, companyId, 'customers', {
+    skipPrune: options.skipPrune === true,
+  });
 
   localStorage.setItem(`landnote.sync.customers.${userId}`, new Date().toISOString());
   return {
@@ -164,12 +166,12 @@ export async function pushUnsyncedCustomersToCloud(userId) {
   return { ok: failed === 0, pushed, failed };
 }
 
-/** @param {string} userId */
-export async function initialCustomerSync(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function initialCustomerSync(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
-  const pull = await syncCustomersFromCloud(userId);
+  const pull = await syncCustomersFromCloud(userId, options);
   const push = await pushUnsyncedCustomersToCloud(userId);
-  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0 };
+  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0, remoteEmpty: !!pull.remoteEmpty };
 }
 
 export function getCustomerSyncTime(userId) {

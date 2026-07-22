@@ -75,8 +75,8 @@ function canSync(userId) {
   return isSupabaseConfigured && userId && userId !== DEV_LOCAL_OWNER;
 }
 
-/** @param {string} userId */
-export async function syncCallLogsFromCloud(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function syncCallLogsFromCloud(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
 
   await pushOwnedSoftDeletes('call_logs', syncCallLogToCloud, userId, 'call_logs');
@@ -101,7 +101,9 @@ export async function syncCallLogsFromCloud(userId) {
   }
   await bulkUpsertSharedCloudRecords(db.call_logs, batch, 'call_logs');
 
-  await pruneStaleCloudRows(db.call_logs, remoteCloudIds, userId, companyId, 'call_logs');
+  await pruneStaleCloudRows(db.call_logs, remoteCloudIds, userId, companyId, 'call_logs', {
+    skipPrune: options.skipPrune === true,
+  });
 
   localStorage.setItem(`landnote.sync.call_logs.${userId}`, new Date().toISOString());
   return {
@@ -180,10 +182,10 @@ export async function pushUnsyncedCallLogsToCloud(userId) {
   return { ok: failed === 0, pushed, failed };
 }
 
-/** @param {string} userId */
-export async function initialCallLogSync(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function initialCallLogSync(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
-  const pull = await syncCallLogsFromCloud(userId);
+  const pull = await syncCallLogsFromCloud(userId, options);
   const push = await pushUnsyncedCallLogsToCloud(userId);
-  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0 };
+  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0, remoteEmpty: !!pull.remoteEmpty };
 }

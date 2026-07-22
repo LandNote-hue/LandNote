@@ -83,8 +83,8 @@ function canSync(userId) {
   return isSupabaseConfigured && userId && userId !== DEV_LOCAL_OWNER;
 }
 
-/** @param {string} userId */
-export async function syncSchedulesFromCloud(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function syncSchedulesFromCloud(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
 
   await pushOwnedSoftDeletes('schedules', syncScheduleToCloud, userId, 'schedules');
@@ -138,7 +138,9 @@ export async function syncSchedulesFromCloud(userId) {
   }
   await bulkUpsertSharedCloudRecords(db.schedules, batch, 'schedules');
 
-  await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules');
+  await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules', {
+    skipPrune: options.skipPrune === true,
+  });
   try {
     await collapseDuplicateIcsSchedules(userId);
   } catch (err) {
@@ -222,10 +224,10 @@ export async function pushUnsyncedSchedulesToCloud(userId) {
   return { ok: failed === 0, pushed, failed };
 }
 
-/** @param {string} userId */
-export async function initialScheduleSync(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function initialScheduleSync(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
-  const pull = await syncSchedulesFromCloud(userId);
+  const pull = await syncSchedulesFromCloud(userId, options);
   const push = await pushUnsyncedSchedulesToCloud(userId);
-  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0 };
+  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0, remoteEmpty: !!pull.remoteEmpty };
 }

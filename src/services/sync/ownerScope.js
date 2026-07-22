@@ -20,8 +20,10 @@ export function getActiveOwnerId() {
 export function matchesOwner(item, ownerId = getActiveOwnerId()) {
   if (!item) return false;
   const oid = item.ownerId;
-  if (oid == null || oid === '') return ownerId === DEV_LOCAL_OWNER;
-  return oid === ownerId;
+  // owner 미기입·dev-local 잔여분은 현재 로그인 세션에서 보이게 (claim 직전 깜빡임 방지)
+  if (oid == null || oid === '') return !!ownerId;
+  if (String(oid) === DEV_LOCAL_OWNER && ownerId && ownerId !== DEV_LOCAL_OWNER) return true;
+  return String(oid) === String(ownerId);
 }
 
 /** 같은 회사 스코프인지 (로컬 companyId 누락도 세션 회사로 허용) */

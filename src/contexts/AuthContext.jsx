@@ -263,6 +263,7 @@ export function AuthProvider({ children }) {
       let result = await initialCloudSync(userId, {
         ...options,
         forcePull,
+        mergeOnly: options.mergeOnly !== false, // 로그인 sync는 기본 prune 없음
         onEssentialReady: () => {
           // UI 진입만 허용 — sessionCloudReady는 최종 성공 후에만 기록
           setSessionCloudSyncStatus('ready');

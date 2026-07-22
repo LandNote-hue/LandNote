@@ -48,9 +48,11 @@ export async function isEssentialLocalEmpty() {
  * @param {string} userId
  * @param {{
  *   forcePull?: boolean,
+ *   mergeOnly?: boolean,
  *   onEssentialReady?: (partial: Record<string, unknown>) => void,
  * }} [options]
  *   forcePull: 복원 플래그 무시하고 pull 강제
+ *   mergeOnly: 로그인 기본 — prune 없이 upsert만 (로컬 데이터 보호)
  *   onEssentialReady: 매물·고객 pull 직후 콜백(앱 조기 진입용)
  */
 async function initialCloudSyncInner(userId, options = {}) {
@@ -63,9 +65,14 @@ async function initialCloudSyncInner(userId, options = {}) {
   const { initialCallLogSync } = await import('./callLogSync.js');
 
   const forcePull = options.forcePull === true;
+  // 로그인/세션 sync 기본은 merge-only (삭제 없음). 명시적으로 mergeOnly:false 일 때만 prune.
+  const mergeOnly = options.mergeOnly !== false;
+  const syncOpts = { skipPrune: mergeOnly };
   const onEssentialReady = typeof options.onEssentialReady === 'function'
     ? options.onEssentialReady
     : null;
+
+  const hadLocalEssentials = !(await isEssentialLocalEmpty());
 
   const restoreFlag = forcePull
     ? (consumeRestoreLocalWinsFlag(), false) // 플래그만 소비하고 pull 진행
@@ -93,6 +100,7 @@ async function initialCloudSyncInner(userId, options = {}) {
           restoredLocalWins: true,
           failed: restoredPush.failed,
           ok: true,
+          mergeOnly,
         };
       }
       console.info('[initialCloudSync] restore flag set but local empty — continuing with pull');
@@ -100,7 +108,7 @@ async function initialCloudSyncInner(userId, options = {}) {
       console.error('[initialCloudSync] restore push', err);
       // 로컬이 비어 있으면 pull 시도로 이어감
       if (!(await isLocalDataEmpty())) {
-        return { restoredLocalWins: true, ok: false, error: err };
+        return { restoredLocalWins: true, ok: false, error: err, mergeOnly };
       }
     }
   }
@@ -118,15 +126,33 @@ async function initialCloudSyncInner(userId, options = {}) {
     }
   };
 
-  // 1) 매물·고객 병렬 — 홈/매물 탭에 필요
+  // 1) 매물·고객 병렬 — 홈/매물 탭에 필요 (로그인 시 prune 없음)
   await Promise.all([
-    runOne('properties', () => initialPropertySync(userId)),
-    runOne('customers', () => initialCustomerSync(userId)),
+    runOne('properties', () => initialPropertySync(userId, syncOpts)),
+    runOne('customers', () => initialCustomerSync(userId, syncOpts)),
   ]);
+
+  // 클라우드가 비어 보이는데 로컬에 매물·고객이 있으면 → 로컬을 클라우드에 올려 복구
+  const propPulled = Number(results.properties?.pulled ?? results.properties?.count ?? 0) || 0;
+  const custPulled = Number(results.customers?.pulled ?? results.customers?.count ?? 0) || 0;
+  if (hadLocalEssentials && propPulled === 0 && custPulled === 0
+    && results.properties?.ok !== false && results.customers?.ok !== false) {
+    console.info('[initialCloudSync] cloud essentials empty — push local wins');
+    try {
+      const restoredPush = await pushRestoredLocalData(userId);
+      results.localWinsPush = restoredPush;
+      results.restoredLocalWins = true;
+    } catch (err) {
+      console.error('[initialCloudSync] local wins push', err);
+      results.localWinsPushError = err;
+    }
+  }
+
   try {
     onEssentialReady?.({
       properties: results.properties,
       customers: results.customers,
+      restoredLocalWins: !!results.restoredLocalWins,
     });
   } catch (err) {
     console.warn('[initialCloudSync] onEssentialReady', err);
@@ -134,8 +160,8 @@ async function initialCloudSyncInner(userId, options = {}) {
 
   // 2) 일정·통화 병렬 — 건수가 많아 백그라운드 체감
   await Promise.all([
-    runOne('schedules', () => initialScheduleSync(userId)),
-    runOne('callLogs', () => initialCallLogSync(userId)),
+    runOne('schedules', () => initialScheduleSync(userId, syncOpts)),
+    runOne('callLogs', () => initialCallLogSync(userId, syncOpts)),
   ]);
 
   try {
@@ -145,12 +171,12 @@ async function initialCloudSyncInner(userId, options = {}) {
   }
   const failed = ['properties', 'customers', 'schedules', 'callLogs']
     .some((key) => results[key]?.ok === false || results[key]?.error);
-  return { ...results, ok: !failed };
+  return { ...results, ok: !failed, mergeOnly };
 }
 
 /**
  * @param {string} userId
- * @param {{ forcePull?: boolean, onEssentialReady?: Function }} [options]
+ * @param {{ forcePull?: boolean, mergeOnly?: boolean, onEssentialReady?: Function }} [options]
  */
 export function initialCloudSync(userId, options = {}) {
   return withSyncMutex(() => initialCloudSyncInner(userId, options));

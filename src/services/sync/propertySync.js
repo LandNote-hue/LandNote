@@ -74,8 +74,8 @@ function canSync(userId) {
   return isSupabaseConfigured && userId && userId !== DEV_LOCAL_OWNER;
 }
 
-/** @param {string} userId */
-export async function syncPropertiesFromCloud(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function syncPropertiesFromCloud(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
 
   await pushOwnedSoftDeletes('properties', syncPropertyToCloud, userId, 'properties');
@@ -104,7 +104,9 @@ export async function syncPropertiesFromCloud(userId) {
     });
   }
 
-  await pruneStaleCloudRows(db.properties, remoteCloudIds, userId, companyId, 'properties');
+  await pruneStaleCloudRows(db.properties, remoteCloudIds, userId, companyId, 'properties', {
+    skipPrune: options.skipPrune === true,
+  });
 
   localStorage.setItem(`landnote.sync.properties.${userId}`, new Date().toISOString());
   return {
@@ -205,13 +207,13 @@ export async function pushUnsyncedPropertiesToCloud(userId) {
   return { ok: failed === 0, pushed, failed };
 }
 
-/** @param {string} userId */
-export async function initialPropertySync(userId) {
+/** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
+export async function initialPropertySync(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
   // push(사진 Storage 포함) → pull 순서로 회사 공유 열람 가능
   const push = await pushUnsyncedPropertiesToCloud(userId);
-  const pull = await syncPropertiesFromCloud(userId);
-  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0 };
+  const pull = await syncPropertiesFromCloud(userId, options);
+  return { ok: true, pulled: pull.count ?? 0, pushed: push.pushed ?? 0, remoteEmpty: !!pull.remoteEmpty };
 }
 
 export function getPropertySyncTime(userId) {

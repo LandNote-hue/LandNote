@@ -175,18 +175,24 @@ export async function pushOwnedSoftDeletes(tableName, syncOne, userId, resource 
  * diff pull: 클라우드 응답에 없는 cloudId 로컬 행만 제거 (clear+재삽입 대신)
  * cloudId 없는 로컬(미동기화·가져오기)은 유지
  *
- * 안전장치: 원격 0건이면 prune 금지(RLS/권한 실패로 로컬 전량 삭제 방지).
- * SOLO 워크스페이스(companyId === userId)는 ownerId 스코프로만 정리.
+ * 안전장치:
+ * - skipPrune / 원격 0건 → 삭제 안 함
+ * - 원격 건수가 로컬 cloudId 건수보다 현저히 적으면(부분 RLS) 삭제 안 함
+ * - SOLO 워크스페이스(companyId === userId)는 ownerId 스코프로만 정리
  *
  * @param {import('dexie').Table} table
  * @param {Set<string>} remoteCloudIds
  * @param {string} userId
  * @param {string|null} companyId
  * @param {'properties'|'customers'|'schedules'|'call_logs'} resource
- * @param {{ ownerScopeOnly?: boolean, allowEmptyRemote?: boolean }} [options]
+ * @param {{ ownerScopeOnly?: boolean, allowEmptyRemote?: boolean, skipPrune?: boolean }} [options]
  * @returns {Promise<{ pruned: number, skipped: boolean, reason?: string }>}
  */
 export async function pruneStaleCloudRows(table, remoteCloudIds, userId, companyId, resource, options = {}) {
+  if (options.skipPrune === true) {
+    return { pruned: 0, skipped: true, reason: 'skip_prune' };
+  }
+
   const remoteCount = remoteCloudIds instanceof Set ? remoteCloudIds.size : 0;
   if (remoteCount === 0 && options.allowEmptyRemote !== true) {
     console.warn(`[prune] skip ${resource}: remote empty — keep local rows`);
@@ -198,6 +204,24 @@ export async function pruneStaleCloudRows(table, remoteCloudIds, userId, company
   const useOwnerScope = options.ownerScopeOnly === true || soloWorkspace || !companyId;
 
   const locals = await table.toArray();
+  let localCloudCount = 0;
+  for (const rec of locals) {
+    if (!rec.cloudId) continue;
+    const inScope = useOwnerScope
+      ? (String(rec.ownerId || '') === String(userId)
+        || (!rec.ownerId && String(rec.userId || '') === String(userId)))
+      : (!rec.companyId || String(rec.companyId) === String(companyId));
+    if (!inScope) continue;
+    if (resource === 'schedules' && rec.icsSourceId) continue;
+    localCloudCount += 1;
+  }
+
+  // 부분 pull(RLS·권한 구멍)으로 로컬이 대량 삭제되는 것 방지
+  if (localCloudCount > 0 && remoteCount < Math.max(1, Math.ceil(localCloudCount * 0.5))) {
+    console.warn(`[prune] skip ${resource}: remote ${remoteCount} << local ${localCloudCount}`);
+    return { pruned: 0, skipped: true, reason: 'remote_partial' };
+  }
+
   let pruned = 0;
   for (const rec of locals) {
     const cloudId = rec.cloudId;

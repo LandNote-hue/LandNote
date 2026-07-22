@@ -14,13 +14,15 @@ export function useOwnerId() {
 export function useDataScope() {
   const { user, company, profile, companyRole, memberPermissions } = useAuth();
   const rawRole = companyRole ?? profile?.role;
+  const userId = user?.id || DEV_LOCAL_OWNER;
   const soloByType = profile?.user_type === 'SOLO';
-  // normalizeCompanyRole(null)→MEMBER 이므로 SOLO user_type을 먼저 반영
+  const soloWorkspace = !!(userId && userId !== DEV_LOCAL_OWNER
+    && (profile?.company_id === userId || company?.id === userId));
+  // normalizeCompanyRole(null)→MEMBER 이므로 SOLO user_type·솔로 워크스페이스를 먼저 반영
   const role = rawRole != null && rawRole !== ''
     ? normalizeCompanyRole(rawRole)
-    : (soloByType ? 'SOLO' : null);
-  const solo = role === 'SOLO' || soloByType;
-  const userId = user?.id || DEV_LOCAL_OWNER;
+    : (soloByType || soloWorkspace ? 'SOLO' : null);
+  const solo = role === 'SOLO' || soloByType || soloWorkspace;
   const companyId = solo ? null : (company?.id ?? profile?.company_id ?? null);
   const resolvedRole = role ?? 'SOLO';
   const permissions = useMemo(
