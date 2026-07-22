@@ -49,6 +49,18 @@ import {
   removeGoogleCalendarLink,
   GCAL_LINK_COLORS,
 } from "./services/googleCalendarLinks.js";
+import {
+  PRI_C,
+  PRI_BG,
+  PRI_L,
+  PRI_OPTS,
+  schedulePriColor,
+  schedulePriBg,
+  scheduleSourceInfo,
+  gcalFallbackColor,
+  gcalLinkDisplayLabel,
+  buildGcalMeta,
+} from "./utils/scheduleColors.js";
 import { PhoneInput } from "./components/PhoneInput.jsx";
 import { MoneyInput } from "./components/MoneyInput.jsx";
 import { parseFormNum } from "./utils/propertyForm.js";
@@ -285,37 +297,6 @@ const SIDO_SHORT={
 };
 const sidoMatch=(addr,sido)=>!sido||addr.includes(SIDO_SHORT[sido]||sido);
 const TL={SALE:'매매',JEONSE:'전세',MONTHLY:'월세',SHORT_TERM:'단기',PRESALE:'분양'};
-/** 일정 우선순위 색 — 긴급(빨강) · 중요(주황) · 보통(파랑) */
-const PRI_C={URGENT:'#DC2626',IMPORTANT:'#D97706',NORMAL:'#2563EB'};
-const PRI_BG={URGENT:'rgba(220,38,38,.16)',IMPORTANT:'rgba(217,119,6,.16)',NORMAL:'rgba(37,99,235,.16)'};
-const PRI_L={URGENT:'긴급',IMPORTANT:'중요',NORMAL:'보통'};
-const PRI_OPTS=[['URGENT','긴급'],['IMPORTANT','중요'],['NORMAL','보통']];
-const schedulePriColor=(pri)=>PRI_C[pri]||PRI_C.NORMAL;
-const schedulePriBg=(pri)=>PRI_BG[pri]||PRI_BG.NORMAL;
-/** @param {string} hex @param {number} [alpha] */
-const hexToRgba=(hex,alpha=.16)=>{
-  const h=String(hex||'').replace('#','');
-  const r=parseInt(h.slice(0,2),16), g=parseInt(h.slice(2,4),16), b=parseInt(h.slice(4,6),16);
-  return `rgba(${r},${g},${b},${alpha})`;
-};
-/**
- * 일정 표시색 — 연동 캘린더에서 가져온 일정은 캘린더 구분색, 직접 등록한 일정은 우선순위색
- * @param {{pri?:string, icsSourceId?:string}} s
- * @param {Map<string,{color:string,label:string}>} gcalMeta
- */
-const scheduleSourceInfo=(s,gcalMeta)=>{
-  const src=s.icsSourceId?gcalMeta?.get(s.icsSourceId):null;
-  if(src) return {c:src.color,bg:hexToRgba(src.color,.08),label:src.label,isSource:true};
-  return {c:schedulePriColor(s.pri),bg:schedulePriBg(s.pri),label:PRI_L[s.pri]||'보통',isSource:false};
-};
-/** 구버전(색 미지정) 연동 링크용 — sourceId로부터 결정적으로 색 선택 */
-const gcalFallbackColor=(sourceId)=>{
-  let h=0;
-  const s=String(sourceId||'');
-  for(let i=0;i<s.length;i+=1) h=(h*31+s.charCodeAt(i))>>>0;
-  return GCAL_LINK_COLORS[h%GCAL_LINK_COLORS.length];
-};
-
 /** 일정 우선순위 선택 (등록·수정) */
 const PriorityPicker=({value,onChange})=>{
   const cur=value&&PRI_C[value]?value:'NORMAL';
@@ -990,19 +971,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
   const today=useMemo(()=>{const d=new Date();d.setHours(0,0,0,0);return d;},[]);
   const todayLabel=fmtTodayKorean();
   const gcalOwnerId=user?.id&&user.id!=='dev-local'?user.id:undefined;
-  const gcalMeta=useMemo(()=>{
-    const m=new Map();
-    listGoogleCalendarLinks(gcalOwnerId).forEach(l=>{
-      const color=l.color&&GCAL_LINK_COLORS.includes(l.color)?l.color:gcalFallbackColor(l.sourceId);
-      const label=(l.label&&l.label.trim())
-        || (()=>{
-          const src=l.sourceLink||l.icsUrl||'';
-          return src.length>42?`${src.slice(0,42)}…`:(src||'연동된 캘린더');
-        })();
-      m.set(l.sourceId,{color,label});
-    });
-    return m;
-  },[gcalOwnerId]);
+  const gcalMeta=useMemo(()=>buildGcalMeta(gcalOwnerId),[gcalOwnerId]);
   const alerts=useMemo(()=>{
     const items=[];
     const inWindow=(diff)=>diff>=0&&diff<=DASH_ALERT_MAX_DAYS;
@@ -3487,19 +3456,13 @@ const Calendar=({onOpen})=>{
     }
   };
 
-  const gcalLinkLabel=(l)=>{
-    if(l.label&&l.label.trim()) return l.label.trim();
-    const src=l.sourceLink||l.icsUrl||'';
-    return src.length>42?`${src.slice(0,42)}…`:(src||'연동된 캘린더');
-  };
   const gcalMeta=useMemo(()=>{
     const m=new Map();
     gcalLinks.forEach(l=>{
       const color=l.color&&GCAL_LINK_COLORS.includes(l.color)?l.color:gcalFallbackColor(l.sourceId);
-      m.set(l.sourceId,{color,label:gcalLinkLabel(l)});
+      m.set(l.sourceId,{color,label:gcalLinkDisplayLabel(l)});
     });
     return m;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- gcalLinkLabel은 gcalLinks에서 파생, 별도 의존성 불필요
   },[gcalLinks]);
 
   const handleGcalUnlinkOne=(sourceId,label)=>{
@@ -6613,7 +6576,7 @@ function AuthPublicRoutes({ onLegacyLogin }) {
 
 /* ═══ MAIN APP ═══ */
 function AppShell(){
-  const { user, loading: authLoading, profileLoading, needsSignupCompletion, signOut, passwordRecovery, sessionCloudSyncStatus } = useAuth();
+  const { user, loading: authLoading, profileLoading, profilePending, needsSignupCompletion, signOut, passwordRecovery, sessionCloudSyncStatus } = useAuth();
   const isMobile = useIsMobile();
   const isMobileDevice = useIsMobileDevice();
   const [forceDesktop, setForceDesktopState] = useState(getForceDesktop);
@@ -6782,18 +6745,7 @@ function AppShell(){
     return <AuthPublicRoutes {...legacyLoginProps} />;
   }
 
-  if(user&&needsSignupCompletion){
-    if (location.pathname === AUTH_PATHS.signupInvite) {
-      return <InviteSignUpPage {...legacyLoginProps} />;
-    }
-    if (location.pathname === AUTH_PATHS.signup) {
-      return <LoginScreen variant="signup" {...legacyLoginProps} />;
-    }
-    return <Navigate to={AUTH_PATHS.signup} replace />;
-  }
-
-  // 매물·고객 준비(ready)되면 진입 — 일정/통화는 백그라운드 수신
-  // 세션에 이미 동기화됐으면 idle이어도 전체 화면 로딩으로 막지 않음
+  // 프로필 확정·클라우드 준비 전에는 가입완료 화면으로 보내지 않음 (새로고침 시 /signup 깜빡임 방지)
   const waitCloudBootstrap = isSupabaseConfigured
     && !!user?.id
     && user.id !== 'dev-local'
@@ -6803,6 +6755,7 @@ function AppShell(){
       catch { return true; }
     })();
   const bootstrapping = authLoading
+    || profilePending
     || (user?.id && user.id !== 'dev-local' && profileLoading)
     || waitCloudBootstrap;
   if(bootstrapping){
@@ -6812,6 +6765,16 @@ function AppShell(){
         detail="계정과 데이터를 준비하고 있습니다."
       />
     );
+  }
+
+  if(user&&needsSignupCompletion){
+    if (location.pathname === AUTH_PATHS.signupInvite) {
+      return <InviteSignUpPage {...legacyLoginProps} />;
+    }
+    if (location.pathname === AUTH_PATHS.signup) {
+      return <LoginScreen variant="signup" {...legacyLoginProps} />;
+    }
+    return <Navigate to={AUTH_PATHS.signup} replace />;
   }
 
   const appRoutes=(

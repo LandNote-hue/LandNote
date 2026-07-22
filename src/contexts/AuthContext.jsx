@@ -98,6 +98,8 @@ export function AuthProvider({ children }) {
   const [memberPermissions, setMemberPermissions] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
   const [profileLoading, setProfileLoading] = useState(false);
+  /** 현재 user에 대해 refreshProfile이 한 번이라도 끝난 뒤에만 가입완료 여부 판정 (새로고침 시 /signup 깜빡임 방지) */
+  const [profileSettledUserId, setProfileSettledUserId] = useState(/** @type {string|null} */ (null));
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [passwordRecovery, setPasswordRecovery] = useState(() => isRecoveryCallbackUrl());
@@ -550,11 +552,13 @@ export function AuthProvider({ children }) {
   const refreshProfile = useCallback(async () => {
     if (!user?.id) {
       profileLoadedUserIdRef.current = null;
+      setProfileSettledUserId(null);
       setProfile(null);
       setCompany(null);
       setCompanyRole(null);
       setMemberPermissions(null);
       setTeamMembers([]);
+      setProfileLoading(false);
       return;
     }
     if (user.id === 'dev-local') {
@@ -568,9 +572,15 @@ export function AuthProvider({ children }) {
       setCompany({ id: 'dev-local-company', name: 'LandNote Dev', slug: 'landnote-dev' });
       setCompanyRole('CEO');
       setMemberPermissions(CEO_FULL_PERMISSIONS);
+      setProfileSettledUserId(user.id);
+      setProfileLoading(false);
       return;
     }
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      setProfileSettledUserId(user.id);
+      setProfileLoading(false);
+      return;
+    }
 
     const blockUi = profileLoadedUserIdRef.current !== user.id;
     if (blockUi) setProfileLoading(true);
@@ -598,9 +608,17 @@ export function AuthProvider({ children }) {
         setCompanyRole(normalizeCompanyRole(loadedProfile.role));
       }
     } finally {
+      setProfileSettledUserId(user.id);
       if (blockUi) setProfileLoading(false);
     }
   }, [user?.id]);
+
+  // 세션 user가 바뀌면 프로필 확정 전까지 로딩 — effect 한 프레임 전 needsSignup 오판 방지
+  useEffect(() => {
+    if (!user?.id || user.id === 'dev-local') return;
+    if (profileSettledUserId === user.id) return;
+    setProfileLoading(true);
+  }, [user?.id, profileSettledUserId]);
 
   useEffect(() => {
     refreshProfile();
@@ -611,11 +629,17 @@ export function AuthProvider({ children }) {
     [user, profile, company],
   );
 
+  const profilePending = !!(
+    user?.id
+    && user.id !== 'dev-local'
+    && (loading || profileLoading || profileSettledUserId !== user.id)
+  );
+
   const needsSignupCompletion = useMemo(() => {
     if (!user?.id || user.id === 'dev-local' || passwordRecovery) return false;
-    if (profileLoading || loading) return false;
+    if (loading || profileLoading || profileSettledUserId !== user.id) return false;
     return !profile || !isRegistrationComplete(profile);
-  }, [user?.id, profile, profileLoading, loading, passwordRecovery]);
+  }, [user?.id, profile, profileLoading, loading, passwordRecovery, profileSettledUserId]);
 
   const updateProfile = useCallback(async (patch) => {
     if (!user?.id) return { error: new Error('로그인이 필요합니다.') };
@@ -1037,6 +1061,9 @@ export function AuthProvider({ children }) {
     setCompanyRole(null);
     setMemberPermissions(null);
     setTeamMembers([]);
+    setProfileSettledUserId(null);
+    setProfileLoading(false);
+    profileLoadedUserIdRef.current = null;
     // IndexedDB는 지우지 않음 — 같은 계정 재로그인 시 가져오기/로컬 데이터 유지.
     // 다른 계정으로 로그인하면 prepareLocalStoreForUser가 전환 시에만 클리어.
     if (!isSupabaseConfigured) {
@@ -1173,6 +1200,7 @@ export function AuthProvider({ children }) {
     teamNameMap,
     teamRoleMap,
     profileLoading,
+    profilePending,
     sessionCloudSyncStatus,
     sessionCloudSyncSummary,
     needsSignupCompletion,
@@ -1202,7 +1230,7 @@ export function AuthProvider({ children }) {
     refreshMemberPermissions,
     reloadSessionCloudData,
     clearAuthError: () => setAuthError(null),
-  }), [user, session, profile, company, companyRole, memberPermissions, teamMembers, teamNameMap, teamRoleMap, profileLoading, sessionCloudSyncStatus, sessionCloudSyncSummary, needsSignupCompletion, accountDefaults, loading, authError, passwordRecovery, signInWithEmail, signUpWithEmail, signInWithOAuth, signInWithGoogleCredential, completeOAuthSignup, abandonOAuthSignup, signOut, deleteAccount, resetPassword, confirmPasswordReset, updateProfile, updatePassword, verifyCurrentPassword, refreshProfile, refreshMemberPermissions, reloadSessionCloudData]);
+  }), [user, session, profile, company, companyRole, memberPermissions, teamMembers, teamNameMap, teamRoleMap, profileLoading, profilePending, sessionCloudSyncStatus, sessionCloudSyncSummary, needsSignupCompletion, accountDefaults, loading, authError, passwordRecovery, signInWithEmail, signUpWithEmail, signInWithOAuth, signInWithGoogleCredential, completeOAuthSignup, abandonOAuthSignup, signOut, deleteAccount, resetPassword, confirmPasswordReset, updateProfile, updatePassword, verifyCurrentPassword, refreshProfile, refreshMemberPermissions, reloadSessionCloudData]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

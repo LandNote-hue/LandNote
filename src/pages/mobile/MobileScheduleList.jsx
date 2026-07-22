@@ -2,10 +2,10 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
+import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileCard, MobileEmptyState, MobileCloudDataHint, M } from './mobileUi.jsx';
-
-const PRI_LABEL = { IMPORTANT: { label: '중요', color: '#DC2626' }, NORMAL: { label: '일반', color: '#6B7280' } };
 
 function formatDateHeading(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
@@ -16,9 +16,13 @@ function formatDateHeading(dateStr) {
 
 export function MobileScheduleList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const schedules = useOwnerSchedules();
   const properties = useProperties();
   const findProp = (pid) => properties.find((p) => p.id === pid);
+
+  const gcalOwnerId = user?.id && user.id !== 'dev-local' ? user.id : undefined;
+  const gcalMeta = useMemo(() => buildGcalMeta(gcalOwnerId), [gcalOwnerId]);
 
   const groups = useMemo(() => {
     const sorted = [...schedules].sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
@@ -44,7 +48,7 @@ export function MobileScheduleList() {
             </div>
             <MobileCard style={{ padding: 0 }}>
               {items.map((s, i) => {
-                const pri = PRI_LABEL[s.pri] || PRI_LABEL.NORMAL;
+                const { c, label } = scheduleSourceInfo(s, gcalMeta);
                 const prop = s.pid ? findProp(s.pid) : null;
                 return (
                   <div
@@ -53,19 +57,20 @@ export function MobileScheduleList() {
                     style={{
                       padding: '12px 16px', cursor: 'pointer',
                       borderBottom: i < items.length - 1 ? `1px solid ${M.bdr}` : 'none',
+                      borderLeft: `3px solid ${c}`,
                       display: 'flex', alignItems: 'center', gap: 10,
                     }}
                   >
-                    <span style={{ fontSize: 13, color: M.info, fontWeight: 700, flexShrink: 0, width: 44 }}>{s.time}</span>
+                    <span style={{ fontSize: 13, color: c, fontWeight: 700, flexShrink: 0, width: 44 }}>{s.time}</span>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: M.tx }}>{s.title}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: c }}>{s.title}</div>
                       {prop && (
                         <div style={{ fontSize: 12, color: M.txP, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {propDisplayAddr(prop)}
                         </div>
                       )}
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: pri.color, flexShrink: 0 }}>{pri.label}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: c, flexShrink: 0 }}>{label}</span>
                   </div>
                 );
               })}

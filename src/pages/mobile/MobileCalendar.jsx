@@ -6,9 +6,9 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
 import { collapseDuplicateIcsSchedules } from '../../utils/icsImport.js';
+import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
-const PRI_C = { URGENT: '#DC2626', IMPORTANT: '#D97706', NORMAL: '#2563EB' };
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
 
 export function MobileCalendar() {
@@ -23,6 +23,9 @@ export function MobileCalendar() {
   const [year, setYear] = useState(today.year);
   const [month, setMonth] = useState(today.month);
   const [sel, setSel] = useState(today.date);
+
+  const gcalOwnerId = user?.id && user.id !== 'dev-local' ? user.id : undefined;
+  const gcalMeta = useMemo(() => buildGcalMeta(gcalOwnerId), [gcalOwnerId]);
 
   useEffect(() => {
     const ownerId = user?.id;
@@ -83,6 +86,19 @@ export function MobileCalendar() {
     });
   };
 
+  const dayDotColors = (dayScheds) => {
+    const colors = [];
+    const seen = new Set();
+    for (const s of dayScheds) {
+      const { c } = scheduleSourceInfo(s, gcalMeta);
+      if (seen.has(c)) continue;
+      seen.add(c);
+      colors.push(c);
+      if (colors.length >= 3) break;
+    }
+    return colors;
+  };
+
   return (
     <MobilePage>
       <div style={{
@@ -120,7 +136,8 @@ export function MobileCalendar() {
           {cells.map((d, i) => {
             const todayCell = isToday(d);
             const selected = d != null && d === sel;
-            const count = d ? (daySchedMap.get(d)?.length || 0) : 0;
+            const dayScheds = d ? (daySchedMap.get(d) || []) : [];
+            const dots = dayScheds.length ? dayDotColors(dayScheds) : [];
             return (
               <button
                 key={i}
@@ -143,11 +160,12 @@ export function MobileCalendar() {
                 }}>
                   {d || ''}
                 </span>
-                {count > 0 && (
-                  <span style={{
-                    width: 5, height: 5, borderRadius: '50%',
-                    background: selected || todayCell ? M.brand : M.info,
-                  }} />
+                {dots.length > 0 && (
+                  <span style={{ display: 'flex', gap: 2, height: 5, alignItems: 'center' }}>
+                    {dots.map((c) => (
+                      <span key={c} style={{ width: 5, height: 5, borderRadius: '50%', background: c }} />
+                    ))}
+                  </span>
                 )}
               </button>
             );
@@ -168,21 +186,23 @@ export function MobileCalendar() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {selScheds.map((s) => {
             const prop = s.pid ? findProp(s.pid) : null;
-            const color = PRI_C[s.pri] || PRI_C.NORMAL;
+            const { c, bg, label } = scheduleSourceInfo(s, gcalMeta);
             return (
               <MobileCard
                 key={s.id}
-                style={{ margin: 0, cursor: 'pointer', borderLeft: `3px solid ${color}` }}
+                style={{ margin: 0, cursor: 'pointer', borderLeft: `3px solid ${c}`, background: bg }}
               >
                 <div onClick={() => navigate(`/calendar/${s.id}`)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: M.tx, minWidth: 0 }}>{s.title || '제목 없음'}</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: c, minWidth: 0 }}>{s.title || '제목 없음'}</div>
                     {s.time && (
                       <span style={{ fontSize: 12, color: M.txM, flexShrink: 0 }}>{String(s.time).slice(0, 5)}</span>
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: M.txM, marginTop: 4 }}>
                     {fmtSchedulePeriodDot(s)}
+                    {' · '}
+                    <span style={{ color: c, fontWeight: 600 }}>{label}</span>
                   </div>
                   {prop && (
                     <div style={{

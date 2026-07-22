@@ -11,6 +11,7 @@ import {
   groupUpcomingScheduleSections,
   fmtSchedulePeriodDot,
 } from '../../utils/schedulePeriod.js';
+import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import {
   MobilePage, MobileCard, MobileSectionTitle, MobileStatCard, MobileEmptyState,
   MobileCloudDataHint, M, useMobileCloudBusy,
@@ -18,7 +19,7 @@ import {
 
 export function MobileDashboard() {
   const navigate = useNavigate();
-  const { companyRole, profile } = useAuth();
+  const { user, companyRole, profile } = useAuth();
   const properties = useProperties();
   const customers = useOwnerCustomers();
   const callLogs = useOwnerCallLogs();
@@ -26,6 +27,9 @@ export function MobileDashboard() {
   const cloudBusy = useMobileCloudBusy();
 
   const onNotify = useCallback(() => {}, []);
+
+  const gcalOwnerId = user?.id && user.id !== 'dev-local' ? user.id : undefined;
+  const gcalMeta = useMemo(() => buildGcalMeta(gcalOwnerId), [gcalOwnerId]);
 
   const upcoming = useMemo(() => collectUpcomingSchedules(schedules), [schedules]);
   const upcomingSections = useMemo(() => groupUpcomingScheduleSections(upcoming), [upcoming]);
@@ -87,9 +91,10 @@ export function MobileDashboard() {
               {section.items.map((item, i) => {
                 const s = item.schedule;
                 const prop = s.pid ? findProp(s.pid) : null;
-                const chkList = Array.isArray(s.chk) ? s.chk.filter((c) => c && String(c.t || '').trim()) : [];
+                const { c, bg, label } = scheduleSourceInfo(s, gcalMeta);
+                const chkList = Array.isArray(s.chk) ? s.chk.filter((chk) => chk && String(chk.t || '').trim()) : [];
                 const chkLabel = chkList.length > 0
-                  ? `${chkList.filter((c) => c.d).length}/${chkList.length}`
+                  ? `${chkList.filter((chk) => chk.d).length}/${chkList.length}`
                   : null;
                 return (
                   <div
@@ -98,13 +103,16 @@ export function MobileDashboard() {
                     style={{
                       padding: '12px 16px', cursor: 'pointer',
                       borderBottom: i < section.items.length - 1 ? `1px solid ${M.bdr}` : 'none',
+                      borderLeft: `3px solid ${c}`,
+                      background: bg,
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
                     }}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: M.tx }}>{s.title}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: c }}>{s.title}</div>
                       <div style={{ fontSize: 12, color: M.txM, marginTop: 2 }}>
-                        {item.dayLabel} · {fmtSchedulePeriodDot(s)}{s.time ? ` ${s.time}` : ''}
+                        {item.dayLabel} · <span style={{ color: c, fontWeight: 600 }}>{label}</span>
+                        {' · '}{fmtSchedulePeriodDot(s)}{s.time ? ` ${s.time}` : ''}
                         {chkLabel ? ` · 체크리스트 ${chkLabel}` : ''}
                       </div>
                       {prop && (
@@ -113,7 +121,7 @@ export function MobileDashboard() {
                         </div>
                       )}
                     </div>
-                    <div style={{ fontSize: 12, color: M.info, fontWeight: 700, flexShrink: 0 }}>{item.dayLabel}</div>
+                    <div style={{ fontSize: 12, color: c, fontWeight: 700, flexShrink: 0 }}>{item.dayLabel}</div>
                   </div>
                 );
               })}
