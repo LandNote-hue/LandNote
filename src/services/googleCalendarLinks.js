@@ -7,9 +7,8 @@ const ACTIVE_OWNER_KEY = 'landnote.activeOwner';
 export const GCAL_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
- * 연동 캘린더 구분색 — 일정 우선순위색(긴급 빨강·중요 주황·보통 파랑)보다 눈에 덜 띄어야 하므로
- * 붉은 계열(빨강·주황·핑크 등)은 전부 제외하고, 채도도 크게 낮춘(회색 45% 혼합) 톤 다운 팔레트
- * @see PRI_C in App.jsx (URGENT #DC2626, IMPORTANT #D97706, NORMAL #2563EB)
+ * 연동 캘린더 구분색 — 일정 우선순위색보다 눈에 덜 띄는 톤 다운 팔레트
+ * @see PRI_C in App.jsx
  */
 export const GCAL_LINK_COLORS = ['#499C89', '#4B99B1', '#8A69D1', '#6D7889', '#7EA356', '#6B68BE'];
 
@@ -17,8 +16,21 @@ export const GCAL_LINK_COLORS = ['#499C89', '#4B99B1', '#8A69D1', '#6D7889', '#7
 const ORPHAN_OWNER_KEYS = ['anon', DEV_LOCAL_OWNER, 'null', 'undefined'];
 
 /**
- * 연동 저장 키용 owner — React user.id 를 넘기는 것을 권장.
- * fallback: syncUserId → landnote.activeOwner → dev-local
+ * @typedef {{
+ *   icsUrl: string,
+ *   sourceLink?: string,
+ *   sourceId: string,
+ *   calendarKey?: string,
+ *   label?: string,
+ *   color?: string,
+ *   enabled?: boolean,
+ *   linkedAt?: string,
+ *   lastSyncAt?: string | null,
+ *   lastError?: string | null,
+ * }} GoogleCalendarLink
+ */
+
+/**
  * @param {string|null|undefined} ownerId
  */
 export function resolveGcalOwnerId(ownerId) {
@@ -39,7 +51,6 @@ function nextGcalColor(existingLinks) {
   const used = new Set(existingLinks.map((l) => l.color).filter(Boolean));
   const free = GCAL_LINK_COLORS.find((c) => !used.has(c));
   if (free) return free;
-  // 팔레트를 다 썼으면 가장 적게 쓰인 색을 재사용
   const counts = new Map(GCAL_LINK_COLORS.map((c) => [c, 0]));
   for (const l of existingLinks) {
     if (l.color && counts.has(l.color)) counts.set(l.color, counts.get(l.color) + 1);
@@ -52,20 +63,6 @@ function storageKey(ownerId) {
   return `${STORAGE_PREFIX}${ownerId || 'anon'}`;
 }
 
-/**
- * @typedef {{
- *   icsUrl: string,
- *   sourceLink?: string,
- *   sourceId: string,
- *   label?: string,
- *   color?: string,
- *   enabled?: boolean,
- *   linkedAt?: string,
- *   lastSyncAt?: string | null,
- *   lastError?: string | null,
- * }} GoogleCalendarLink
- */
-
 /** @param {string} ownerId @returns {GoogleCalendarLink[]} */
 function readLinksRaw(ownerId) {
   try {
@@ -76,6 +73,56 @@ function readLinksRaw(ownerId) {
   } catch {
     return [];
   }
+}
+
+/** @param {string} [ownerId] @param {GoogleCalendarLink[]} links */
+function saveLinks(ownerId, links) {
+  localStorage.setItem(storageKey(ownerId), JSON.stringify(links));
+}
+
+/** ICS URL에서 Google 캘린더 ID 추출 (소문자·디코드) */
+export function extractGoogleCalendarIdFromIcsUrl(icsUrl) {
+  try {
+    const u = new URL(String(icsUrl || '').trim());
+    const m = u.pathname.match(/\/calendar\/ical\/([^/]+)\//i);
+    if (!m) return null;
+    return decodeURIComponent(m[1]).trim().toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 동일 캘린더 판별 키 — URL 표기가 달라도 같은 ID면 동일
+ * @param {string} icsUrl
+ */
+export function googleCalendarIdentityKey(icsUrl) {
+  const calId = extractGoogleCalendarIdFromIcsUrl(icsUrl);
+  if (calId) return `id:${calId}`;
+  try {
+    const u = new URL(String(icsUrl || '').trim());
+    u.hash = '';
+    u.search = '';
+    return `url:${u.toString().toLowerCase()}`;
+  } catch {
+    return `url:${String(icsUrl || '').trim().toLowerCase()}`;
+  }
+}
+
+/** FNV-1a 32-bit */
+export function fingerprintCalendarUrl(urlOrKey) {
+  let h = 2166136261;
+  const s = String(urlOrKey || '');
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** @param {string} identityKey */
+export function sourceIdFromCalendarKey(identityKey) {
+  return `gcal:${fingerprintCalendarUrl(identityKey)}`;
 }
 
 /**
@@ -108,45 +155,160 @@ function migrateOrphanLinks(ownerId) {
   }
 }
 
-/** @param {string} [ownerId] @param {GoogleCalendarLink[]} links */
-function saveLinks(ownerId, links) {
-  localStorage.setItem(storageKey(ownerId), JSON.stringify(links));
+/**
+ * 기존 중복 연동 링크를 calendarKey 기준으로 1개만 남김
+ * @param {string} [ownerId]
+ * @returns {{ kept: number, removed: number, removedSourceIds: string[] }}
+ */
+export function dedupeGoogleCalendarLinks(ownerId) {
+  const id = resolveGcalOwnerId(ownerId);
+  migrateOrphanLinks(id);
+  const before = readLinksRaw(id);
+  /** @type {Map<string, GoogleCalendarLink>} */
+  const byKey = new Map();
+  /** @type {string[]} */
+  const removedSourceIds = [];
+
+  for (const link of before) {
+    let key = link.calendarKey;
+    if (!key) {
+      try {
+        key = googleCalendarIdentityKey(link.icsUrl);
+      } catch {
+        key = `source:${link.sourceId}`;
+      }
+    }
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, {
+        ...link,
+        calendarKey: key,
+        sourceId: link.sourceId || sourceIdFromCalendarKey(key),
+      });
+      continue;
+    }
+    const prevSync = prev.lastSyncAt ? Date.parse(prev.lastSyncAt) : 0;
+    const curSync = link.lastSyncAt ? Date.parse(link.lastSyncAt) : 0;
+    const preferCurrent = curSync > prevSync
+      || (!prevSync && !curSync && (link.linkedAt || '') > (prev.linkedAt || ''));
+    const winner = preferCurrent
+      ? {
+        ...link,
+        calendarKey: key,
+        sourceId: prev.sourceId,
+        label: link.label || prev.label,
+        color: prev.color || link.color,
+        linkedAt: prev.linkedAt || link.linkedAt,
+        lastSyncAt: link.lastSyncAt || prev.lastSyncAt,
+        lastError: link.lastError ?? prev.lastError,
+        icsUrl: link.icsUrl || prev.icsUrl,
+        sourceLink: link.sourceLink || prev.sourceLink,
+      }
+      : {
+        ...prev,
+        calendarKey: key,
+        label: prev.label || link.label,
+        lastSyncAt: prev.lastSyncAt || link.lastSyncAt,
+      };
+    byKey.set(key, winner);
+    const loserId = preferCurrent ? prev.sourceId : link.sourceId;
+    if (loserId && loserId !== winner.sourceId) removedSourceIds.push(loserId);
+  }
+
+  const kept = [...byKey.values()];
+  if (kept.length !== before.length) {
+    saveLinks(id, kept);
+  } else {
+    // calendarKey 백필만 필요한 경우
+    const needsSave = kept.some((l, i) => l.calendarKey !== before[i]?.calendarKey);
+    if (needsSave) saveLinks(id, kept);
+  }
+  return {
+    kept: kept.length,
+    removed: Math.max(0, before.length - kept.length),
+    removedSourceIds,
+  };
 }
 
 /** @param {string} [ownerId] @returns {GoogleCalendarLink[]} */
 export function listGoogleCalendarLinks(ownerId) {
   const id = resolveGcalOwnerId(ownerId);
   migrateOrphanLinks(id);
+  dedupeGoogleCalendarLinks(id);
   return readLinksRaw(id);
+}
+
+/**
+ * @param {string} icsUrl resolved ICS URL
+ * @param {string} [ownerId]
+ * @returns {GoogleCalendarLink|null}
+ */
+export function findExistingGoogleCalendarLink(icsUrl, ownerId) {
+  const id = resolveGcalOwnerId(ownerId);
+  migrateOrphanLinks(id);
+  dedupeGoogleCalendarLinks(id);
+  let key;
+  try {
+    key = googleCalendarIdentityKey(icsUrl);
+  } catch {
+    return null;
+  }
+  const sourceId = sourceIdFromCalendarKey(key);
+  return readLinksRaw(id).find(
+    (l) => l.calendarKey === key
+      || l.sourceId === sourceId
+      || (() => {
+        try { return googleCalendarIdentityKey(l.icsUrl) === key; } catch { return false; }
+      })(),
+  ) || null;
 }
 
 /**
  * @param {GoogleCalendarLink} link
  * @param {string} [ownerId]
+ * @returns {{ upserted: GoogleCalendarLink, alreadyLinked: boolean }}
  */
 export function upsertGoogleCalendarLink(link, ownerId) {
-  if (!link?.icsUrl || !link?.sourceId) return;
+  if (!link?.icsUrl || !link?.sourceId) {
+    return { upserted: /** @type {GoogleCalendarLink} */ (link), alreadyLinked: false };
+  }
   const id = resolveGcalOwnerId(ownerId);
   migrateOrphanLinks(id);
+  dedupeGoogleCalendarLinks(id);
   const before = readLinksRaw(id);
+  let calendarKey = link.calendarKey;
+  if (!calendarKey) {
+    try {
+      calendarKey = googleCalendarIdentityKey(link.icsUrl);
+    } catch {
+      calendarKey = `source:${link.sourceId}`;
+    }
+  }
   const existing = before.find(
-    (l) => l.icsUrl === link.icsUrl || l.sourceId === link.sourceId,
+    (l) => l.calendarKey === calendarKey
+      || l.sourceId === link.sourceId
+      || l.icsUrl === link.icsUrl
+      || (() => {
+        try { return googleCalendarIdentityKey(l.icsUrl) === calendarKey; } catch { return false; }
+      })(),
   );
-  const links = before.filter(
-    (l) => l.icsUrl !== link.icsUrl && l.sourceId !== link.sourceId,
-  );
-  links.push({
-    icsUrl: link.icsUrl,
-    sourceLink: link.sourceLink || link.icsUrl,
-    sourceId: link.sourceId,
+  const alreadyLinked = !!existing;
+  const links = before.filter((l) => l !== existing);
+  const upserted = {
+    icsUrl: link.icsUrl || existing?.icsUrl,
+    sourceLink: link.sourceLink || existing?.sourceLink || link.icsUrl,
+    sourceId: existing?.sourceId || link.sourceId,
+    calendarKey,
     label: (link.label ?? existing?.label) || '',
     color: link.color || existing?.color || nextGcalColor(links),
     enabled: link.enabled !== false,
-    linkedAt: link.linkedAt || existing?.linkedAt || new Date().toISOString(),
-    lastSyncAt: link.lastSyncAt ?? null,
-    lastError: link.lastError ?? null,
-  });
+    linkedAt: existing?.linkedAt || link.linkedAt || new Date().toISOString(),
+    lastSyncAt: link.lastSyncAt !== undefined ? link.lastSyncAt : (existing?.lastSyncAt ?? null),
+    lastError: link.lastError !== undefined ? link.lastError : (existing?.lastError ?? null),
+  };
+  links.push(upserted);
   saveLinks(id, links);
+  return { upserted, alreadyLinked };
 }
 
 /**
@@ -160,7 +322,7 @@ export function removeGoogleCalendarLink(sourceIdOrUrl, ownerId) {
   migrateOrphanLinks(id);
   saveLinks(
     id,
-    readLinksRaw(id).filter((l) => l.sourceId !== key && l.icsUrl !== key),
+    readLinksRaw(id).filter((l) => l.sourceId !== key && l.icsUrl !== key && l.calendarKey !== key),
   );
 }
 
@@ -176,15 +338,4 @@ export function patchGoogleCalendarLink(sourceId, patch, ownerId) {
     l.sourceId === sourceId ? { ...l, ...patch } : l,
   );
   saveLinks(id, links);
-}
-
-/** FNV-1a 32-bit — 캘린더 URL → 짧은 sourceId */
-export function fingerprintCalendarUrl(url) {
-  let h = 2166136261;
-  const s = String(url || '');
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
 }

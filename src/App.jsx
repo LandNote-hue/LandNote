@@ -3145,7 +3145,11 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
     try{
       const imported=await importGoogleCalendarFromLink(link,{label:label.trim(),ownerId});
       onImported(imported);
-      showNotification(`구글 캘린더를 연동했습니다. 총 ${imported.total}건 중 ${imported.added}건 가져옴, ${imported.duplicated}건 중복 제외.`,'success');
+      if(imported.alreadyLinked){
+        showNotification(`이미 연동된 캘린더입니다. 일정을 동기화했습니다. (${imported.added}건 추가 · ${imported.duplicated}건 중복 제외)`,'success');
+      }else{
+        showNotification(`구글 캘린더를 연동했습니다. 총 ${imported.total}건 중 ${imported.added}건 가져옴, ${imported.duplicated}건 중복 제외.`,'success');
+      }
       setLink('');
       setLabel('');
     }catch(err){

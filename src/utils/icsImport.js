@@ -1,10 +1,13 @@
 import { db, isActive } from '../db.js';
 import {
   GCAL_SYNC_MIN_INTERVAL_MS,
-  fingerprintCalendarUrl,
   listGoogleCalendarLinks,
   patchGoogleCalendarLink,
   upsertGoogleCalendarLink,
+  findExistingGoogleCalendarLink,
+  googleCalendarIdentityKey,
+  sourceIdFromCalendarKey,
+  extractGoogleCalendarIdFromIcsUrl,
 } from '../services/googleCalendarLinks.js';
 import { getActiveOwnerId, matchesOwner, withOwnerId } from '../services/sync/ownerScope.js';
 import { getSyncUserId } from '../services/sync/syncContext.js';
@@ -811,12 +814,16 @@ export function resolveGoogleCalendarIcsUrl(input) {
 
   if (/calendar\.google\.com\/calendar\/ical\//i.test(trimmed)) {
     const urlStr = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
-    if (/\.ics(\?|$)/i.test(urlStr)) return urlStr;
+    const calId = extractGoogleCalendarIdFromIcsUrl(urlStr);
+    if (calId) {
+      // 인코딩·경로·쿼리가 달라도 동일 표준 ICS URL로 정규화
+      return `https://calendar.google.com/calendar/ical/${encodeCalendarId(calId)}/public/basic.ics`;
+    }
     const url = new URL(urlStr);
     const path = url.pathname.endsWith('.ics')
       ? url.pathname
       : `${url.pathname.replace(/\/?$/, '')}/basic.ics`;
-    return `${url.protocol}//${url.host}${path}${url.search}`;
+    return `https://calendar.google.com${path}`;
   }
 
   const urlStr = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
@@ -866,11 +873,37 @@ async function fetchIcsTextFromProxy(icsUrl) {
 
 /**
  * @param {string} link
- * @param {{ saveLink?: boolean, label?: string }} [options]
+ * @param {{ saveLink?: boolean, label?: string, ownerId?: string, forceImport?: boolean }} [options]
  */
 export async function importGoogleCalendarFromLink(link, options = {}) {
   const icsUrl = resolveGoogleCalendarIcsUrl(link);
-  const sourceId = `gcal:${fingerprintCalendarUrl(icsUrl)}`;
+  const calendarKey = googleCalendarIdentityKey(icsUrl);
+  const sourceId = sourceIdFromCalendarKey(calendarKey);
+  const existing = findExistingGoogleCalendarLink(icsUrl, options.ownerId);
+
+  // 이미 연동된 동일 캘린더 — 재등록하지 않고 동기화만(또는 안내만)
+  if (existing && options.forceImport !== true) {
+    const text = await fetchIcsTextFromProxy(existing.icsUrl || icsUrl);
+    const result = await importIcsSchedules(text, { sourceId: existing.sourceId });
+    if (options.saveLink !== false) {
+      upsertGoogleCalendarLink({
+        ...existing,
+        icsUrl: existing.icsUrl || icsUrl,
+        sourceLink: String(link || '').trim() || existing.sourceLink,
+        calendarKey,
+        label: options.label ? String(options.label).trim() : existing.label,
+        lastSyncAt: new Date().toISOString(),
+        lastError: null,
+      }, options.ownerId);
+    }
+    return {
+      ...result,
+      alreadyLinked: true,
+      existing,
+      schedules: result.addedSchedules,
+    };
+  }
+
   const text = await fetchIcsTextFromProxy(icsUrl);
   const result = await importIcsSchedules(text, { sourceId });
   if (options.saveLink !== false) {
@@ -878,13 +911,14 @@ export async function importGoogleCalendarFromLink(link, options = {}) {
       icsUrl,
       sourceLink: String(link || '').trim(),
       sourceId,
+      calendarKey,
       label: options.label ? String(options.label).trim() : '',
       enabled: true,
       lastSyncAt: new Date().toISOString(),
       lastError: null,
     }, options.ownerId);
   }
-  return result;
+  return { ...result, alreadyLinked: false, schedules: result.addedSchedules };
 }
 
 let linkedSyncInFlight = null;
