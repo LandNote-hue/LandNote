@@ -23,6 +23,7 @@ import {
   saveCallLog, addCallLogDirect, addScheduleDirect, updateScheduleDirect,
   exportBackupData, restoreBackupData,
   getBackupTableCounts, getLocalTableCounts, formatBackupCountsLabel, formatRestoreMergeLabel,
+  isBackupOwnRecordsOnlyExport,
 } from "./db.js";
 import { usePropertyAddressLookup } from "./hooks/usePropertyAddressLookup.js";
 import { AddressSearchModal } from "./components/AddressSearchModal.jsx";
@@ -3751,7 +3752,8 @@ const backupFileSize=(bytes)=>{
 };
 
 const Backup=()=>{
-  const { user, company }=useAuth();
+  const { user, company, companyRole }=useAuth();
+  const ownOnlyExport=isBackupOwnRecordsOnlyExport();
   const [busy,setBusy]=useState(false);
   const [confirm,setConfirm]=useState(null);
   const [alertMsg,setAlertMsg]=useState('');
@@ -3763,7 +3765,7 @@ const Backup=()=>{
     let cancelled=false;
     getLocalTableCounts().then((c)=>{ if(!cancelled) setLocalCounts(c); }).catch(()=>{});
     return ()=>{ cancelled=true; };
-  },[busy]);
+  },[busy, company?.id, companyRole]);
 
   const handleExport=async()=>{
     if(busy) return;
@@ -3893,9 +3895,12 @@ const Backup=()=>{
     reader.readAsText(file);
   };
 
+  const exportDesc=ownOnlyExport
+    ?'본인이 등록한 매물·고객·통화이력·일정·임대차·매물 사진·구글 캘린더 연동 설정만 .rmxbak 파일로 저장합니다. 동료가 공유한 데이터는 포함되지 않습니다. 휴지통(소프트 삭제) 항목도 포함됩니다.'
+    :'매물·고객·통화이력·일정·임대차·매물 사진·구글 캘린더 연동 설정을 .rmxbak 파일로 저장합니다. 휴지통(소프트 삭제) 항목도 포함됩니다.';
   const items=[
     {icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>,
-      title:'데이터 내보내기',desc:'매물·고객·통화이력·일정·임대차·매물 사진·구글 캘린더 연동 설정을 .rmxbak 파일로 저장합니다. 휴지통(소프트 삭제) 항목도 포함됩니다.',btn:busy?'내보내는 중…':'내보내기',role:'backup-primary',ic:'ti-upload',on:handleExport,disabled:busy},
+      title:'데이터 내보내기',desc:exportDesc,btn:busy?'내보내는 중…':'내보내기',role:'backup-primary',ic:'ti-upload',on:handleExport,disabled:busy},
     {icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.96"/></svg>,
       title:'데이터 가져오기',desc:'백업 파일을 기존 데이터에 병합합니다. 동일한 항목은 건너뛰고, 새로 추가된 매물·고객·일정·통화는 클라우드에 동기화합니다. 구글 캘린더 연동 설정도 함께 복원됩니다.',btn:busy?'파일 확인 중…':'파일 선택',role:'backup-danger',ic:'ti-upload',on:()=>fileInputRef.current?.click(),disabled:busy},
   ];
@@ -3912,11 +3917,28 @@ const Backup=()=>{
             <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:20,height:20,flexShrink:0,color:C.warn,marginTop:1}} aria-hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
             <div style={{fontSize:14,color:'#854F0B',lineHeight:1.6}}>IndexedDB는 브라우저 데이터입니다. 브라우저 캐시 삭제 시 모든 데이터가 손실될 수 있습니다. <strong>정기적인 백업을 권장합니다.</strong> 클라우드 동기화는 <strong>대시보드 상단</strong>의「동기화」버튼을 사용하세요.</div>
           </div>
+          {ownOnlyExport&&(
+            <div style={{background:C.surf2,border:`1px solid ${C.bdr}`,borderRadius:10,padding:'14px 18px',display:'flex',gap:12}}>
+              <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:20,height:20,flexShrink:0,color:C.txM,marginTop:1}} aria-hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span>
+              <div style={{fontSize:14,color:C.txS,lineHeight:1.6}}>
+                <strong style={{color:C.tx}}>팀장·직원 계정</strong>은 본인이 등록한 매물·고객·통화·일정·임대차만 내보낼 수 있습니다.
+                동료가 공유한 데이터는 앱에서 볼 수 있어도 백업 파일에는 포함되지 않습니다.
+                회사 전체 데이터 백업이 필요하면 <strong>대표(CEO)</strong> 계정을 이용하세요.
+              </div>
+            </div>
+          )}
           <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,padding:'16px 20px'}}>
-            <div style={{fontSize:12,fontWeight:600,color:C.txM,marginBottom:8,textTransform:'uppercase',letterSpacing:'.04em'}}>현재 로컬 데이터</div>
+            <div style={{fontSize:12,fontWeight:600,color:C.txM,marginBottom:8,textTransform:'uppercase',letterSpacing:'.04em'}}>
+              {ownOnlyExport?'내보내기 대상 (본인 등록)':'현재 로컬 데이터'}
+            </div>
             <div style={{fontSize:14,color:C.txS}}>
               {localCounts?formatBackupCountsLabel(localCounts):'집계 중…'}
             </div>
+            {ownOnlyExport&&(
+              <div style={{fontSize:12,color:C.txM,marginTop:8,lineHeight:1.5}}>
+                위 항목 수는 내보내기 파일에 포함되는 본인 등록 데이터 기준입니다.
+              </div>
+            )}
           </div>
           {items.map((item,i)=>(
             <div key={i} style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,padding:'22px 24px',display:'flex',gap:18,boxShadow:'0 1px 4px rgba(0,0,0,.04)'}}>

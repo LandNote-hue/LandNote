@@ -1,8 +1,9 @@
 import Dexie from 'dexie';
 import { normalizeCustomerRecord } from './utils/customerTypes.js';
 import { looksLikeEokStored, EOK_TO_MAN, parseMoneyManOrNull } from './utils/formatMoney.js';
-import { DEV_LOCAL_OWNER, getActiveOwnerId, withOwnerId, canMutateRecord } from './services/sync/ownerScope.js';
-import { getSyncCompanyId } from './services/sync/syncContext.js';
+import { DEV_LOCAL_OWNER, getActiveOwnerId, withOwnerId, canMutateRecord, matchesOwner } from './services/sync/ownerScope.js';
+import { getSyncCompanyId, getSyncCompanyRole } from './services/sync/syncContext.js';
+import { COMPANY_ROLES, normalizeCompanyRole } from './data/companyRoles.js';
 import { customerPhoneKey } from './utils/formatPhone.js';
 
 async function afterPropertyChange(id) {
@@ -741,12 +742,32 @@ export function getBackupTableCounts(backup) {
   return counts;
 }
 
+/** 팀장·직원: 백업 내보내기는 본인 등록 데이터만 (CEO·개인·비회사는 전체) */
+export function isBackupOwnRecordsOnlyExport() {
+  const companyId = getSyncCompanyId();
+  if (!companyId) return false;
+  const role = normalizeCompanyRole(getSyncCompanyRole());
+  return role === COMPANY_ROLES.MANAGER || role === COMPANY_ROLES.MEMBER;
+}
+
+/** @param {unknown[]} rows @param {string} ownerId */
+function filterBackupExportRows(rows, ownerId) {
+  return rows.filter((row) => matchesOwner(/** @type {Record<string, unknown>} */ (row), ownerId));
+}
+
 /** @returns {Promise<Record<string, number>>} */
 export async function getLocalTableCounts() {
+  const ownerId = getActiveOwnerId();
+  const ownOnly = isBackupOwnRecordsOnlyExport();
   /** @type {Record<string, number>} */
   const counts = {};
   for (const name of DB_TABLES) {
-    counts[name] = await db.table(name).count();
+    if (ownOnly) {
+      const rows = await db.table(name).toArray();
+      counts[name] = filterBackupExportRows(rows, ownerId).length;
+    } else {
+      counts[name] = await db.table(name).count();
+    }
   }
   return counts;
 }
@@ -804,14 +825,19 @@ export function consumeRestoreLocalWinsFlag() {
 }
 
 /**
- * 전체 로컬 데이터를 백업 객체로 직렬화 (소프트 삭제 항목·사진·구글 연동 설정 포함)
- * — 매물·고객·통화이력·일정·임대차 전부 포함
+ * 로컬 데이터를 백업 객체로 직렬화 (소프트 삭제 항목·사진·구글 연동 설정 포함)
+ * — CEO·개인: 로컬 전체 / 팀장·직원: 본인 등록 행만
  */
 export async function exportBackupData() {
+  const ownerId = getActiveOwnerId();
+  const ownOnly = isBackupOwnRecordsOnlyExport();
   /** @type {Record<string, unknown[]>} */
   const tables = {};
   for (const name of DB_TABLES) {
-    const rows = await db.table(name).toArray();
+    let rows = await db.table(name).toArray();
+    if (ownOnly) {
+      rows = filterBackupExportRows(rows, ownerId);
+    }
     // structuredClone으로 직렬화 가능 여부 조기 검증 (함수/순환참조 등)
     try {
       tables[name] = typeof structuredClone === 'function'
@@ -828,7 +854,7 @@ export async function exportBackupData() {
   let googleCalendarLinks = [];
   try {
     const { listGoogleCalendarLinks } = await import('./services/googleCalendarLinks.js');
-    googleCalendarLinks = listGoogleCalendarLinks(getActiveOwnerId()).map((l) => ({ ...l }));
+    googleCalendarLinks = listGoogleCalendarLinks(ownerId).map((l) => ({ ...l }));
   } catch (err) {
     console.warn('[exportBackupData] gcal links', err);
   }
@@ -841,7 +867,8 @@ export async function exportBackupData() {
     counts,
     meta: {
       googleCalendarLinks,
-      ownerId: getActiveOwnerId(),
+      ownerId,
+      exportScope: ownOnly ? 'own' : 'full',
     },
     tables,
   };
