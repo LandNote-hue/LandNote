@@ -6769,7 +6769,7 @@ function AppShell(){
     clearPropListState();
     setLegacyUnlocked(false);
     await signOut();
-    navigate('/dashboard');
+    navigate(AUTH_PATHS.login,{replace:true});
   };
 
   if(authLoading){

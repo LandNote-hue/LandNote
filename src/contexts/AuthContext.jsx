@@ -1028,6 +1028,9 @@ export function AuthProvider({ children }) {
     setSessionCloudSyncStatus('idle');
     const { resetSyncSession } = await import('../services/sync/syncGate.js');
     resetSyncSession();
+    // user를 먼저 비워야 profile=null만 남은 동안 needsSignupCompletion→/signup 깜빡임이 없음
+    setUser(null);
+    setSession(null);
     setProfile(null);
     setCompany(null);
     setCompanyRole(null);
@@ -1036,8 +1039,6 @@ export function AuthProvider({ children }) {
     // IndexedDB는 지우지 않음 — 같은 계정 재로그인 시 가져오기/로컬 데이터 유지.
     // 다른 계정으로 로그인하면 prepareLocalStoreForUser가 전환 시에만 클리어.
     if (!isSupabaseConfigured) {
-      setUser(null);
-      setSession(null);
       return;
     }
     await supabase.auth.signOut();
