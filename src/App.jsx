@@ -6620,6 +6620,8 @@ function AppShell(){
   const viewDesktop = () => { setForceDesktop(true); setForceDesktopState(true); };
   const viewMobile = () => { setForceDesktop(false); setForceDesktopState(false); };
   const [legacyUnlocked, setLegacyUnlocked] = useState(false);
+  /** 로그아웃 중 — 앱 셸↔로그인 전환·AuthPathRedirect 바운스를 막아 한 번만 로그인 화면으로 이동 */
+  const [signingOut, setSigningOut] = useState(false);
 
   // 새로고침 직후 인증 리다이렉트가 URL을 바꿔도 복원할 수 있게 즉시 저장
   useLayoutEffect(() => {
@@ -6630,9 +6632,10 @@ function AppShell(){
   useEffect(()=>{
     let cancelled=false;
     (async()=>{
+      if(!user?.id) return;
       if(profileLoading) return;
       if(cancelled) return;
-      const skipSeed=isSupabaseConfigured&&!!user?.id&&user.id!=='dev-local';
+      const skipSeed=isSupabaseConfigured&&user.id!=='dev-local';
       await seedDatabase({ skipSeed });
     })();
     return ()=>{ cancelled=true; };
@@ -6745,10 +6748,17 @@ function AppShell(){
   const trashCount=useOwnerTrashCount();
 
   const handleSignOut=async()=>{
+    if(signingOut) return;
+    setSigningOut(true);
     clearPropListState();
     setLegacyUnlocked(false);
-    await signOut();
+    // user 해제 전에 URL을 /login으로 — CatchAll 로그인→/login 재마운트(새로고침처럼 보임) 방지
     navigate(AUTH_PATHS.login,{replace:true});
+    try{
+      await signOut();
+    }finally{
+      setSigningOut(false);
+    }
   };
 
   const legacyLoginProps = {
@@ -6759,18 +6769,9 @@ function AppShell(){
     return <ResetPasswordScreen/>;
   }
 
-  if(user&&needsSignupCompletion){
-    if (location.pathname === AUTH_PATHS.signupInvite) {
-      return <InviteSignUpPage {...legacyLoginProps} />;
-    }
-    if (location.pathname === AUTH_PATHS.signup) {
-      return <LoginScreen variant="signup" {...legacyLoginProps} />;
-    }
-    return <Navigate to={AUTH_PATHS.signup} replace />;
-  }
-
-  if(!user&&!legacyUnlocked){
-    if(authLoading){
+  // 로그아웃 중에는 세션이 남아 있어도 공개 로그인 라우트만 표시 (대시보드로 튕기지 않음)
+  if(signingOut||(!user&&!legacyUnlocked)){
+    if(authLoading&&!signingOut){
       return (
         <RouteLoading
           label="로그인 중…"
@@ -6779,6 +6780,16 @@ function AppShell(){
       );
     }
     return <AuthPublicRoutes {...legacyLoginProps} />;
+  }
+
+  if(user&&needsSignupCompletion){
+    if (location.pathname === AUTH_PATHS.signupInvite) {
+      return <InviteSignUpPage {...legacyLoginProps} />;
+    }
+    if (location.pathname === AUTH_PATHS.signup) {
+      return <LoginScreen variant="signup" {...legacyLoginProps} />;
+    }
+    return <Navigate to={AUTH_PATHS.signup} replace />;
   }
 
   // 매물·고객 준비(ready)되면 진입 — 일정/통화는 백그라운드 수신
