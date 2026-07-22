@@ -3226,6 +3226,34 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
   );
 };
 
+/* 달력 슬롯/칩 — Calendar 밖에 두어 setSel 시 타입 재생성(remount)으로 removeChild 오류가 나지 않게 함 */
+const CAL_CELL_H=112;
+const CAL_EVT_H=18;
+const CAL_EVT_GAP=2;
+const CAL_EVT_MAX=2;
+const CAL_EVT_AREA_H=CAL_EVT_MAX*(CAL_EVT_H+CAL_EVT_GAP)+CAL_EVT_H;
+const CAL_SIDEBAR_W=340;
+
+const CalEvtSlot=({children,style})=>(
+  <div style={{height:CAL_EVT_H,minHeight:CAL_EVT_H,maxHeight:CAL_EVT_H,flexShrink:0,...style}}>{children}</div>
+);
+
+const CalSchedChip=({s,gcalMeta,onClick})=>{
+  const {c,bg,label}=scheduleSourceInfo(s,gcalMeta);
+  const period=fmtSchedulePeriodDot(s);
+  return(
+    <CalEvtSlot>
+      <div
+        title={`${label} · ${period}${s.time?` ${s.time}`:''} ${s.title||''}`.trim()}
+        onClick={onClick}
+        style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',borderRadius:4,background:bg,borderLeft:`3px solid ${c}`,cursor:'pointer',overflow:'hidden',minWidth:0}}>
+        {s.time&&<span style={{fontSize:10,color:C.txM,flexShrink:0}}>{s.time.slice(0,5)}</span>}
+        <span style={{fontSize:11,color:c,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{s.title}</span>
+      </div>
+    </CalEvtSlot>
+  );
+};
+
 const Calendar=({onOpen})=>{
   const { user, companyRole, memberPermissions }=useAuth();
   const SCHEDS=useOwnerSchedules();
@@ -3403,12 +3431,8 @@ const Calendar=({onOpen})=>{
 
   const selScheds=sel?getSchedsForDay(sel):[];
   const hasItems=selScheds.length>0;
-
-  const CAL_CELL_H=112;
-  const CAL_EVT_H=18;
-  const CAL_EVT_GAP=2;
-  const CAL_EVT_MAX=2;
-  const CAL_EVT_AREA_H=CAL_EVT_MAX*(CAL_EVT_H+CAL_EVT_GAP)+CAL_EVT_H;
+  const [hoverDay,setHoverDay]=useState(null);
+  const [hoverSchedId,setHoverSchedId]=useState(null);
 
   const dayData=useMemo(()=>{
     const map={};
@@ -3424,28 +3448,6 @@ const Calendar=({onOpen})=>{
     }
     return map;
   },[SCHEDS,CALLS,year,month,daysInMonth]);
-
-  const CalEvtSlot=({children,style})=>(
-    <div style={{height:CAL_EVT_H,minHeight:CAL_EVT_H,maxHeight:CAL_EVT_H,flexShrink:0,...style}}>{children}</div>
-  );
-
-  const CalSchedChip=({s,onClick})=>{
-    const {c,bg,label}=scheduleSourceInfo(s,gcalMeta);
-    const period=fmtSchedulePeriodDot(s);
-    return(
-      <CalEvtSlot>
-        <div
-          title={`${label} · ${period}${s.time?` ${s.time}`:''} ${s.title||''}`.trim()}
-          onClick={onClick}
-          style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',borderRadius:4,background:bg,borderLeft:`3px solid ${c}`,cursor:'pointer',overflow:'hidden',minWidth:0}}>
-          {s.time&&<span style={{fontSize:10,color:C.txM,flexShrink:0}}>{s.time.slice(0,5)}</span>}
-          <span style={{fontSize:11,color:c,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{s.title}</span>
-        </div>
-      </CalEvtSlot>
-    );
-  };
-
-  const CAL_SIDEBAR_W=340;
 
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:C.bg}}>
@@ -3521,19 +3523,21 @@ const Calendar=({onOpen})=>{
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:`1px solid ${C.bdr}`}}>
               {days.map((d,i)=><div key={i} style={{textAlign:'center',padding:'10px 0',fontSize:12,fontWeight:600,color:i===0?C.err:i===6?C.info:C.txM,letterSpacing:'.04em'}}>{d}</div>)}
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gridAutoRows:`${CAL_CELL_H}px`}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gridAutoRows:`${CAL_CELL_H}px`}} translate="no">
               {cells.map((d,i)=>{
                 const today=isTodayCell(d);
                 const selD=d!=null&&d===sel;
+                const hovered=d!=null&&d===hoverDay&&!selD;
                 const daySchds=d?dayData[d]?.scheds||[]:[];
                 const dayCalls=d?dayData[d]?.calls||[]:[];
                 const extraScheds=Math.max(0,daySchds.length-CAL_EVT_MAX);
+                const cellBg=!d?C.surf3:(today&&selD)?C.brandL:selD?'#fff':hovered?C.surf2:today?`${C.brand}06`:'transparent';
                 return(
                   <div key={i}
                     onClick={()=>{if(d){setSel(d);}}}
-                    style={{height:CAL_CELL_H,minHeight:CAL_CELL_H,maxHeight:CAL_CELL_H,boxSizing:'border-box',padding:'6px 8px',borderRight:(i+1)%7!==0?`1px solid ${C.bdr}`:'none',borderBottom:i<35?`1px solid ${C.bdr}`:'none',cursor:d?'pointer':'default',background:!d?C.surf3:(today&&selD)?C.brandL:selD?'#fff':today?`${C.brand}06`:'transparent',transition:'background .1s',position:'relative',overflow:'hidden',display:'flex',flexDirection:'column'}}
-                    onMouseEnter={e=>{if(d&&!selD)e.currentTarget.style.background=C.surf2}}
-                    onMouseLeave={e=>{if(d&&!selD)e.currentTarget.style.background=(today&&selD)?C.brandL:today?`${C.brand}06`:'transparent'}}>
+                    onMouseEnter={()=>{if(d&&!selD) setHoverDay(d);}}
+                    onMouseLeave={()=>{setHoverDay((h)=>h===d?null:h);}}
+                    style={{height:CAL_CELL_H,minHeight:CAL_CELL_H,maxHeight:CAL_CELL_H,boxSizing:'border-box',padding:'6px 8px',borderRight:(i+1)%7!==0?`1px solid ${C.bdr}`:'none',borderBottom:i<35?`1px solid ${C.bdr}`:'none',cursor:d?'pointer':'default',background:cellBg,transition:'background .1s',position:'relative',overflow:'hidden',display:'flex',flexDirection:'column'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',height:24,minHeight:24,flexShrink:0,marginBottom:4}}>
                       <span style={{fontSize:13,fontWeight:today||selD?700:400,width:24,height:24,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',background:(today&&selD)?C.brand:selD?C.info:'transparent',color:!d?C.txP:(today&&selD)||selD?'#fff':i%7===0?C.err:i%7===6?C.info:C.tx}}>{d||''}</span>
                       {d&&<span onClick={e=>{e.stopPropagation();onOpen('sf',{_newDate:`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`});}} style={{width:18,height:18,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:C.txP,cursor:'pointer',flexShrink:0}}
@@ -3548,6 +3552,7 @@ const Calendar=({onOpen})=>{
                           <CalSchedChip
                             key={s.id}
                             s={s}
+                            gcalMeta={gcalMeta}
                             onClick={e=>{e.stopPropagation();onOpen('sd',s);}}
                           />
                         );
@@ -3558,7 +3563,7 @@ const Calendar=({onOpen})=>{
                             외 {extraScheds}건
                           </div>
                         ):dayCalls.length>0?(
-                          <div style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',fontSize:10,color:C.info,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+                          <div translate="no" style={{height:'100%',display:'flex',alignItems:'center',gap:3,padding:'0 4px',fontSize:10,color:C.info,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
                             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.58 2.34.7A2 2 0 0 1 22 16.92z"/></svg>
                             <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>통화 {dayCalls.length}건</span>
                           </div>
@@ -3609,9 +3614,10 @@ const Calendar=({onOpen})=>{
                     const canEditChk=canWriteRecord(s,user?.id,companyRole,memberPermissions,'schedules');
                     const chkBusy=chkBusyId===s.id;
                     return(
-                    <div key={s.id} onClick={()=>onOpen('sd',s)} style={{padding:'12px 16px',borderBottom:`1px solid ${C.bdr}`,display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer',background:'transparent'}}
-                      onMouseEnter={e=>e.currentTarget.style.background=bg}
-                      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <div key={s.id} onClick={()=>onOpen('sd',s)}
+                      onMouseEnter={()=>setHoverSchedId(s.id)}
+                      onMouseLeave={()=>setHoverSchedId((id)=>id===s.id?null:id)}
+                      style={{padding:'12px 16px',borderBottom:`1px solid ${C.bdr}`,display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer',background:hoverSchedId===s.id?bg:'transparent'}}>
                       <div style={{width:4,alignSelf:'stretch',minHeight:40,borderRadius:2,background:c,flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap',minWidth:0}}>
