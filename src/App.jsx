@@ -3381,8 +3381,7 @@ const Calendar=({onOpen})=>{
     refreshGcalLinks();
   },[refreshGcalLinks]);
 
-  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정은 귀속하지 않고 제거
-  // (타 계정 잔존이 현재 계정으로 흡수되는 것을 방지 — ICS는 이후 재동기화)
+  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정 → 귀속·합치기 (맹삭제 금지)
   useEffect(()=>{
     if(!gcalOwnerId) return;
     if(gcalCalendarRepairedOwners.has(gcalOwnerId)) return;
@@ -3390,16 +3389,6 @@ const Calendar=({onOpen})=>{
     const timer=window.setTimeout(()=>{
       (async()=>{
         try{
-          const misplaced=await db.schedules.where('ownerId').equals('dev-local').toArray();
-          const toRemove=misplaced.filter((s)=>s.icsSourceId&&!s.deletedAt);
-          if(toRemove.length){
-            await db.transaction('rw',db.schedules,async()=>{
-              for(const s of toRemove){
-                if(cancelled) return;
-                await db.schedules.delete(s.id);
-              }
-            });
-          }
           if(cancelled) return;
           await flushPendingIcsSourceIdRemaps(gcalOwnerId);
           if(cancelled) return;

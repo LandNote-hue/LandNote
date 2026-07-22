@@ -20,6 +20,8 @@ import {
   loadIcsIndex,
   enforceIcsUniqueness,
   repairIcsScheduleIntegrity,
+  reconcileOrphanIcsSchedules,
+  runIcsWriteExclusive,
 } from '../services/sync/icsScheduleStore.js';
 
 export {
@@ -30,6 +32,7 @@ export {
   isIcsLinkedSchedule,
   enforceIcsUniqueness,
   repairIcsScheduleIntegrity,
+  reconcileOrphanIcsSchedules,
 };
 
 const DAY_CODE = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
@@ -610,7 +613,6 @@ export async function importIcsSchedules(icsText, options = {}) {
   const validSourceIds = new Set(
     listGoogleCalendarLinks(ownerId).map((l) => l.sourceId).filter(Boolean),
   );
-  const index = await loadIcsIndex(ownerId);
 
   const addedSchedules = [];
   const updatedIds = [];
@@ -618,33 +620,36 @@ export async function importIcsSchedules(icsText, options = {}) {
   let updated = 0;
   let skipped = 0;
 
-  for (const sched of schedules) {
-    const result = await upsertIcsOccurrence(
-      { ...sched, deletedAt: null },
-      { ownerId, validSourceIds, index },
-    );
-    if (result.action === 'added') {
-      addedSchedules.push(result.row);
-      added += 1;
-    } else if (result.action === 'updated') {
-      updatedIds.push(result.id);
-      updated += 1;
-    } else {
-      skipped += 1;
+  // 배치 전체를 한 락으로 — 클라우드 pull과 동시 import 시 중복 add 방지
+  await runIcsWriteExclusive(async () => {
+    const index = await loadIcsIndex(ownerId);
+    for (const sched of schedules) {
+      const result = await upsertIcsOccurrence(
+        { ...sched, deletedAt: null },
+        { ownerId, validSourceIds, index, _locked: true },
+      );
+      if (result.action === 'added') {
+        addedSchedules.push(result.row);
+        added += 1;
+      } else if (result.action === 'updated') {
+        updatedIds.push(result.id);
+        updated += 1;
+      } else {
+        skipped += 1;
+      }
     }
-  }
+    try {
+      await enforceIcsUniqueness(ownerId, { _locked: true });
+    } catch (err) {
+      console.warn('[icsImport] enforce uniqueness', err);
+    }
+  });
 
   try {
     const { flushPendingIcsSourceIdRemaps } = await import('../services/googleCalendarLinks.js');
     await flushPendingIcsSourceIdRemaps(ownerId);
   } catch (err) {
     console.warn('[icsImport] flush source remaps', err);
-  }
-
-  try {
-    await enforceIcsUniqueness(ownerId);
-  } catch (err) {
-    console.warn('[icsImport] enforce uniqueness', err);
   }
 
   try {

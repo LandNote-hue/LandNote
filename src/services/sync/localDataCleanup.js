@@ -120,6 +120,7 @@ async function hasCrossAccountLocalData(userId, companyId = null) {
 
 /**
  * ownerId가 비어 있거나 dev-local인 행 삭제 (타 계정으로 귀속하지 않음)
+ * ICS/구글 일정은 맹삭제 금지 — reconcileOrphanIcsSchedules가 귀속·합침
  * @returns {Promise<{ deleted: number }>}
  */
 export async function purgeOrphanOwnerRows() {
@@ -131,6 +132,8 @@ export async function purgeOrphanOwnerRows() {
       for (const row of rows) {
         const owner = row.ownerId == null ? '' : String(row.ownerId);
         if (!orphanOwners.has(owner)) continue;
+        // ICS 연동 일정: 삭제하지 않음 (occurrence 귀속/합치기로 처리)
+        if (name === 'schedules' && (row.icsUid || row.icsKey || row.icsSourceId)) continue;
         await db.table(name).delete(row.id);
         deleted += 1;
       }
@@ -173,8 +176,14 @@ export async function prepareLocalStoreForUser(userId, options = {}) {
   }
 
   localStorage.setItem(ACTIVE_OWNER_KEY, userId);
-  // 잔여 orphan은 귀속하지 않고 삭제 (교차 계정 오염 방지)
+  // 잔여 orphan 비-ICS는 삭제, ICS는 귀속·합치기 (맹삭제→재유입 중복 방지)
   const { deleted: purged } = await purgeOrphanOwnerRows();
+  try {
+    const { reconcileOrphanIcsSchedules } = await import('./icsScheduleStore.js');
+    await reconcileOrphanIcsSchedules(userId);
+  } catch (err) {
+    console.warn('[localData] reconcile orphan ics', err);
+  }
   return { cleared: needsClear, purged };
 }
 

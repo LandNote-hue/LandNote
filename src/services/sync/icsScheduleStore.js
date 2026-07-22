@@ -7,9 +7,11 @@
  * 3. import / cloud pull / repair 는 이 모듈의 upsert·enforce만 사용
  * 4. 클라우드 soft-delete ICS는 로컬 휴지통에 넣지 않고 클라우드에서 제거
  * 5. 앱에서 삭제한 icsUid는 deletedIcsUids 블랙리스트에 넣어 pull/import 시 skip
+ * 6. 모든 ICS 쓰기는 전역 큐로 직렬화 — 모바일 로그인·pull·import 레이스로 중복 add 방지
+ * 7. add 직전 DB 재조회로 stale index 레이스 차단
  */
 import { db, isActive } from '../../db.js';
-import { getActiveOwnerId, matchesOwner, withOwnerId } from './ownerScope.js';
+import { DEV_LOCAL_OWNER, getActiveOwnerId, matchesOwner, withOwnerId } from './ownerScope.js';
 import {
   extractIcsUid,
   isDeletedIcsUid,
@@ -18,6 +20,23 @@ import {
 } from './deletedIcsUids.js';
 
 export { clearDeletedIcsUids, rememberDeletedIcsUidFromSchedule, isDeletedIcsUid, extractIcsUid };
+
+const ORPHAN_OWNER_IDS = new Set(['', 'null', 'undefined', DEV_LOCAL_OWNER]);
+
+/** @type {Promise<unknown>} */
+let icsWriteChain = Promise.resolve();
+
+/**
+ * ICS 쓰기 전역 직렬화 (동시 import/pull/repair 중복 add 방지)
+ * @template T
+ * @param {() => Promise<T>} task
+ * @returns {Promise<T>}
+ */
+export function runIcsWriteExclusive(task) {
+  const run = icsWriteChain.then(task, task);
+  icsWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 /** @param {unknown} time */
 export function normalizeScheduleTime(time) {
@@ -72,6 +91,12 @@ export function isIcsLinkedSchedule(s) {
   return !!(s?.icsUid || s?.icsKey || s?.icsSourceId);
 }
 
+/** @param {unknown} ownerId */
+function isOrphanOwnerId(ownerId) {
+  if (ownerId == null) return true;
+  return ORPHAN_OWNER_IDS.has(String(ownerId));
+}
+
 /**
  * @param {object|null|undefined} prev
  * @param {object} next
@@ -84,6 +109,29 @@ function preferActiveRow(prev, next) {
 }
 
 /**
+ * add 직전 stale index 방어 — DB에서 동일 occurrence 활성 행 재조회
+ * @param {string} occ
+ * @param {string} [ownerId]
+ */
+async function findActiveIcsByOccurrence(occ, ownerId = getActiveOwnerId()) {
+  if (!occ) return null;
+  const rows = await db.schedules.toArray();
+  /** @type {object|null} */
+  let best = null;
+  for (const s of rows) {
+    if (!isActive(s) || !isIcsLinkedSchedule(s)) continue;
+    if (occurrenceKeyFromSchedule(s) !== occ) continue;
+    if (
+      ownerId
+      && !matchesOwner(s, ownerId)
+      && !isOrphanOwnerId(s.ownerId)
+    ) continue;
+    best = preferActiveRow(best, s);
+  }
+  return best;
+}
+
+/**
  * @param {string} [ownerId]
  * @returns {Promise<{ byOcc: Map<string, object>, byCloudId: Map<string, object> }>}
  */
@@ -93,9 +141,7 @@ export async function loadIcsIndex(ownerId = getActiveOwnerId()) {
     && (
       !ownerId
       || matchesOwner(s, ownerId)
-      || s.ownerId === 'dev-local'
-      || s.ownerId == null
-      || s.ownerId === ''
+      || isOrphanOwnerId(s.ownerId)
     )
   ));
   /** @type {Map<string, object>} */
@@ -155,16 +201,14 @@ export async function purgeIcsCloudRow(cloudId, userId) {
 }
 
 /**
- * ICS 일정 upsert — 동일 occurrence면 갱신만, 새 행은 키가 없을 때만.
- * @param {Record<string, unknown>} fields  (deletedAt는 무시하고 항상 활성으로 저장)
+ * @param {Record<string, unknown>} fields
  * @param {{
  *   ownerId?: string,
  *   validSourceIds?: Set<string>,
  *   index?: { byOcc: Map<string, object>, byCloudId: Map<string, object> },
  * }} [options]
- * @returns {Promise<{ action: 'added'|'updated'|'skipped', id: number, row: object }>}
  */
-export async function upsertIcsOccurrence(fields, options = {}) {
+async function upsertIcsOccurrenceUnlocked(fields, options = {}) {
   const ownerId = options.ownerId || getActiveOwnerId();
   const validSourceIds = options.validSourceIds;
   const index = options.index || await loadIcsIndex(ownerId);
@@ -180,7 +224,6 @@ export async function upsertIcsOccurrence(fields, options = {}) {
   }
   if (base.time != null) base.time = normalizeScheduleTime(base.time) || base.time;
 
-  // 앱에서 삭제한 UID → 구글/ICS pull·import 시 되살리지 않음
   const uid = extractIcsUid(base);
   if (uid && isDeletedIcsUid(uid, ownerId)) {
     /** @type {object|null} */
@@ -204,6 +247,16 @@ export async function upsertIcsOccurrence(fields, options = {}) {
     ex = index.byCloudId.get(String(base.cloudId));
   }
 
+  // stale in-memory index 레이스 방어: add 직전 DB 재조회
+  if (!ex && occ) {
+    const fresh = await findActiveIcsByOccurrence(occ, ownerId);
+    if (fresh) {
+      ex = fresh;
+      index.byOcc.set(occ, fresh);
+      if (fresh.cloudId) index.byCloudId.set(String(fresh.cloudId), fresh);
+    }
+  }
+
   if (ex) {
     /** @type {Record<string, unknown>} */
     const patch = { deletedAt: null };
@@ -219,7 +272,6 @@ export async function upsertIcsOccurrence(fields, options = {}) {
     if (occ && ex.icsKey !== occ) patch.icsKey = occ;
     if (!ex.icsUid && base.icsUid) patch.icsUid = base.icsUid;
     if (base.cloudId && (!ex.cloudId || String(ex.cloudId) !== String(base.cloudId))) {
-      // 로컬에 다른 cloudId가 있으면 새 cloudId로 덮지 않음(중복 클라우드 정리는 pull에서)
       if (!ex.cloudId) {
         patch.cloudId = base.cloudId;
         if (base.cloudLocalId != null) patch.cloudLocalId = base.cloudLocalId;
@@ -258,11 +310,25 @@ export async function upsertIcsOccurrence(fields, options = {}) {
 }
 
 /**
- * 동일 occurrence 활성 중복을 1행으로 합침 (loser hard-delete only)
+ * ICS 일정 upsert — 동일 occurrence면 갱신만, 새 행은 키가 없을 때만.
+ * @param {Record<string, unknown>} fields
+ * @param {{
+ *   ownerId?: string,
+ *   validSourceIds?: Set<string>,
+ *   index?: { byOcc: Map<string, object>, byCloudId: Map<string, object> },
+ *   _locked?: boolean,
+ * }} [options]
+ */
+export async function upsertIcsOccurrence(fields, options = {}) {
+  if (options._locked) return upsertIcsOccurrenceUnlocked(fields, options);
+  return runIcsWriteExclusive(() => upsertIcsOccurrenceUnlocked(fields, options));
+}
+
+/**
  * @param {string} [preferredOwnerId]
  * @returns {Promise<{ collapsed: number }>}
  */
-export async function enforceIcsUniqueness(preferredOwnerId = getActiveOwnerId()) {
+async function enforceIcsUniquenessUnlocked(preferredOwnerId = getActiveOwnerId()) {
   const all = (await db.schedules.toArray()).filter(
     (s) => isActive(s) && isIcsLinkedSchedule(s),
   );
@@ -325,53 +391,157 @@ export async function enforceIcsUniqueness(preferredOwnerId = getActiveOwnerId()
 }
 
 /**
- * 레거시 soft-delete ICS 정리 + 유일성 강제.
+ * 동일 occurrence 활성 중복을 1행으로 합침 (loser hard-delete only)
  * @param {string} [preferredOwnerId]
- * @returns {Promise<{ revived: number, purged: number, collapsed: number }>}
+ * @param {{ _locked?: boolean }} [options]
  */
-export async function repairIcsScheduleIntegrity(preferredOwnerId = getActiveOwnerId()) {
-  const all = await db.schedules.toArray();
-  /** @type {Map<string, object>} */
-  const activeByOcc = new Map();
-  for (const s of all) {
-    if (!isActive(s) || !isIcsLinkedSchedule(s)) continue;
-    const k = occurrenceKeyFromSchedule(s);
-    if (k && !activeByOcc.has(k)) activeByOcc.set(k, s);
-    // 키 정규화
-    if (k && s.icsKey !== k) {
-      await db.schedules.update(s.id, { icsKey: k, time: normalizeScheduleTime(s.time) || s.time });
-    }
+export async function enforceIcsUniqueness(preferredOwnerId = getActiveOwnerId(), options = {}) {
+  if (options._locked) return enforceIcsUniquenessUnlocked(preferredOwnerId);
+  return runIcsWriteExclusive(() => enforceIcsUniquenessUnlocked(preferredOwnerId));
+}
+
+/**
+ * syncUserId 지연으로 생긴 orphan(dev-local/빈 owner) ICS를
+ * 현재 계정으로 귀속하거나, 이미 있으면 합쳐 제거. 맹삭제 금지.
+ * @param {string} [preferredOwnerId]
+ * @returns {Promise<{ adopted: number, merged: number, dropped: number }>}
+ */
+async function reconcileOrphanIcsSchedulesUnlocked(preferredOwnerId = getActiveOwnerId()) {
+  if (!preferredOwnerId || preferredOwnerId === DEV_LOCAL_OWNER) {
+    return { adopted: 0, merged: 0, dropped: 0 };
   }
 
-  let revived = 0;
-  let purged = 0;
+  const all = await db.schedules.toArray();
+  const orphans = all.filter((s) => isIcsLinkedSchedule(s) && isOrphanOwnerId(s.ownerId));
+  /** @type {Map<string, object>} */
+  const ownedByOcc = new Map();
   for (const s of all) {
-    if (isActive(s) || !isIcsLinkedSchedule(s)) continue;
+    if (!isActive(s) || !isIcsLinkedSchedule(s) || !matchesOwner(s, preferredOwnerId)) continue;
     const k = occurrenceKeyFromSchedule(s);
-    const active = k ? activeByOcc.get(k) : null;
-    if (active) {
-      await hardRemoveIcsDuplicate(s, active.cloudId);
-      purged += 1;
+    if (k) ownedByOcc.set(k, preferActiveRow(ownedByOcc.get(k), s));
+  }
+
+  let adopted = 0;
+  let merged = 0;
+  let dropped = 0;
+
+  for (const orphan of orphans) {
+    const k = occurrenceKeyFromSchedule(orphan);
+    const winner = k ? ownedByOcc.get(k) : null;
+
+    if (winner && winner.id !== orphan.id) {
+      /** @type {Record<string, unknown>} */
+      const patch = {};
+      if (!winner.cloudId && orphan.cloudId) {
+        patch.cloudId = orphan.cloudId;
+        if (orphan.cloudLocalId != null) patch.cloudLocalId = orphan.cloudLocalId;
+      }
+      if (!winner.icsSourceId && orphan.icsSourceId) patch.icsSourceId = orphan.icsSourceId;
+      if (!winner.icsUid && orphan.icsUid) patch.icsUid = orphan.icsUid;
+      if (k && winner.icsKey !== k) patch.icsKey = k;
+      if (Object.keys(patch).length) {
+        await db.schedules.update(winner.id, patch);
+        Object.assign(winner, patch);
+        if (k) ownedByOcc.set(k, winner);
+      }
+      await hardRemoveIcsDuplicate(orphan, winner.cloudId);
+      merged += 1;
       continue;
     }
-    // 활성 쌍둥이 없음 = 과거 잘못 숨긴 일정 → 복구 (한 번만, 이후 soft-delete ICS 경로 없음)
-    await db.schedules.update(s.id, {
+
+    if (!isActive(orphan)) {
+      // soft-delete orphan: 복구 금지 — 제거만 (이후 Google sync가 필요 시 1건으로 재유입)
+      await db.schedules.delete(orphan.id);
+      dropped += 1;
+      continue;
+    }
+
+    const nt = normalizeScheduleTime(orphan.time) || orphan.time;
+    await db.schedules.update(orphan.id, {
+      ownerId: preferredOwnerId,
       deletedAt: null,
-      icsKey: k || s.icsKey,
-      time: normalizeScheduleTime(s.time) || s.time,
+      icsKey: k || orphan.icsKey,
+      time: nt,
+      ...(orphan.icsUid ? {} : (k ? { icsUid: String(k).split('|')[0] } : {})),
     });
-    if (k) activeByOcc.set(k, { ...s, deletedAt: null });
-    revived += 1;
+    const next = {
+      ...orphan,
+      ownerId: preferredOwnerId,
+      deletedAt: null,
+      icsKey: k || orphan.icsKey,
+      time: nt,
+    };
+    if (k) ownedByOcc.set(k, next);
+    adopted += 1;
   }
 
-  const { collapsed } = await enforceIcsUniqueness(preferredOwnerId);
-  return { revived, purged, collapsed };
+  return { adopted, merged, dropped };
+}
+
+/**
+ * 레거시 soft-delete ICS 정리 + orphan 귀속 + 유일성 강제.
+ * soft-delete ICS는 절대 복구하지 않음 (복구가 중복의 주원인).
+ * @param {string} [preferredOwnerId]
+ * @returns {Promise<{ revived: number, purged: number, collapsed: number, adopted: number, merged: number, dropped: number }>}
+ */
+export async function repairIcsScheduleIntegrity(preferredOwnerId = getActiveOwnerId()) {
+  return runIcsWriteExclusive(async () => {
+    const orphanStats = await reconcileOrphanIcsSchedulesUnlocked(preferredOwnerId);
+
+    const all = await db.schedules.toArray();
+    /** @type {Map<string, object>} */
+    const activeByOcc = new Map();
+    for (const s of all) {
+      if (!isActive(s) || !isIcsLinkedSchedule(s)) continue;
+      const k = occurrenceKeyFromSchedule(s);
+      if (k && !activeByOcc.has(k)) activeByOcc.set(k, s);
+      if (k && s.icsKey !== k) {
+        await db.schedules.update(s.id, { icsKey: k, time: normalizeScheduleTime(s.time) || s.time });
+      }
+    }
+
+    let purged = 0;
+    for (const s of all) {
+      if (isActive(s) || !isIcsLinkedSchedule(s)) continue;
+      const k = occurrenceKeyFromSchedule(s);
+      const active = k ? activeByOcc.get(k) : null;
+      // soft-delete ICS: 복구 금지. 활성 쌍 없으면 UID 블랙리스트로 재유입도 차단
+      if (!active) {
+        try {
+          rememberDeletedIcsUidFromSchedule(s, preferredOwnerId);
+        } catch { /* ignore */ }
+      }
+      await hardRemoveIcsDuplicate(s, active?.cloudId ?? null);
+      purged += 1;
+    }
+
+    const { collapsed } = await enforceIcsUniquenessUnlocked(preferredOwnerId);
+    return {
+      revived: 0,
+      purged,
+      collapsed,
+      adopted: orphanStats.adopted,
+      merged: orphanStats.merged,
+      dropped: orphanStats.dropped,
+    };
+  });
+}
+
+/**
+ * orphan ICS만 귀속/합치기 (로그인·달력 진입용)
+ * @param {string} [preferredOwnerId]
+ */
+export async function reconcileOrphanIcsSchedules(preferredOwnerId = getActiveOwnerId()) {
+  return runIcsWriteExclusive(async () => {
+    const stats = await reconcileOrphanIcsSchedulesUnlocked(preferredOwnerId);
+    const { collapsed } = await enforceIcsUniquenessUnlocked(preferredOwnerId);
+    return { ...stats, collapsed };
+  });
 }
 
 /**
  * 클라우드에서 받은 ICS 행 1건을 로컬 정본에 반영.
- * bulkUpsert를 쓰지 않음 — occurrence 매칭 실패 시 중복 insert 방지.
- * @param {Record<string, unknown>} sched cloudRowToSched 결과
+ * @param {Record<string, unknown>} sched
  * @param {{ id: string, local_id?: number|string|null }} cloudRow
  * @param {string} userId
  * @param {{ byOcc: Map<string, object>, byCloudId: Map<string, object> }} index
@@ -382,7 +552,6 @@ export async function applyCloudIcsSchedule(sched, cloudRow, userId, index) {
 
   const blockedUid = extractIcsUid(sched);
   if (blockedUid && isDeletedIcsUid(blockedUid, userId)) {
-    // 블랙리스트: 로컬 잔여분 제거 + 클라우드 ICS 행도 정리(재유입 방지)
     const occ = occurrenceKeyFromSchedule(sched);
     const local = (occ && index.byOcc.get(occ))
       || (cloudRow.id && index.byCloudId.get(String(cloudRow.id)))
@@ -396,7 +565,6 @@ export async function applyCloudIcsSchedule(sched, cloudRow, userId, index) {
     return 'skipped';
   }
 
-  // soft-delete 클라우드 ICS → 휴지통 금지, 클라우드에서 제거
   if (sched.deletedAt) {
     const occ = occurrenceKeyFromSchedule(sched);
     const local = (occ && index.byOcc.get(occ))
@@ -418,11 +586,9 @@ export async function applyCloudIcsSchedule(sched, cloudRow, userId, index) {
     || (cloudRow.id && index.byCloudId.get(String(cloudRow.id)))
     || null;
 
-  // 동일 occurrence에 다른 cloudId가 이미 붙어 있으면 들어온 클라우드 행만 제거
   if (local?.cloudId && cloudRow.id && String(local.cloudId) !== String(cloudRow.id)) {
     await purgeIcsCloudRow(cloudRow.id, userId);
-    // 내용만 로컬에 병합(cloudId 유지)
-    await upsertIcsOccurrence({
+    await upsertIcsOccurrenceUnlocked({
       ...sched,
       cloudId: local.cloudId,
       cloudLocalId: local.cloudLocalId,
@@ -431,7 +597,7 @@ export async function applyCloudIcsSchedule(sched, cloudRow, userId, index) {
     return 'purged';
   }
 
-  await upsertIcsOccurrence({
+  await upsertIcsOccurrenceUnlocked({
     ...sched,
     cloudId: cloudRow.id || local?.cloudId || null,
     cloudLocalId: cloudRow.local_id ?? sched.cloudLocalId ?? local?.cloudLocalId ?? null,

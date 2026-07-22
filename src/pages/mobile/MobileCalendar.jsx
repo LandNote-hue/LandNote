@@ -11,7 +11,7 @@ import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
-/** 세션당 1회만 ICS 복구·중복 합치기 (매 진입 시 soft-delete 루프 방지) */
+/** 세션당 1회만 ICS orphan 귀속·중복 합치기 */
 const gcalMobileRepairedOwners = new Set();
 
 export function MobileCalendar() {

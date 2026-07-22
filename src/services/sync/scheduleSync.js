@@ -16,6 +16,7 @@ import {
   applyCloudIcsSchedule,
   repairIcsScheduleIntegrity,
   enforceIcsUniqueness,
+  runIcsWriteExclusive,
 } from './icsScheduleStore.js';
 
 const INDEX_KEYS = new Set([
@@ -122,10 +123,10 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
   const { flushPendingIcsSourceIdRemaps } = await import('../googleCalendarLinks.js');
 
-  const icsIndex = await loadIcsIndex(userId);
-
   /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown>, mergeExisting?: Function }>} */
   const manualBatch = [];
+  /** @type {Array<{ sched: Record<string, unknown>, row: Record<string, unknown> }>} */
+  const icsBatch = [];
 
   for (const row of rows) {
     if (isPurgedCloudId('schedules', row.id, userId)) continue;
@@ -133,10 +134,7 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
 
     // ICS/Google: bulkUpsert 금지 — occurrence upsert 단일 경로
     if (isIcsLinkedSchedule(sched)) {
-      const result = await applyCloudIcsSchedule(sched, row, userId, icsIndex);
-      if (result === 'applied' && row.id) remoteCloudIds.add(String(row.id));
-      // purged/skipped: 원격에 남아 있어도 로컬 prune 대상이 아님(ICS는 prune 보호)
-      if (result !== 'purged' && row.id) remoteCloudIds.add(String(row.id));
+      icsBatch.push({ sched, row });
       continue;
     }
 
@@ -149,15 +147,23 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
     });
   }
 
-  if (manualBatch.length) {
-    await bulkUpsertSharedCloudRecords(db.schedules, manualBatch, 'schedules');
+  // ICS pull 전체를 한 락으로 — import와 교차 add 레이스 차단
+  try {
+    await runIcsWriteExclusive(async () => {
+      const icsIndex = await loadIcsIndex(userId);
+      for (const { sched, row } of icsBatch) {
+        const result = await applyCloudIcsSchedule(sched, row, userId, icsIndex);
+        if (result === 'applied' && row.id) remoteCloudIds.add(String(row.id));
+        if (result !== 'purged' && row.id) remoteCloudIds.add(String(row.id));
+      }
+      await enforceIcsUniqueness(userId, { _locked: true });
+    });
+  } catch (err) {
+    console.warn('[scheduleSync] ics pull exclusive', err);
   }
 
-  // pull 후 다시 한 번 유일성 (키 정규화 차이로 생긴 잔여 중복 제거)
-  try {
-    await enforceIcsUniqueness(userId);
-  } catch (err) {
-    console.warn('[scheduleSync] enforce ics uniqueness', err);
+  if (manualBatch.length) {
+    await bulkUpsertSharedCloudRecords(db.schedules, manualBatch, 'schedules');
   }
 
   await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules', {
