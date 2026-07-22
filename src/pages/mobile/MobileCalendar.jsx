@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
+import { collapseDuplicateIcsSchedules } from '../../utils/icsImport.js';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
 const PRI_C = { URGENT: '#DC2626', IMPORTANT: '#D97706', NORMAL: '#2563EB' };
@@ -11,6 +13,7 @@ const WD = ['일', '월', '화', '수', '목', '금', '토'];
 
 export function MobileCalendar() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const schedules = useOwnerSchedules();
   const properties = useProperties();
   const today = useMemo(() => {
@@ -20,6 +23,20 @@ export function MobileCalendar() {
   const [year, setYear] = useState(today.year);
   const [month, setMonth] = useState(today.month);
   const [sel, setSel] = useState(today.date);
+
+  useEffect(() => {
+    const ownerId = user?.id;
+    if (!ownerId || ownerId === 'dev-local') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!cancelled) await collapseDuplicateIcsSchedules(ownerId);
+      } catch (err) {
+        console.warn('[MobileCalendar] collapse ics', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstDow = new Date(year, month - 1, 1).getDay();

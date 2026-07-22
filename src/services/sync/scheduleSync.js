@@ -95,21 +95,55 @@ export async function syncSchedulesFromCloud(userId) {
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
+  const { occurrenceKeyFromSchedule, collapseDuplicateIcsSchedules } = await import('../../utils/icsImport.js');
+  const { isActive } = await import('../../db.js');
+
+  // 클라우드 pull 전에 로컬 ICS occurrence 맵 — 동일 일정 이중 삽입 방지
+  const localIcs = (await db.schedules.toArray()).filter(
+    (s) => isActive(s) && (s.icsUid || s.icsKey || s.icsSourceId),
+  );
+  /** @type {Map<string, object>} */
+  const byOcc = new Map();
+  for (const s of localIcs) {
+    const k = occurrenceKeyFromSchedule(s);
+    if (k && !byOcc.has(k)) byOcc.set(k, s);
+  }
+
   /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown> }>} */
   const batch = [];
 
   for (const row of rows) {
     if (isPurgedCloudId('schedules', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
+    const sched = cloudRowToSched(row);
+    const occ = occurrenceKeyFromSchedule(sched);
+    const local = occ ? byOcc.get(occ) : null;
+    if (local && row.id) {
+      if (!local.cloudId || String(local.cloudId) !== String(row.id)) {
+        // 로컬 ICS 사본에 cloudId를 붙여 upsert가 합치도록 함
+        await db.schedules.update(local.id, {
+          cloudId: row.id,
+          icsKey: occ || local.icsKey,
+          icsUid: sched.icsUid || local.icsUid,
+          ownerId: local.ownerId || userId,
+        });
+        local.cloudId = row.id;
+      }
+    }
     batch.push({
       sessionUserId: userId,
       cloudRow: row,
-      record: cloudRowToSched(row),
+      record: sched,
     });
   }
   await bulkUpsertSharedCloudRecords(db.schedules, batch, 'schedules');
 
   await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules');
+  try {
+    await collapseDuplicateIcsSchedules(userId);
+  } catch (err) {
+    console.warn('[scheduleSync] collapse ics duplicates', err);
+  }
 
   localStorage.setItem(`landnote.sync.schedules.${userId}`, new Date().toISOString());
   return { ok: true, count: rows.length };

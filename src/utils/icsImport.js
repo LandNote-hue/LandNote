@@ -425,7 +425,40 @@ function mapIcsPriority(value) {
 
 /** @param {string} sourceId @param {string} uid @param {string} date @param {string} time */
 export function makeIcsKey(sourceId, uid, date, time) {
-  return `${sourceId}|${uid}|${date}|${time || ''}`;
+  // 출처(캘린더)와 무관한 occurrence 키 — 동일 UID·일시는 한 행만 유지
+  void sourceId;
+  return makeIcsOccurrenceKey(uid, date, time);
+}
+
+/** 구글/ICS 일정의 발생 단위 식별자 (캘린더 source 제외) */
+export function makeIcsOccurrenceKey(uid, date, time) {
+  return `${String(uid || '').trim()}|${date || ''}|${time || ''}`;
+}
+
+/**
+ * 기존/신규 일정에서 occurrence 키 추출 (레거시 sourceId|uid|date|time 포함)
+ * @param {Record<string, unknown>|null|undefined} s
+ */
+export function occurrenceKeyFromSchedule(s) {
+  if (!s) return null;
+  const uid = String(s.icsUid || '').trim();
+  if (uid && s.date) return makeIcsOccurrenceKey(uid, s.date, s.time || '');
+  const key = String(s.icsKey || '').trim();
+  if (!key) return null;
+  const parts = key.split('|');
+  if (parts.length >= 3 && !uid) {
+    // 신규: uid|date|time
+    if (parts.length === 3) return makeIcsOccurrenceKey(parts[0], parts[1], parts[2]);
+    // 레거시: sourceId|uid|date|time (uid에 | 없을 때)
+    if (parts.length >= 4) {
+      const time = parts[parts.length - 1];
+      const date = parts[parts.length - 2];
+      const legacyUid = parts.slice(1, -2).join('|');
+      return makeIcsOccurrenceKey(legacyUid, date, time);
+    }
+  }
+  if (parts.length === 3) return key;
+  return key;
 }
 
 function contentFingerprint(sched) {
@@ -581,6 +614,65 @@ export function parseIcsToSchedules(icsText, options = {}) {
 }
 
 /**
+ * 동일 occurrence(icsUid+일시) 중복 행을 1개로 합침
+ * @param {string} [preferredOwnerId]
+ * @returns {Promise<{ collapsed: number }>}
+ */
+export async function collapseDuplicateIcsSchedules(preferredOwnerId = getActiveOwnerId()) {
+  const { formatDeletedAt } = await import('../db.js');
+  const all = (await db.schedules.toArray()).filter(
+    (s) => isActive(s) && (s.icsUid || s.icsKey || s.icsSourceId),
+  );
+  /** @type {Map<string, object[]>} */
+  const groups = new Map();
+  for (const s of all) {
+    const k = occurrenceKeyFromSchedule(s) || `content:${contentFingerprint(s)}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  }
+
+  let collapsed = 0;
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+    rows.sort((a, b) => {
+      const score = (s) => {
+        let n = 0;
+        if (s.ownerId === preferredOwnerId) n += 8;
+        if (s.cloudId) n += 4;
+        if (s.icsSourceId) n += 1;
+        return n;
+      };
+      const d = score(b) - score(a);
+      if (d !== 0) return d;
+      return (a.id ?? 0) - (b.id ?? 0);
+    });
+    const winner = rows[0];
+    /** @type {Record<string, unknown>} */
+    const patch = {};
+    if (preferredOwnerId && winner.ownerId !== preferredOwnerId) patch.ownerId = preferredOwnerId;
+    const occ = occurrenceKeyFromSchedule(winner);
+    if (occ && winner.icsKey !== occ) patch.icsKey = occ;
+    if (!winner.icsUid && occ) {
+      const uid = String(occ).split('|')[0];
+      if (uid) patch.icsUid = uid;
+    }
+    // 다른 연동 캘린더에서 온 sourceId가 있으면 승자에 유지(색 표시용 첫 출처)
+    if (!winner.icsSourceId) {
+      const withSrc = rows.find((r) => r.icsSourceId);
+      if (withSrc?.icsSourceId) patch.icsSourceId = withSrc.icsSourceId;
+    }
+    if (Object.keys(patch).length) await db.schedules.update(winner.id, patch);
+
+    const deletedAt = formatDeletedAt();
+    for (const loser of rows.slice(1)) {
+      await db.schedules.update(loser.id, { deletedAt });
+      collapsed += 1;
+    }
+  }
+  return { collapsed };
+}
+
+/**
  * @param {string} icsText
  * @param {{ sourceId?: string }} [options]
  * @returns {Promise<{ addedSchedules: object[], added: number, updated: number, skipped: number, schedules: object[] }>}
@@ -593,12 +685,21 @@ export async function importIcsSchedules(icsText, options = {}) {
   }
 
   const ownerId = getActiveOwnerId();
-  const existing = (await db.schedules.toArray()).filter((s) => isActive(s) && matchesOwner(s, ownerId));
+  // 현재 계정 + orphan(dev-local) ICS 행까지 조회해 중복 add 방지
+  const existing = (await db.schedules.toArray()).filter((s) => (
+    isActive(s)
+    && (s.icsUid || s.icsKey || s.icsSourceId)
+    && (matchesOwner(s, ownerId) || s.ownerId === 'dev-local' || s.ownerId == null || s.ownerId === '')
+  ));
+  /** @type {Map<string, object>} */
+  const byOcc = new Map();
   /** @type {Map<string, object>} */
   const byIcsKey = new Map();
   /** @type {Map<string, object>} */
   const byContent = new Map();
   for (const s of existing) {
+    const occ = occurrenceKeyFromSchedule(s);
+    if (occ && !byOcc.has(occ)) byOcc.set(occ, s);
     if (s.icsKey) byIcsKey.set(String(s.icsKey), s);
     byContent.set(contentFingerprint(s), s);
   }
@@ -611,23 +712,30 @@ export async function importIcsSchedules(icsText, options = {}) {
 
   for (const sched of schedules) {
     const row = withOwnerId({ ...sched, deletedAt: null });
-    let ex = row.icsKey ? byIcsKey.get(String(row.icsKey)) : null;
-    if (!ex) ex = byContent.get(contentFingerprint(row));
+    const occ = occurrenceKeyFromSchedule(row);
+    let ex = (occ && byOcc.get(occ))
+      || (row.icsKey ? byIcsKey.get(String(row.icsKey)) : null)
+      || byContent.get(contentFingerprint(row));
 
     if (ex) {
       /** @type {Record<string, unknown>} */
       const patch = {};
+      if (ex.ownerId !== ownerId) patch.ownerId = ownerId;
       if (ex.title !== row.title) patch.title = row.title;
       if ((ex.memo || '') !== (row.memo || '')) patch.memo = row.memo;
       if (ex.time !== row.time) patch.time = row.time;
+      if ((ex.dateEnd || '') !== (row.dateEnd || '')) patch.dateEnd = row.dateEnd;
       if (ex.pri !== row.pri) patch.pri = row.pri;
-      if (!ex.icsKey && row.icsKey) patch.icsKey = row.icsKey;
+      if (occ && ex.icsKey !== occ) patch.icsKey = occ;
       if (!ex.icsUid && row.icsUid) patch.icsUid = row.icsUid;
+      // 이미 출처가 있으면 유지(첫 연동 캘린더 색). 없을 때만 채움
       if (!ex.icsSourceId && row.icsSourceId) patch.icsSourceId = row.icsSourceId;
       if (Object.keys(patch).length) {
         await db.schedules.update(ex.id, patch);
         updatedIds.push(ex.id);
         const next = { ...ex, ...patch };
+        const nextOcc = occurrenceKeyFromSchedule(next);
+        if (nextOcc) byOcc.set(nextOcc, next);
         if (next.icsKey) byIcsKey.set(String(next.icsKey), next);
         byContent.set(contentFingerprint(next), next);
         updated += 1;
@@ -640,9 +748,16 @@ export async function importIcsSchedules(icsText, options = {}) {
     const id = await db.schedules.add(row);
     const saved = { ...row, id };
     addedSchedules.push(saved);
+    if (occ) byOcc.set(occ, saved);
     if (saved.icsKey) byIcsKey.set(String(saved.icsKey), saved);
     byContent.set(contentFingerprint(saved), saved);
     added += 1;
+  }
+
+  try {
+    await collapseDuplicateIcsSchedules(ownerId);
+  } catch (err) {
+    console.warn('[icsImport] collapse duplicates', err);
   }
 
   try {
@@ -823,6 +938,13 @@ export async function syncLinkedGoogleCalendars(options = {}) {
         }, ownerId);
         console.error('[googleCalendarSync]', link.sourceId, err);
       }
+    }
+
+    try {
+      const { collapsed } = await collapseDuplicateIcsSchedules(getActiveOwnerId());
+      if (collapsed) skipped += collapsed;
+    } catch (err) {
+      console.warn('[googleCalendarSync] collapse', err);
     }
 
     return { added, updated, skipped, duplicated: skipped, total, synced, errors };

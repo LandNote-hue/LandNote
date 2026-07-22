@@ -43,7 +43,7 @@ import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRo
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
 import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
-import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars } from "./utils/icsImport.js";
+import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars, collapseDuplicateIcsSchedules } from "./utils/icsImport.js";
 import {
   listGoogleCalendarLinks,
   removeGoogleCalendarLink,
@@ -3284,7 +3284,7 @@ const Calendar=({onOpen})=>{
     refreshGcalLinks();
   },[refreshGcalLinks]);
 
-  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정을 현재 계정으로 복구
+  // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정을 현재 계정으로 복구 + ICS 중복 합치기
   useEffect(()=>{
     if(!gcalOwnerId) return;
     let cancelled=false;
@@ -3296,6 +3296,8 @@ const Calendar=({onOpen})=>{
           if(cancelled) return;
           await db.schedules.update(s.id,{ownerId:gcalOwnerId});
         }
+        if(cancelled) return;
+        await collapseDuplicateIcsSchedules(gcalOwnerId);
       }catch(err){
         console.error('[Calendar] repair gcal ownerId',err);
       }
