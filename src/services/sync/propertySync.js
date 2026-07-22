@@ -107,7 +107,12 @@ export async function syncPropertiesFromCloud(userId) {
   await pruneStaleCloudRows(db.properties, remoteCloudIds, userId, companyId, 'properties');
 
   localStorage.setItem(`landnote.sync.properties.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows.length };
+  return {
+    ok: true,
+    count: rows.length,
+    pulled: rows.length,
+    remoteEmpty: rows.length === 0,
+  };
 }
 
 /** @param {number} propertyId @param {string} [sessionUserId] */

@@ -211,6 +211,7 @@ export function AuthProvider({ children }) {
 
   const memberPermsRef = useRef(null);
   const sessionAutoSyncedUserIdRef = useRef(null);
+  const emptyForceRepullDoneRef = useRef(null);
   const profileLoadedUserIdRef = useRef(null);
   const [sessionCloudSyncStatus, setSessionCloudSyncStatus] = useState(
     /** @type {'idle'|'syncing'|'ready'|'done'|'error'} */ ('idle'),
@@ -263,8 +264,8 @@ export function AuthProvider({ children }) {
         ...options,
         forcePull,
         onEssentialReady: () => {
+          // UI 진입만 허용 — sessionCloudReady는 최종 성공 후에만 기록
           setSessionCloudSyncStatus('ready');
-          writeSessionCloudReady(userId);
           options.onEssentialReady?.();
         },
       });
@@ -280,10 +281,7 @@ export function AuthProvider({ children }) {
           result = await initialCloudSync(userId, {
             ...options,
             forcePull: true,
-            onEssentialReady: () => {
-              setSessionCloudSyncStatus('ready');
-              writeSessionCloudReady(userId);
-            },
+            onEssentialReady: () => setSessionCloudSyncStatus('ready'),
           });
           summary = summarizeCloudSyncResult(result);
         }
@@ -292,6 +290,7 @@ export function AuthProvider({ children }) {
       setSessionCloudSyncSummary(summary);
       if (result?.ok === false) {
         if (!quiet) setSessionCloudSyncStatus('error');
+        clearSessionCloudReady(userId);
         console.error('[auth] session cloud sync incomplete', result);
         throw new Error(summary.errorMessage || 'cloud sync incomplete');
       }
@@ -300,8 +299,20 @@ export function AuthProvider({ children }) {
       return { ok: true, result, summary };
     } catch (err) {
       console.error('[auth] session auto cloud sync', err);
+      clearSessionCloudReady(userId);
       if (!quiet) {
         setSessionCloudSyncStatus('error');
+        setSessionCloudSyncSummary((prev) => prev ?? {
+          ok: false,
+          pulled: 0,
+          properties: 0,
+          customers: 0,
+          schedules: 0,
+          callLogs: 0,
+          errorMessage: err?.message || String(err),
+        });
+      } else {
+        // quiet 실패여도 로컬은 유지 — ready 상태면 그대로 두고 에러만 기록
         setSessionCloudSyncSummary((prev) => prev ?? {
           ok: false,
           pulled: 0,
@@ -323,6 +334,7 @@ export function AuthProvider({ children }) {
     }
     clearSessionCloudReady(user.id);
     sessionAutoSyncedUserIdRef.current = null;
+    emptyForceRepullDoneRef.current = null;
     try {
       sessionAutoSyncedUserIdRef.current = user.id;
       const out = await runInitialCloudSyncForUser(user.id, { forcePull: true });
@@ -398,17 +410,11 @@ export function AuthProvider({ children }) {
 
   // 최초 로그인(세션) — 개인: 로그인 pull 1회 / 팀: 로그인·수동 동기화
   // 같은 탭에서는 재진입·페이지 이동 시 전체 sync/로딩 게이트를 다시 열지 않음
+  // 단, ready인데 로컬 매물·고객이 비면 ready를 무효화하고 강제 재pull
   useEffect(() => {
     if (loading || profileLoading) return;
     if (!user?.id || user.id === 'dev-local') return;
     if (!isSupabaseConfigured) return;
-
-    if (sessionAutoSyncedUserIdRef.current === user.id || readSessionCloudReady(user.id)) {
-      sessionAutoSyncedUserIdRef.current = user.id;
-      setSessionCloudSyncStatus((s) => (s === 'idle' || s === 'syncing' ? 'done' : s));
-      writeSessionCloudReady(user.id);
-      return;
-    }
 
     const role = resolveSessionRole(companyRole, profile);
     const solo = isSoloRole(role) || profile?.user_type === 'SOLO';
@@ -426,14 +432,37 @@ export function AuthProvider({ children }) {
       })();
     };
 
+    const alreadyMarked = sessionAutoSyncedUserIdRef.current === user.id || readSessionCloudReady(user.id);
+    if (alreadyMarked) {
+      runSync(async () => {
+        const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
+        const empty = await isEssentialLocalEmpty();
+        if (empty) {
+          // 같은 세션에서 빈 로컬 강제 pull은 1회만 — 클라우드가 진짜 0건이면 루프 방지
+          if (emptyForceRepullDoneRef.current === user.id) {
+            setSessionCloudSyncStatus((s) => (s === 'idle' || s === 'syncing' ? 'done' : s));
+            writeSessionCloudReady(user.id);
+            return;
+          }
+          emptyForceRepullDoneRef.current = user.id;
+          console.info('[auth] sessionCloudReady but local empty — force re-pull');
+          clearSessionCloudReady(user.id);
+          await runInitialCloudSyncForUser(user.id, { forcePull: true });
+          return;
+        }
+        setSessionCloudSyncStatus((s) => (s === 'idle' || s === 'syncing' ? 'done' : s));
+      }, { keepOnError: true });
+      return;
+    }
+
     // 개인(SOLO): 로컬에 데이터가 있으면 즉시 진입 + quiet 백그라운드, 없으면 1회 blocking sync
     if (solo || !role) {
       runSync(async () => {
         const { isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
         const empty = await isEssentialLocalEmpty();
         if (!empty) {
+          // UI만 ready — sessionCloudReady는 sync 성공 후 기록
           setSessionCloudSyncStatus('ready');
-          writeSessionCloudReady(user.id);
           await runInitialCloudSyncForUser(user.id, { quiet: true, forcePull: false });
           return;
         }
@@ -460,7 +489,6 @@ export function AuthProvider({ children }) {
         const empty = await isEssentialLocalEmpty();
         if (!empty) {
           setSessionCloudSyncStatus('ready');
-          writeSessionCloudReady(user.id);
           await runInitialCloudSyncForUser(user.id, { quiet: true, forcePull: false });
           return;
         }
@@ -484,6 +512,7 @@ export function AuthProvider({ children }) {
           setSessionCloudSyncStatus('done');
           writeSessionCloudReady(user.id);
         } catch (err) {
+          clearSessionCloudReady(user.id);
           setSessionCloudSyncStatus('error');
           setSessionCloudSyncSummary({
             ok: false,
@@ -993,6 +1022,7 @@ export function AuthProvider({ children }) {
     clearSyncCompanyContext();
     const prevId = user?.id;
     sessionAutoSyncedUserIdRef.current = null;
+    emptyForceRepullDoneRef.current = null;
     memberPermsRef.current = null;
     clearSessionCloudReady(prevId);
     setSessionCloudSyncStatus('idle');

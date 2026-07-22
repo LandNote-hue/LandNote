@@ -175,23 +175,39 @@ export async function pushOwnedSoftDeletes(tableName, syncOne, userId, resource 
  * diff pull: 클라우드 응답에 없는 cloudId 로컬 행만 제거 (clear+재삽입 대신)
  * cloudId 없는 로컬(미동기화·가져오기)은 유지
  *
+ * 안전장치: 원격 0건이면 prune 금지(RLS/권한 실패로 로컬 전량 삭제 방지).
+ * SOLO 워크스페이스(companyId === userId)는 ownerId 스코프로만 정리.
+ *
  * @param {import('dexie').Table} table
  * @param {Set<string>} remoteCloudIds
  * @param {string} userId
  * @param {string|null} companyId
- * @param {keyof import('./cloudIdMap.js').ID_MAPS extends never ? string : 'properties'|'customers'|'schedules'|'call_logs'} resource
+ * @param {'properties'|'customers'|'schedules'|'call_logs'} resource
+ * @param {{ ownerScopeOnly?: boolean, allowEmptyRemote?: boolean }} [options]
+ * @returns {Promise<{ pruned: number, skipped: boolean, reason?: string }>}
  */
-export async function pruneStaleCloudRows(table, remoteCloudIds, userId, companyId, resource) {
+export async function pruneStaleCloudRows(table, remoteCloudIds, userId, companyId, resource, options = {}) {
+  const remoteCount = remoteCloudIds instanceof Set ? remoteCloudIds.size : 0;
+  if (remoteCount === 0 && options.allowEmptyRemote !== true) {
+    console.warn(`[prune] skip ${resource}: remote empty — keep local rows`);
+    return { pruned: 0, skipped: true, reason: 'remote_empty' };
+  }
+
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
+  const soloWorkspace = !!(companyId && userId && String(companyId) === String(userId));
+  const useOwnerScope = options.ownerScopeOnly === true || soloWorkspace || !companyId;
+
   const locals = await table.toArray();
+  let pruned = 0;
   for (const rec of locals) {
     const cloudId = rec.cloudId;
     if (!cloudId) continue;
     if (remoteCloudIds.has(String(cloudId))) continue;
 
-    const inScope = companyId
-      ? (!rec.companyId || rec.companyId === companyId)
-      : rec.ownerId === userId;
+    const inScope = useOwnerScope
+      ? (String(rec.ownerId || '') === String(userId)
+        || (!rec.ownerId && String(rec.userId || '') === String(userId)))
+      : (!rec.companyId || String(rec.companyId) === String(companyId));
     if (!inScope) continue;
 
     // 구글/ICS 가져온 일정은 클라우드 pull에 없어도 로컬 유지 (동기화로 다시 맞춤)
@@ -200,9 +216,12 @@ export async function pruneStaleCloudRows(table, remoteCloudIds, userId, company
     // 영구삭제 tombstone — 클라우드에 없으므로 로컬 잔여분 정리
     if (isPurgedCloudId(resource, cloudId, userId)) {
       await table.delete(rec.id);
+      pruned += 1;
       continue;
     }
 
     await table.delete(rec.id);
+    pruned += 1;
   }
+  return { pruned, skipped: false };
 }

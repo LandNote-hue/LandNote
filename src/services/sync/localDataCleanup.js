@@ -76,7 +76,34 @@ export async function prepareLocalStoreForUser(userId) {
     await clearAllUserLocalPreferences(prev);
   }
   localStorage.setItem(ACTIVE_OWNER_KEY, userId);
-  return { cleared: !!(prev && prev !== userId) };
+  // 로그인 전/전환 과정에서 ownerId가 비거나 dev-local로 남은 행을 현재 계정으로 귀속
+  const claimed = await claimOrphanLocalOwners(userId);
+  return { cleared: !!(prev && prev !== userId), claimed };
+}
+
+/**
+ * ownerId가 비어 있거나 dev-local인 활성 행을 현재 userId로 맞춤
+ * (UI 스코프 필터로 "데이터는 있는데 안 보이는" 상태 방지)
+ * @param {string} userId
+ */
+export async function claimOrphanLocalOwners(userId) {
+  if (!userId || userId === DEV_LOCAL_OWNER) return { updated: 0 };
+  const orphanOwners = new Set(['', 'null', 'undefined', DEV_LOCAL_OWNER]);
+  let updated = 0;
+  await db.transaction('rw', LOCAL_TABLES, async () => {
+    for (const name of LOCAL_TABLES) {
+      const rows = await db.table(name).toArray();
+      for (const row of rows) {
+        const owner = row.ownerId == null ? '' : String(row.ownerId);
+        if (!orphanOwners.has(owner)) continue;
+        if (row.deletedAt) continue;
+        await db.table(name).update(row.id, { ownerId: userId });
+        updated += 1;
+      }
+    }
+  });
+  if (updated) console.info('[localData] claimed orphan owner rows', { userId, updated });
+  return { updated };
 }
 
 export function clearActiveOwnerMarker() {

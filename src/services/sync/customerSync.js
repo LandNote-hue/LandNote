@@ -88,7 +88,12 @@ export async function syncCustomersFromCloud(userId) {
   await pruneStaleCloudRows(db.customers, remoteCloudIds, userId, companyId, 'customers');
 
   localStorage.setItem(`landnote.sync.customers.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows.length };
+  return {
+    ok: true,
+    count: rows.length,
+    pulled: rows.length,
+    remoteEmpty: rows.length === 0,
+  };
 }
 
 /** @param {number} customerId @param {string} [sessionUserId] */

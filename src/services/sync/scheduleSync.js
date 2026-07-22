@@ -146,7 +146,12 @@ export async function syncSchedulesFromCloud(userId) {
   }
 
   localStorage.setItem(`landnote.sync.schedules.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows.length };
+  return {
+    ok: true,
+    count: rows.length,
+    pulled: rows.length,
+    remoteEmpty: rows.length === 0,
+  };
 }
 
 /** @param {number} schedId @param {string} [sessionUserId] */

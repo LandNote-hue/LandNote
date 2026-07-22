@@ -104,7 +104,12 @@ export async function syncCallLogsFromCloud(userId) {
   await pruneStaleCloudRows(db.call_logs, remoteCloudIds, userId, companyId, 'call_logs');
 
   localStorage.setItem(`landnote.sync.call_logs.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows.length };
+  return {
+    ok: true,
+    count: rows.length,
+    pulled: rows.length,
+    remoteEmpty: rows.length === 0,
+  };
 }
 
 /** @param {number} callId @param {string} [sessionUserId] */
