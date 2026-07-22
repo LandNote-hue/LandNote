@@ -9,7 +9,7 @@ import {
   cloudUserIdForRow,
   cloudCompanyIdForRow,
 } from './ownerScope.js';
-import { insertOrUpdateByLocalId, omitHeavyCloudFields, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso } from './syncHelpers.js';
+import { insertOrUpdateByLocalId, omitHeavyCloudFields, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
 import { upsertSharedCloudRecord } from './cloudIdMap.js';
 
 const INDEX_KEYS = new Set([
@@ -68,17 +68,12 @@ export async function syncCustomersFromCloud(userId) {
 
   const companyId = getSyncCompanyId();
 
-  const { data: rows, error } = await supabase
-    .from('customers')
-    .select('*')
-    .order('updated_at', { ascending: true });
-
-  if (error) throw error;
+  const rows = await fetchAllCloudRows(supabase, 'customers');
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
 
-  for (const row of rows ?? []) {
+  for (const row of rows) {
     if (isPurgedCloudId('customers', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
     const cust = cloudRowToCust(row);
@@ -93,7 +88,7 @@ export async function syncCustomersFromCloud(userId) {
   await pruneStaleCloudRows(db.customers, remoteCloudIds, userId, companyId, 'customers');
 
   localStorage.setItem(`landnote.sync.customers.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows?.length ?? 0 };
+  return { ok: true, count: rows.length };
 }
 
 /** @param {number} customerId @param {string} [sessionUserId] */

@@ -8,7 +8,7 @@ import {
   cloudUserIdForRow,
   cloudCompanyIdForRow,
 } from './ownerScope.js';
-import { insertOrUpdateByLocalId, omitHeavyCloudFields, mergePropertyPhotos, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso } from './syncHelpers.js';
+import { insertOrUpdateByLocalId, omitHeavyCloudFields, mergePropertyPhotos, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
 import { upsertSharedCloudRecord } from './cloudIdMap.js';
 import { ensurePropertyPhotosInCloud, removePropertyPhotosFromStorage } from './propertyPhotoStorage.js';
 import { normalizeJDepToMan } from '../../utils/formatMoney.js';
@@ -82,17 +82,12 @@ export async function syncPropertiesFromCloud(userId) {
 
   const companyId = getSyncCompanyId();
 
-  const { data: rows, error } = await supabase
-    .from('properties')
-    .select('*')
-    .order('updated_at', { ascending: true });
-
-  if (error) throw error;
+  const rows = await fetchAllCloudRows(supabase, 'properties');
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
 
-  for (const row of rows ?? []) {
+  for (const row of rows) {
     if (isPurgedCloudId('properties', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
     const prop = cloudRowToProp(row);
@@ -112,7 +107,7 @@ export async function syncPropertiesFromCloud(userId) {
   await pruneStaleCloudRows(db.properties, remoteCloudIds, userId, companyId, 'properties');
 
   localStorage.setItem(`landnote.sync.properties.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows?.length ?? 0 };
+  return { ok: true, count: rows.length };
 }
 
 /** @param {number} propertyId @param {string} [sessionUserId] */

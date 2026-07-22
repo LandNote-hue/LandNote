@@ -201,6 +201,9 @@ export function AuthProvider({ children }) {
   const [sessionCloudSyncStatus, setSessionCloudSyncStatus] = useState(
     /** @type {'idle'|'syncing'|'done'|'error'} */ ('idle'),
   );
+  const [sessionCloudSyncSummary, setSessionCloudSyncSummary] = useState(
+    /** @type {null|{ ok?: boolean, pulled?: number, properties?: number, customers?: number, schedules?: number, callLogs?: number, errorMessage?: string, restoredLocalWins?: boolean }} */ (null),
+  );
 
   /** @param {string|null|undefined} companyRoleVal @param {Record<string, unknown>|null|undefined} profileVal */
   const resolveSessionRole = useCallback((companyRoleVal, profileVal) => {
@@ -210,28 +213,71 @@ export function AuthProvider({ children }) {
     return null;
   }, []);
 
+  const summarizeCloudSyncResult = useCallback((result) => {
+    const propN = Number(result?.properties?.pulled ?? result?.properties?.count ?? 0) || 0;
+    const custN = Number(result?.customers?.pulled ?? result?.customers?.count ?? 0) || 0;
+    const schedN = Number(result?.schedules?.pulled ?? result?.schedules?.count ?? 0) || 0;
+    const callN = Number(result?.callLogs?.pulled ?? result?.callLogs?.count ?? 0) || 0;
+    return {
+      ok: result?.ok !== false,
+      properties: propN,
+      customers: custN,
+      schedules: schedN,
+      callLogs: callN,
+      pulled: propN + custN + schedN + callN,
+      restoredLocalWins: !!result?.restoredLocalWins,
+      errorMessage: result?.error?.message || (result?.ok === false ? 'cloud sync incomplete' : undefined),
+    };
+  }, []);
+
   const runInitialCloudSyncForUser = useCallback(async (userId, options = {}) => {
     setSessionCloudSyncStatus('syncing');
+    setSessionCloudSyncSummary(null);
     try {
       // clear와 pull 경합 방지 — 스토어 준비 후 동기화
       const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
       await prepareLocalStoreForUser(userId);
 
       const { initialCloudSync } = await import('../services/sync/cloudSync.js');
-      const result = await initialCloudSync(userId, options);
+      let result = await initialCloudSync(userId, options);
+      let summary = summarizeCloudSyncResult(result);
+
+      // pull 0건 + 로컬 비어 있으면 forcePull 1회 재시도 (복원 플래그 구멍)
+      if (result?.ok !== false && summary.pulled === 0 && options.forcePull !== true) {
+        const { getLocalTableCounts } = await import('../db.js');
+        const counts = await getLocalTableCounts();
+        const localN = (counts.properties || 0) + (counts.customers || 0)
+          + (counts.schedules || 0) + (counts.call_logs || 0);
+        if (localN === 0) {
+          console.info('[auth] empty after login pull — retry with forcePull');
+          result = await initialCloudSync(userId, { ...options, forcePull: true });
+          summary = summarizeCloudSyncResult(result);
+        }
+      }
+
+      setSessionCloudSyncSummary(summary);
       if (result?.ok === false) {
         setSessionCloudSyncStatus('error');
         console.error('[auth] session cloud sync incomplete', result);
-        throw new Error('cloud sync incomplete');
+        throw new Error(summary.errorMessage || 'cloud sync incomplete');
       }
       setSessionCloudSyncStatus('done');
-      return { ok: true, result };
+      return { ok: true, result, summary };
     } catch (err) {
       console.error('[auth] session auto cloud sync', err);
       setSessionCloudSyncStatus('error');
+      setSessionCloudSyncSummary((prev) => prev ?? {
+        ok: false,
+        pulled: 0,
+        properties: 0,
+        customers: 0,
+        schedules: 0,
+        callLogs: 0,
+        errorMessage: err?.message || String(err),
+      });
       throw err;
     }
-  }, []);
+  }, [summarizeCloudSyncResult]);
 
   /** 개인 계정 등 — 빈 화면일 때 로그인 pull 재시도 (동기화 버튼 UI 아님) */
   const reloadSessionCloudData = useCallback(async () => {
@@ -336,9 +382,9 @@ export function AuthProvider({ children }) {
       })();
     };
 
-    // 개인(SOLO): 로그인 시 1회 pull — 이후는 등록·수정·삭제 시에만 push
+    // 개인(SOLO): 로그인 시 forcePull 1회 — 이후는 등록·수정·삭제 시에만 push
     if (solo || !role) {
-      runSync(() => runInitialCloudSyncForUser(user.id));
+      runSync(() => runInitialCloudSyncForUser(user.id, { forcePull: true }));
       return;
     }
 
@@ -350,16 +396,34 @@ export function AuthProvider({ children }) {
     if (!isCeoRole(role) && memberPermissions == null) return;
 
     if (isCeoRole(role)) {
-      runSync(() => runInitialCloudSyncForUser(user.id));
+      runSync(() => runInitialCloudSyncForUser(user.id, { forcePull: true }));
     } else if (hasAnySharedReadPermission(memberPermissions)) {
       runSync(async () => {
         setSessionCloudSyncStatus('syncing');
+        setSessionCloudSyncSummary(null);
         try {
           const { refreshSharedCloudData } = await import('../services/sync/cloudSync.js');
-          await refreshSharedCloudData(user.id);
+          const result = await refreshSharedCloudData(user.id);
+          const summary = summarizeCloudSyncResult({
+            ok: result?.ok !== false,
+            properties: { count: result?.properties?.count ?? 0 },
+            customers: { count: result?.customers?.count ?? 0 },
+            schedules: { count: result?.schedules?.count ?? 0 },
+            callLogs: { count: result?.callLogs?.count ?? 0 },
+          });
+          setSessionCloudSyncSummary(summary);
           setSessionCloudSyncStatus('done');
         } catch (err) {
           setSessionCloudSyncStatus('error');
+          setSessionCloudSyncSummary({
+            ok: false,
+            pulled: 0,
+            properties: 0,
+            customers: 0,
+            schedules: 0,
+            callLogs: 0,
+            errorMessage: err?.message || String(err),
+          });
           throw err;
         }
       });
@@ -374,6 +438,7 @@ export function AuthProvider({ children }) {
     memberPermissions,
     resolveSessionRole,
     runInitialCloudSyncForUser,
+    summarizeCloudSyncResult,
   ]);
 
   const refreshProfile = useCallback(async () => {
@@ -999,6 +1064,7 @@ export function AuthProvider({ children }) {
     teamRoleMap,
     profileLoading,
     sessionCloudSyncStatus,
+    sessionCloudSyncSummary,
     needsSignupCompletion,
     accountDefaults,
     loading,
@@ -1026,7 +1092,7 @@ export function AuthProvider({ children }) {
     refreshMemberPermissions,
     reloadSessionCloudData,
     clearAuthError: () => setAuthError(null),
-  }), [user, session, profile, company, companyRole, memberPermissions, teamMembers, teamNameMap, teamRoleMap, profileLoading, sessionCloudSyncStatus, needsSignupCompletion, accountDefaults, loading, authError, passwordRecovery, signInWithEmail, signUpWithEmail, signInWithOAuth, signInWithGoogleCredential, completeOAuthSignup, abandonOAuthSignup, signOut, deleteAccount, resetPassword, confirmPasswordReset, updateProfile, updatePassword, verifyCurrentPassword, refreshProfile, refreshMemberPermissions, reloadSessionCloudData]);
+  }), [user, session, profile, company, companyRole, memberPermissions, teamMembers, teamNameMap, teamRoleMap, profileLoading, sessionCloudSyncStatus, sessionCloudSyncSummary, needsSignupCompletion, accountDefaults, loading, authError, passwordRecovery, signInWithEmail, signUpWithEmail, signInWithOAuth, signInWithGoogleCredential, completeOAuthSignup, abandonOAuthSignup, signOut, deleteAccount, resetPassword, confirmPasswordReset, updateProfile, updatePassword, verifyCurrentPassword, refreshProfile, refreshMemberPermissions, reloadSessionCloudData]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

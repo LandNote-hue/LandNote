@@ -8,7 +8,7 @@ import {
   cloudUserIdForRow,
   cloudCompanyIdForRow,
 } from './ownerScope.js';
-import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso } from './syncHelpers.js';
+import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
 import { remapFk, upsertSharedCloudRecord } from './cloudIdMap.js';
 
 const INDEX_KEYS = new Set([
@@ -83,17 +83,12 @@ export async function syncCallLogsFromCloud(userId) {
 
   const companyId = getSyncCompanyId();
 
-  const { data: rows, error } = await supabase
-    .from('call_logs')
-    .select('*')
-    .order('updated_at', { ascending: true });
-
-  if (error) throw error;
+  const rows = await fetchAllCloudRows(supabase, 'call_logs');
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
 
-  for (const row of rows ?? []) {
+  for (const row of rows) {
     if (isPurgedCloudId('call_logs', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
     const call = cloudRowToCall(row);
@@ -108,7 +103,7 @@ export async function syncCallLogsFromCloud(userId) {
   await pruneStaleCloudRows(db.call_logs, remoteCloudIds, userId, companyId, 'call_logs');
 
   localStorage.setItem(`landnote.sync.call_logs.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows?.length ?? 0 };
+  return { ok: true, count: rows.length };
 }
 
 /** @param {number} callId @param {string} [sessionUserId] */

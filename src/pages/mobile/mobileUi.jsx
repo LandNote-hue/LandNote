@@ -108,7 +108,7 @@ export function MobileEmptyState({ message = '데이터가 없습니다' }) {
 export function MobileCloudDataHint({ empty = false, resourceLabel = '데이터' }) {
   const {
     user, profile, companyRole, profileLoading,
-    sessionCloudSyncStatus, reloadSessionCloudData,
+    sessionCloudSyncStatus, sessionCloudSyncSummary, reloadSessionCloudData,
   } = useAuth();
   const [busy, setBusy] = useState(false);
 
@@ -126,6 +126,8 @@ export function MobileCloudDataHint({ empty = false, resourceLabel = '데이터'
     || sessionCloudSyncStatus === 'syncing'
     || busy;
   const failed = sessionCloudSyncStatus === 'error';
+  const pulled = sessionCloudSyncSummary?.pulled ?? null;
+  const cloudEmpty = !failed && sessionCloudSyncStatus === 'done' && pulled === 0;
 
   const onReload = async () => {
     if (busy) return;
@@ -148,14 +150,33 @@ export function MobileCloudDataHint({ empty = false, resourceLabel = '데이터'
     );
   }
 
+  const detail = sessionCloudSyncSummary
+    ? `매물 ${sessionCloudSyncSummary.properties ?? 0} · 고객 ${sessionCloudSyncSummary.customers ?? 0} · 일정 ${sessionCloudSyncSummary.schedules ?? 0} · 통화 ${sessionCloudSyncSummary.callLogs ?? 0}`
+    : null;
+
   return (
     <MobileCard style={{ marginBottom: 16, background: '#FFF8F0', border: '1px solid #FED7AA' }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>
-        {failed ? '데이터를 불러오지 못했습니다' : `표시할 ${resourceLabel}이(가) 없습니다`}
+        {failed
+          ? '데이터를 불러오지 못했습니다'
+          : cloudEmpty
+            ? '클라우드에 저장된 데이터가 없습니다'
+            : `표시할 ${resourceLabel}이(가) 없습니다`}
       </div>
       <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55, marginBottom: 10 }}>
-        휴대폰은 PC와 저장소가 다릅니다. 클라우드에서 다시 불러올 수 있습니다.
+        {failed
+          ? (sessionCloudSyncSummary?.errorMessage
+            ? `오류: ${sessionCloudSyncSummary.errorMessage}`
+            : '네트워크·권한 문제일 수 있습니다. 다시 불러오기를 눌러 주세요.')
+          : cloudEmpty
+            ? 'PC에만 있고 클라우드에 없으면 휴대폰에는 표시되지 않습니다. PC에서 매물을 저장·수정한 뒤 다시 불러오세요.'
+            : '휴대폰은 PC와 저장소가 다릅니다. 클라우드에서 다시 불러올 수 있습니다.'}
       </div>
+      {detail && (
+        <div style={{ fontSize: 12, color: M.txM, marginBottom: 10 }}>
+          최근 동기화: {detail}
+        </div>
+      )}
       <button
         type="button"
         onClick={onReload}

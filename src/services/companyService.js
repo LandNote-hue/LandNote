@@ -6,13 +6,32 @@ import { normalizeCompanyRole } from '../data/companyRoles.js';
 export async function fetchUserCompany(userId) {
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('company_id, role, user_type')
+    .select('company_id, role, user_type, agency_name, display_name')
     .eq('id', userId)
     .maybeSingle();
   if (profileError) throw profileError;
   if (!profile?.company_id) {
     const solo = profile?.user_type === 'SOLO' || profile?.role === 'SOLO';
     return { company: null, role: solo ? normalizeCompanyRole('SOLO') : null };
+  }
+
+  const soloWorkspace = profile.user_type === 'SOLO'
+    || profile.role === 'SOLO'
+    || profile.company_id === userId;
+
+  // SOLO 워크스페이스: companies/company_members SELECT 정책 재귀 버그 회피
+  // (security definer 헬퍼 마이그레이션 032 적용 전에도 동작)
+  if (soloWorkspace) {
+    const label = (profile.agency_name || profile.display_name || '개인').trim() || '개인';
+    return {
+      company: {
+        id: profile.company_id,
+        name: `${label} 워크스페이스`,
+        slug: `solo-${String(userId).replace(/-/g, '')}`,
+        representative_id: userId,
+      },
+      role: normalizeCompanyRole('SOLO'),
+    };
   }
 
   const [companyRes, memberRes] = await Promise.all([
@@ -23,6 +42,7 @@ export async function fetchUserCompany(userId) {
   if (companyRes.error) console.error('[fetchUserCompany] companies', companyRes.error);
   if (memberRes.error) console.error('[fetchUserCompany] company_members', memberRes.error);
 
+  // RLS 재귀 등으로 company/member 조회 실패 시에도 profiles.role로 판정 유지
   const rawRole = memberRes.data?.role ?? profile.role ?? null;
   const role = rawRole ? normalizeCompanyRole(rawRole) : null;
   return { company: companyRes.data ?? null, role };

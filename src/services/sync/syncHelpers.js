@@ -1,3 +1,34 @@
+/** PostgREST/Supabase 기본 max_rows(1000) 회피 — 페이지 단위로 전부 조회 */
+export const CLOUD_PULL_PAGE_SIZE = 1000;
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} client
+ * @param {string} table
+ * @param {{ orderColumn?: string, ascending?: boolean, select?: string }} [opts]
+ * @returns {Promise<Record<string, unknown>[]>}
+ */
+export async function fetchAllCloudRows(client, table, opts = {}) {
+  const select = opts.select || '*';
+  const orderColumn = opts.orderColumn || 'updated_at';
+  const ascending = opts.ascending !== false;
+  const pageSize = CLOUD_PULL_PAGE_SIZE;
+  /** @type {Record<string, unknown>[]} */
+  const all = [];
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1;
+    const { data, error } = await client
+      .from(table)
+      .select(select)
+      .order(orderColumn, { ascending })
+      .range(from, to);
+    if (error) throw error;
+    const chunk = data ?? [];
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return all;
+}
+
 /**
  * 로컬 deletedAt("YYYY.MM.DD" 또는 "YYYY.MM.DD HH:mm") → 클라우드 저장용 ISO
  * 시간 정보가 없는(구버전) 값은 당일 정오로 앵커링해 타임존 롤오버를 방지

@@ -8,7 +8,7 @@ import {
   cloudUserIdForRow,
   cloudCompanyIdForRow,
 } from './ownerScope.js';
-import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso } from './syncHelpers.js';
+import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
 import { remapFk, upsertSharedCloudRecord } from './cloudIdMap.js';
 
 const INDEX_KEYS = new Set([
@@ -91,17 +91,12 @@ export async function syncSchedulesFromCloud(userId) {
 
   const companyId = getSyncCompanyId();
 
-  const { data: rows, error } = await supabase
-    .from('schedules')
-    .select('*')
-    .order('updated_at', { ascending: true });
-
-  if (error) throw error;
+  const rows = await fetchAllCloudRows(supabase, 'schedules');
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
 
-  for (const row of rows ?? []) {
+  for (const row of rows) {
     if (isPurgedCloudId('schedules', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
     const sched = cloudRowToSched(row);
@@ -116,7 +111,7 @@ export async function syncSchedulesFromCloud(userId) {
   await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules');
 
   localStorage.setItem(`landnote.sync.schedules.${userId}`, new Date().toISOString());
-  return { ok: true, count: rows?.length ?? 0 };
+  return { ok: true, count: rows.length };
 }
 
 /** @param {number} schedId @param {string} [sessionUserId] */
