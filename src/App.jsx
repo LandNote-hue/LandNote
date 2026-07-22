@@ -56,6 +56,12 @@ import { useAuth } from "./contexts/AuthContext.jsx";
 import { LoginScreen } from "./components/LoginScreen.jsx";
 import { InviteSignUpPage, SignUpPage } from "./pages/InviteSignUpPage.jsx";
 import { AUTH_PATHS } from "./navigation/authRoutes.js";
+import {
+  captureCurrentAppPathFromWindow,
+  isAuthPathname,
+  resolveReturnAppPath,
+  saveLastAppPath,
+} from "./navigation/returnPath.js";
 import { ResetPasswordScreen } from "./components/ResetPasswordScreen.jsx";
 import { PASSWORD_RESET_REDIRECT_PATH, validatePassword } from "./utils/authValidation.js";
 import {
@@ -6555,14 +6561,41 @@ function AuthRootRedirect() {
   return <Navigate to={AUTH_PATHS.login} replace />;
 }
 
+/** 로그인 전 공개 라우트 — 딥링크 URL을 /login으로 바꾸지 않아 새로고침 후 복원 가능 */
+function AuthPublicCatchAll({ onLegacyLogin }) {
+  const location = useLocation();
+  useLayoutEffect(() => {
+    saveLastAppPath(`${location.pathname}${location.search || ''}`);
+  }, [location.pathname, location.search]);
+  return <LoginScreen variant="login" onLegacyLogin={onLegacyLogin} />;
+}
+
+/** 로그인된 상태에서 /login 등에 남아 있으면 직전 앱 경로로 복귀 */
+function RestoreLastAppPath() {
+  const navigate = useNavigate();
+  useLayoutEffect(() => {
+    navigate(resolveReturnAppPath('/dashboard'), { replace: true });
+  }, [navigate]);
+  return <RouteLoading label="이전 화면으로 이동 중…" />;
+}
+
+/** 알 수 없는 경로 — 가능하면 직전 페이지, 없으면 대시보드 (루프 방지) */
+function FallbackAppPath() {
+  const location = useLocation();
+  const saved = resolveReturnAppPath('/dashboard');
+  const savedPath = String(saved).split('?')[0];
+  const target = savedPath && savedPath !== location.pathname ? saved : '/dashboard';
+  return <Navigate to={target} replace />;
+}
+
 function AuthPublicRoutes({ onLegacyLogin }) {
   return (
-    <Routes>
+  <Routes>
       <Route path={AUTH_PATHS.login} element={<LoginScreen variant="login" onLegacyLogin={onLegacyLogin} />} />
       <Route path={AUTH_PATHS.signup} element={<SignUpPage onLegacyLogin={onLegacyLogin} />} />
       <Route path={AUTH_PATHS.signupInvite} element={<InviteSignUpPage onLegacyLogin={onLegacyLogin} />} />
       <Route path="/" element={<AuthRootRedirect />} />
-      <Route path="*" element={<Navigate to={AUTH_PATHS.login} replace />} />
+      <Route path="*" element={<AuthPublicCatchAll onLegacyLogin={onLegacyLogin} />} />
     </Routes>
   );
 }
@@ -6577,6 +6610,11 @@ function AppShell(){
   const viewMobile = () => { setForceDesktop(false); setForceDesktopState(false); };
   const [legacyUnlocked, setLegacyUnlocked] = useState(false);
 
+  // 새로고침 직후 인증 리다이렉트가 URL을 바꿔도 복원할 수 있게 즉시 저장
+  useLayoutEffect(() => {
+    captureCurrentAppPathFromWindow();
+  }, []);
+
   // 로그인 시 seed만 — prepareLocalStore는 Auth 세션 sync가 pull 직전에 수행 (경합 방지)
   useEffect(()=>{
     let cancelled=false;
@@ -6590,6 +6628,31 @@ function AppShell(){
   },[user?.id, profileLoading]);
   const navigate=useNavigate();
   const location=useLocation();
+
+  // 앱 사용 중 경로를 계속 기록 — 새로고침 후 같은 페이지 유지
+  useEffect(() => {
+    if (!user?.id && !legacyUnlocked) return;
+    if (authLoading || profileLoading) return;
+    saveLastAppPath(`${location.pathname}${location.search || ''}`);
+  }, [user?.id, legacyUnlocked, authLoading, profileLoading, location.pathname, location.search]);
+
+  // 세션 복원 후 /login 등에 남아 있으면 직전 페이지로 복귀
+  useLayoutEffect(() => {
+    if (authLoading || profileLoading) return;
+    if (!user?.id && !legacyUnlocked) return;
+    if (needsSignupCompletion) return;
+    if (!isAuthPathname(location.pathname)) return;
+    navigate(resolveReturnAppPath('/dashboard'), { replace: true });
+  }, [
+    authLoading,
+    profileLoading,
+    user?.id,
+    legacyUnlocked,
+    needsSignupCompletion,
+    location.pathname,
+    navigate,
+  ]);
+
   const properties=useProperties();
   const [wins,setWins]=useState([]);
   const [showSet,setShowSet]=useState(false);
@@ -6755,6 +6818,9 @@ function AppShell(){
     <RouteErrorBoundary>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path={AUTH_PATHS.login} element={<RestoreLastAppPath />} />
+        <Route path={AUTH_PATHS.signup} element={<RestoreLastAppPath />} />
+        <Route path={AUTH_PATHS.signupInvite} element={<RestoreLastAppPath />} />
         <Route path="/dashboard" element={<Dashboard onOpen={openWin} onNav={navTo} onNavWithTab={(tab)=>navigate(`/properties?tab=${tab}`)} onNotify={showNotification}/>} />
         <Route path="/properties" element={<PropList onOpen={openWin} onNav={navTo} folders={folders} propFolders={propFolders} setPropFolders={setPropFolders} onDeleteProperty={(p,after)=>softDelete('props',p,propDisplayAddr(p)||p.bldg,after||(()=>{}))}/>} />
         <Route path="/properties/:id/edit" element={<PropEditRoute softDelete={softDelete} onOpen={openWin}/>} />
@@ -6770,7 +6836,7 @@ function AppShell(){
         <Route path="/trash" element={<Trash/>} />
         <Route path="/team/manage" element={<TeamManageRoute/>} />
         <Route path="/settings/withdraw" element={<WithdrawAccountPage/>} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<FallbackAppPath />} />
       </Routes>
     </RouteErrorBoundary>
   );
@@ -6780,6 +6846,9 @@ function AppShell(){
     <RouteErrorBoundary>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path={AUTH_PATHS.login} element={<RestoreLastAppPath />} />
+        <Route path={AUTH_PATHS.signup} element={<RestoreLastAppPath />} />
+        <Route path={AUTH_PATHS.signupInvite} element={<RestoreLastAppPath />} />
         <Route path="/dashboard" element={<MobileDashboard/>} />
         <Route path="/properties" element={<MobilePropertyList/>} />
         <Route path="/properties/:id" element={<MobilePropertyDetail/>} />
@@ -6790,7 +6859,7 @@ function AppShell(){
         <Route path="/calls/:id" element={<MobileCallDetail/>} />
         <Route path="/calendar" element={<MobileCalendar/>} />
         <Route path="/calendar/:id" element={<MobileScheduleDetail/>} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<FallbackAppPath />} />
       </Routes>
     </RouteErrorBoundary>
   );
