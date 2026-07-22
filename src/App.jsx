@@ -85,6 +85,7 @@ import { MobileShell } from "./layouts/MobileShell.jsx";
 import { MobileDashboard } from "./pages/mobile/MobileDashboard.jsx";
 import { MobilePropertyList } from "./pages/mobile/MobilePropertyList.jsx";
 import { MobilePropertyDetail } from "./pages/mobile/MobilePropertyDetail.jsx";
+import { MobileSyncGate } from "./pages/mobile/mobileUi.jsx";
 import { MobileMapView } from "./pages/mobile/MobileMapView.jsx";
 import { MobileCustomerList } from "./pages/mobile/MobileCustomerList.jsx";
 import { MobileCustomerDetail } from "./pages/mobile/MobileCustomerDetail.jsx";
@@ -6726,9 +6727,9 @@ function AppShell(){
       <>
         <MobileShell screenTitle={titleLabel} menuId={menuId}
           onSettings={()=>setShowSet(true)} onViewDesktop={viewDesktop}>
-          <div style={{flex:1,overflow:'hidden',background:C.bg,display:'flex',flexDirection:'column',minHeight:0}}>
+          <MobileSyncGate background={C.bg}>
             {mobileRoutes}
-          </div>
+          </MobileSyncGate>
         </MobileShell>
         {showSet&&<Settings onClose={()=>setShowSet(false)} onSignOut={handleSignOut}/>}
         <ToastPopup toast={toast} onClose={dismissToast}/>

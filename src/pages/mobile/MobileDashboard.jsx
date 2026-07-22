@@ -13,7 +13,7 @@ import {
 } from '../../utils/schedulePeriod.js';
 import {
   MobilePage, MobileCard, MobileSectionTitle, MobileStatCard, MobileEmptyState,
-  MobileCloudDataHint, M,
+  MobileCloudDataHint, M, useMobileCloudBusy,
 } from './mobileUi.jsx';
 
 export function MobileDashboard() {
@@ -23,6 +23,7 @@ export function MobileDashboard() {
   const customers = useOwnerCustomers();
   const callLogs = useOwnerCallLogs();
   const schedules = useOwnerSchedules();
+  const cloudBusy = useMobileCloudBusy();
 
   const onNotify = useCallback(() => {}, []);
 
@@ -44,7 +45,7 @@ export function MobileDashboard() {
     ? normalizeCompanyRole(rawRole)
     : (profile?.user_type === 'SOLO' ? 'SOLO' : null);
   const isTeam = usesTeamCloudSync(displayRole);
-  const dataEmpty = properties.length === 0 && customers.length === 0;
+  const dataEmpty = !cloudBusy && properties.length === 0 && customers.length === 0;
 
   return (
     <MobilePage>
@@ -61,11 +62,20 @@ export function MobileDashboard() {
 
       <MobileCloudDataHint empty={dataEmpty} resourceLabel="매물·고객·일정" />
 
+      {cloudBusy && (
+        <MobileCard style={{ marginBottom: 16, background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: M.tx, marginBottom: 6 }}>데이터 불러오는 중…</div>
+          <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55 }}>
+            로그인 시 클라우드에서 매물·일정을 가져옵니다. 완료 후 매물 탭에서도 바로 보입니다.
+          </div>
+        </MobileCard>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-        <MobileStatCard label="오늘 일정" value={todayCount} onClick={() => navigate('/calendar')} />
-        <MobileStatCard label="진행중 매물" value={activeCount} onClick={() => navigate('/properties')} />
-        <MobileStatCard label="신규 매물" value={newCount} onClick={() => navigate('/properties')} />
-        <MobileStatCard label="등록 고객" value={customers.length} onClick={() => navigate('/customers')} />
+        <MobileStatCard label="오늘 일정" value={cloudBusy ? '…' : todayCount} onClick={() => navigate('/calendar')} />
+        <MobileStatCard label="진행중 매물" value={cloudBusy ? '…' : activeCount} onClick={() => navigate('/properties')} />
+        <MobileStatCard label="신규 매물" value={cloudBusy ? '…' : newCount} onClick={() => navigate('/properties')} />
+        <MobileStatCard label="등록 고객" value={cloudBusy ? '…' : customers.length} onClick={() => navigate('/customers')} />
       </div>
 
       <MobileSectionTitle>다가오는 일정 (7일)</MobileSectionTitle>

@@ -17,6 +17,69 @@ export const M = {
   info: '#2563EB',
 };
 
+/** 로그인 클라우드 sync / 프로필 로딩 중이면 true */
+export function useMobileCloudBusy() {
+  const { user, profileLoading, sessionCloudSyncStatus } = useAuth();
+  if (!isSupabaseConfigured || !user?.id || user.id === 'dev-local') return false;
+  return profileLoading
+    || sessionCloudSyncStatus === 'idle'
+    || sessionCloudSyncStatus === 'syncing';
+}
+
+/** 로그인 직후 전체 데이터 pull 오버레이 */
+export function MobileSyncOverlay({
+  label = '데이터를 불러오는 중…',
+  detail = '매물·고객·일정·통화를 한꺼번에 가져옵니다. 잠시만 기다려 주세요.',
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 80,
+        background: 'rgba(245,246,250,.94)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div style={{
+        width: '100%', maxWidth: 320, background: '#fff', borderRadius: 14,
+        border: `1px solid ${M.bdr}`, padding: '22px 20px', textAlign: 'center',
+        boxShadow: '0 8px 28px rgba(15,23,42,.08)',
+      }}>
+        <div style={{
+          width: 28, height: 28, margin: '0 auto 14px', borderRadius: '50%',
+          border: `3px solid ${M.bdr}`, borderTopColor: M.brand,
+          animation: 'landnote-spin 0.8s linear infinite',
+        }}
+        />
+        <div style={{ fontSize: 15, fontWeight: 700, color: M.tx, marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 13, color: M.txM, lineHeight: 1.55 }}>{detail}</div>
+        <style>{`@keyframes landnote-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    </div>
+  );
+}
+
+/** 모바일 라우트 래퍼 — 로그인 sync 중이면 전체 화면 로딩 */
+export function MobileSyncGate({ children, background = M.bg }) {
+  const busy = useMobileCloudBusy();
+  return (
+    <div style={{
+      flex: 1, overflow: 'hidden', background, display: 'flex',
+      flexDirection: 'column', minHeight: 0, position: 'relative',
+    }}>
+      {children}
+      {busy && <MobileSyncOverlay />}
+    </div>
+  );
+}
+
 export function MobilePage({ children }) {
   return (
     <div style={{
