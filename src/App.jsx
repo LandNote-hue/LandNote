@@ -48,6 +48,7 @@ import {
   listGoogleCalendarLinks,
   removeGoogleCalendarLink,
   GCAL_LINK_COLORS,
+  flushPendingIcsSourceIdRemaps,
 } from "./services/googleCalendarLinks.js";
 import {
   PRI_C,
@@ -3383,6 +3384,8 @@ const Calendar=({onOpen})=>{
               }
             });
           }
+          if(cancelled) return;
+          await flushPendingIcsSourceIdRemaps(gcalOwnerId);
           if(cancelled) return;
           await collapseDuplicateIcsSchedules(gcalOwnerId);
           gcalCalendarRepairedOwners.add(gcalOwnerId);

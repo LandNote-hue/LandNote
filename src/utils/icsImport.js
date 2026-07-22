@@ -642,7 +642,7 @@ export async function collapseDuplicateIcsSchedules(preferredOwnerId = getActive
         let n = 0;
         if (s.ownerId === preferredOwnerId) n += 8;
         if (s.cloudId) n += 4;
-        if (s.icsSourceId) n += 1;
+        if (s.icsSourceId) n += 2;
         return n;
       };
       const d = score(b) - score(a);
@@ -659,7 +659,7 @@ export async function collapseDuplicateIcsSchedules(preferredOwnerId = getActive
       const uid = String(occ).split('|')[0];
       if (uid) patch.icsUid = uid;
     }
-    // 다른 연동 캘린더에서 온 sourceId가 있으면 승자에 유지(색 표시용 첫 출처)
+    // 승자에 출처가 없으면 다른 행에서 가져옴. 있으면 그대로(색 안정)
     if (!winner.icsSourceId) {
       const withSrc = rows.find((r) => r.icsSourceId);
       if (withSrc?.icsSourceId) patch.icsSourceId = withSrc.icsSourceId;
@@ -688,6 +688,11 @@ export async function importIcsSchedules(icsText, options = {}) {
   }
 
   const ownerId = getActiveOwnerId();
+  const { listGoogleCalendarLinks } = await import('../services/googleCalendarLinks.js');
+  const validSourceIds = new Set(
+    listGoogleCalendarLinks(ownerId).map((l) => l.sourceId).filter(Boolean),
+  );
+
   // 현재 계정 + orphan(dev-local) ICS 행까지 조회해 중복 add 방지
   const existing = (await db.schedules.toArray()).filter((s) => (
     isActive(s)
@@ -731,8 +736,16 @@ export async function importIcsSchedules(icsText, options = {}) {
       if (ex.pri !== row.pri) patch.pri = row.pri;
       if (occ && ex.icsKey !== occ) patch.icsKey = occ;
       if (!ex.icsUid && row.icsUid) patch.icsUid = row.icsUid;
-      // 이미 출처가 있으면 유지(첫 연동 캘린더 색). 없을 때만 채움
-      if (!ex.icsSourceId && row.icsSourceId) patch.icsSourceId = row.icsSourceId;
+      // 출처: 유효한 기존 연동 sourceId 유지. 없거나 무효하면 이번 import 출처로 교정
+      const exSrc = ex.icsSourceId ? String(ex.icsSourceId) : '';
+      const rowSrc = row.icsSourceId ? String(row.icsSourceId) : '';
+      if (exSrc && validSourceIds.has(exSrc)) {
+        /* keep */
+      } else if (rowSrc) {
+        if (exSrc !== rowSrc) patch.icsSourceId = rowSrc;
+      } else if (!exSrc && rowSrc) {
+        patch.icsSourceId = rowSrc;
+      }
       if (Object.keys(patch).length) {
         await db.schedules.update(ex.id, patch);
         updatedIds.push(ex.id);
@@ -758,11 +771,17 @@ export async function importIcsSchedules(icsText, options = {}) {
   }
 
   try {
+    const { flushPendingIcsSourceIdRemaps } = await import('../services/googleCalendarLinks.js');
+    await flushPendingIcsSourceIdRemaps(ownerId);
+  } catch (err) {
+    console.warn('[icsImport] flush source remaps', err);
+  }
+
+  try {
     await collapseDuplicateIcsSchedules(ownerId);
   } catch (err) {
     console.warn('[icsImport] collapse duplicates', err);
   }
-
   try {
     if (added > 0) {
       const { pushUnsyncedSchedulesToCloud } = await import('../services/sync/scheduleSync.js');

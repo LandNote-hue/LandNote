@@ -158,7 +158,7 @@ function migrateOrphanLinks(ownerId) {
 /**
  * 기존 중복 연동 링크를 calendarKey 기준으로 1개만 남김
  * @param {string} [ownerId]
- * @returns {{ kept: number, removed: number, removedSourceIds: string[] }}
+ * @returns {{ kept: number, removed: number, removedSourceIds: string[], remaps: { from: string, to: string }[] }}
  */
 export function dedupeGoogleCalendarLinks(ownerId) {
   const id = resolveGcalOwnerId(ownerId);
@@ -168,6 +168,8 @@ export function dedupeGoogleCalendarLinks(ownerId) {
   const byKey = new Map();
   /** @type {string[]} */
   const removedSourceIds = [];
+  /** @type {{ from: string, to: string }[]} */
+  const remaps = [];
 
   for (const link of before) {
     let key = link.calendarKey;
@@ -191,6 +193,7 @@ export function dedupeGoogleCalendarLinks(ownerId) {
     const curSync = link.lastSyncAt ? Date.parse(link.lastSyncAt) : 0;
     const preferCurrent = curSync > prevSync
       || (!prevSync && !curSync && (link.linkedAt || '') > (prev.linkedAt || ''));
+    // sourceId는 항상 먼저 등록된 prev를 유지 — 일정 색상 키가 흔들리지 않게
     const winner = preferCurrent
       ? {
         ...link,
@@ -208,36 +211,99 @@ export function dedupeGoogleCalendarLinks(ownerId) {
         ...prev,
         calendarKey: key,
         label: prev.label || link.label,
+        color: prev.color || link.color,
         lastSyncAt: prev.lastSyncAt || link.lastSyncAt,
       };
     byKey.set(key, winner);
-    const loserId = preferCurrent ? prev.sourceId : link.sourceId;
-    if (loserId && loserId !== winner.sourceId) removedSourceIds.push(loserId);
+    if (link.sourceId && link.sourceId !== winner.sourceId) {
+      removedSourceIds.push(link.sourceId);
+      remaps.push({ from: link.sourceId, to: winner.sourceId });
+    }
   }
 
-  const kept = [...byKey.values()];
-  if (kept.length !== before.length) {
-    saveLinks(id, kept);
-  } else {
-    // calendarKey 백필만 필요한 경우
-    const needsSave = kept.some((l, i) => l.calendarKey !== before[i]?.calendarKey);
-    if (needsSave) saveLinks(id, kept);
+  const colored = [];
+  for (const l of byKey.values()) {
+    if (l.color && GCAL_LINK_COLORS.includes(l.color)) colored.push(l);
+    else colored.push({ ...l, color: nextGcalColor(colored) });
   }
+
+  const changed = colored.length !== before.length
+    || colored.some((l, i) => (
+      l.sourceId !== before[i]?.sourceId
+      || l.calendarKey !== before[i]?.calendarKey
+      || l.color !== before[i]?.color
+      || l.icsUrl !== before[i]?.icsUrl
+    ));
+  if (changed) saveLinks(id, colored);
+
   return {
-    kept: kept.length,
-    removed: Math.max(0, before.length - kept.length),
+    kept: colored.length,
+    removed: Math.max(0, before.length - colored.length),
     removedSourceIds,
+    remaps,
   };
+}
+
+/**
+ * 중복 연동 정리로 사라진 sourceId를 일정 행에 승자 sourceId로 반영
+ * @param {{ from: string, to: string }[]} remaps
+ * @returns {Promise<number>}
+ */
+export async function applyIcsSourceIdRemaps(remaps) {
+  if (!remaps?.length) return 0;
+  const { db } = await import('../db.js');
+  const map = new Map(remaps.filter((r) => r.from && r.to && r.from !== r.to).map((r) => [r.from, r.to]));
+  if (!map.size) return 0;
+  const rows = await db.schedules.toArray();
+  let n = 0;
+  await db.transaction('rw', db.schedules, async () => {
+    for (const s of rows) {
+      const to = s.icsSourceId ? map.get(String(s.icsSourceId)) : null;
+      if (!to) continue;
+      await db.schedules.update(s.id, { icsSourceId: to });
+      n += 1;
+    }
+  });
+  return n;
 }
 
 /** @param {string} [ownerId] @returns {GoogleCalendarLink[]} */
 export function listGoogleCalendarLinks(ownerId) {
   const id = resolveGcalOwnerId(ownerId);
   migrateOrphanLinks(id);
-  dedupeGoogleCalendarLinks(id);
+  const { remaps } = dedupeGoogleCalendarLinks(id);
+  if (remaps?.length) {
+    try {
+      const key = `landnote.gcal.pendingRemaps.${id}`;
+      const prev = JSON.parse(sessionStorage.getItem(key) || '[]');
+      sessionStorage.setItem(key, JSON.stringify([...prev, ...remaps]));
+    } catch {
+      /* ignore */
+    }
+  }
   return readLinksRaw(id);
 }
 
+/**
+ * listGoogleCalendarLinks에서 쌓인 sourceId 리맵을 Dexie 일정에 적용
+ * @param {string} [ownerId]
+ */
+export async function flushPendingIcsSourceIdRemaps(ownerId) {
+  const id = resolveGcalOwnerId(ownerId);
+  let remaps = [];
+  try {
+    const key = `landnote.gcal.pendingRemaps.${id}`;
+    remaps = JSON.parse(sessionStorage.getItem(key) || '[]');
+    sessionStorage.removeItem(key);
+  } catch {
+    remaps = [];
+  }
+  if (!remaps.length) {
+    const { remaps: fresh } = dedupeGoogleCalendarLinks(id);
+    remaps = fresh || [];
+  }
+  return applyIcsSourceIdRemaps(remaps);
+}
 /**
  * @param {string} icsUrl resolved ICS URL
  * @param {string} [ownerId]

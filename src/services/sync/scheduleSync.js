@@ -46,6 +46,9 @@ function schedToCloudRow(sched, sessionUserId) {
       chk: sched.chk ?? [],
       callId: callIdRemote,
       dateEnd: sched.dateEnd || null,
+      icsSourceId: sched.icsSourceId ?? data.icsSourceId ?? null,
+      icsUid: sched.icsUid ?? data.icsUid ?? null,
+      icsKey: sched.icsKey ?? data.icsKey ?? null,
     },
     updated_at: new Date().toISOString(),
   };
@@ -83,6 +86,20 @@ function canSync(userId) {
   return isSupabaseConfigured && userId && userId !== DEV_LOCAL_OWNER;
 }
 
+/** @param {Record<string, unknown>} existing @param {Record<string, unknown>} incoming */
+function mergeScheduleFromCloud(existing, incoming) {
+  const merged = { ...existing, ...incoming };
+  // 클라우드에 ICS 출처가 비어 있거나 달라도, 로컬 연동 출처를 우선 유지(색 깜빡임 방지)
+  if (existing.icsSourceId) {
+    if (!incoming.icsSourceId || incoming.icsSourceId !== existing.icsSourceId) {
+      merged.icsSourceId = existing.icsSourceId;
+    }
+  }
+  if (existing.icsUid && !incoming.icsUid) merged.icsUid = existing.icsUid;
+  if (existing.icsKey && !incoming.icsKey) merged.icsKey = existing.icsKey;
+  return merged;
+}
+
 /** @param {string} userId @param {{ skipPrune?: boolean }} [options] */
 export async function syncSchedulesFromCloud(userId, options = {}) {
   if (!canSync(userId)) return { ok: false, reason: 'skip' };
@@ -97,6 +114,7 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
   const { occurrenceKeyFromSchedule, collapseDuplicateIcsSchedules } = await import('../../utils/icsImport.js');
   const { isActive } = await import('../../db.js');
+  const { flushPendingIcsSourceIdRemaps } = await import('../googleCalendarLinks.js');
 
   // 클라우드 pull 전에 로컬 ICS occurrence 맵 — 동일 일정 이중 삽입 방지
   const localIcs = (await db.schedules.toArray()).filter(
@@ -109,7 +127,7 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
     if (k && !byOcc.has(k)) byOcc.set(k, s);
   }
 
-  /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown> }>} */
+  /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown>, mergeExisting?: Function }>} */
   const batch = [];
 
   for (const row of rows) {
@@ -120,20 +138,30 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
     const local = occ ? byOcc.get(occ) : null;
     if (local && row.id) {
       if (!local.cloudId || String(local.cloudId) !== String(row.id)) {
-        // 로컬 ICS 사본에 cloudId를 붙여 upsert가 합치도록 함
+        // 로컬 ICS 사본에 cloudId를 붙여 upsert가 합치도록 함 — 출처 필드 보존
         await db.schedules.update(local.id, {
           cloudId: row.id,
-          icsKey: occ || local.icsKey,
-          icsUid: sched.icsUid || local.icsUid,
+          icsKey: local.icsKey || occ || sched.icsKey,
+          icsUid: local.icsUid || sched.icsUid,
+          icsSourceId: local.icsSourceId || sched.icsSourceId,
           ownerId: local.ownerId || userId,
         });
         local.cloudId = row.id;
       }
     }
+    const record = local
+      ? {
+        ...sched,
+        icsSourceId: local.icsSourceId || sched.icsSourceId,
+        icsUid: local.icsUid || sched.icsUid,
+        icsKey: local.icsKey || sched.icsKey || occ,
+      }
+      : sched;
     batch.push({
       sessionUserId: userId,
       cloudRow: row,
-      record: sched,
+      record,
+      mergeExisting: mergeScheduleFromCloud,
     });
   }
   await bulkUpsertSharedCloudRecords(db.schedules, batch, 'schedules');
@@ -141,6 +169,11 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
   await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules', {
     skipPrune: options.skipPrune === true,
   });
+  try {
+    await flushPendingIcsSourceIdRemaps(userId);
+  } catch (err) {
+    console.warn('[scheduleSync] flush ics source remaps', err);
+  }
   try {
     await collapseDuplicateIcsSchedules(userId);
   } catch (err) {

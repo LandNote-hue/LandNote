@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
 import { collapseDuplicateIcsSchedules } from '../../utils/icsImport.js';
+import { flushPendingIcsSourceIdRemaps } from '../../services/googleCalendarLinks.js';
 import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
@@ -33,6 +34,7 @@ export function MobileCalendar() {
     let cancelled = false;
     (async () => {
       try {
+        if (!cancelled) await flushPendingIcsSourceIdRemaps(ownerId);
         if (!cancelled) await collapseDuplicateIcsSchedules(ownerId);
       } catch (err) {
         console.warn('[MobileCalendar] collapse ics', err);

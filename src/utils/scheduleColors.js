@@ -1,4 +1,9 @@
-import { GCAL_LINK_COLORS, listGoogleCalendarLinks } from '../services/googleCalendarLinks.js';
+import {
+  GCAL_LINK_COLORS,
+  listGoogleCalendarLinks,
+  fingerprintCalendarUrl,
+  googleCalendarIdentityKey,
+} from '../services/googleCalendarLinks.js';
 
 /** 일정 우선순위 색 — 긴급(빨강) · 중요(주황) · 보통(파랑) */
 export const PRI_C = { URGENT: '#DC2626', IMPORTANT: '#D97706', NORMAL: '#2563EB' };
@@ -45,12 +50,26 @@ export function gcalLinkDisplayLabel(link) {
 
 /**
  * 일정 표시색 — 연동 캘린더에서 가져온 일정은 캘린더 구분색, 직접 등록한 일정은 우선순위색
+ * icsSourceId가 있는데 링크 메타가 잠깐 없거나 키가 어긋나도 우선순위(보통)색으로 떨어지지 않음
  * @param {{ pri?: string, icsSourceId?: string }} s
  * @param {Map<string, { color: string, label: string }>|null|undefined} gcalMeta
  */
 export function scheduleSourceInfo(s, gcalMeta) {
-  const src = s?.icsSourceId ? gcalMeta?.get(s.icsSourceId) : null;
-  if (src) return { c: src.color, bg: hexToRgba(src.color, 0.08), label: src.label, isSource: true };
+  const sid = s?.icsSourceId != null ? String(s.icsSourceId).trim() : '';
+  if (sid) {
+    const src = gcalMeta?.get(sid);
+    if (src) return { c: src.color, bg: hexToRgba(src.color, 0.08), label: src.label, isSource: true };
+    // 연동 출처 마커는 유지 — 메타 미로드·중복정리 직후에도 '보통'으로 오인하지 않음
+    if (sid.startsWith('gcal:') || sid === 'ics-file' || sid.startsWith('ics-')) {
+      const color = gcalFallbackColor(sid);
+      return {
+        c: color,
+        bg: hexToRgba(color, 0.08),
+        label: sid === 'ics-file' ? 'ICS 가져오기' : '연동 캘린더',
+        isSource: true,
+      };
+    }
+  }
   return {
     c: schedulePriColor(s?.pri),
     bg: schedulePriBg(s?.pri),
@@ -69,7 +88,21 @@ export function buildGcalMeta(ownerId) {
     const color = l.color && GCAL_LINK_COLORS.includes(l.color)
       ? l.color
       : gcalFallbackColor(l.sourceId);
-    m.set(l.sourceId, { color, label: gcalLinkDisplayLabel(l) });
+    const entry = { color, label: gcalLinkDisplayLabel(l) };
+    m.set(l.sourceId, entry);
+    // 동일 캘린더의 예전 sourceId 지문이 남아 있어도 같은 색으로 매칭
+    if (l.calendarKey) {
+      const alt = `gcal:${fingerprintCalendarUrl(l.calendarKey)}`;
+      if (alt !== l.sourceId && !m.has(alt)) m.set(alt, entry);
+    }
+    try {
+      if (l.icsUrl) {
+        const alt = `gcal:${fingerprintCalendarUrl(googleCalendarIdentityKey(l.icsUrl))}`;
+        if (alt !== l.sourceId && !m.has(alt)) m.set(alt, entry);
+      }
+    } catch {
+      /* ignore */
+    }
   });
   return m;
 }
