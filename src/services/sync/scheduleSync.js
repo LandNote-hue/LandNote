@@ -9,7 +9,7 @@ import {
   cloudCompanyIdForRow,
 } from './ownerScope.js';
 import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
-import { remapFk, upsertSharedCloudRecord } from './cloudIdMap.js';
+import { remapFk, bulkUpsertSharedCloudRecords } from './cloudIdMap.js';
 
 const INDEX_KEYS = new Set([
   'id', 'cloudId', 'cloudLocalId', 'ownerId', 'companyId', 'title', 'date', 'time', 'pri', 'pid', 'memo', 'chk', 'callId', 'deletedAt',
@@ -95,18 +95,19 @@ export async function syncSchedulesFromCloud(userId) {
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
+  /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown> }>} */
+  const batch = [];
 
   for (const row of rows) {
     if (isPurgedCloudId('schedules', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
-    const sched = cloudRowToSched(row);
-    await upsertSharedCloudRecord(db.schedules, {
+    batch.push({
       sessionUserId: userId,
       cloudRow: row,
-      record: sched,
-      resource: 'schedules',
+      record: cloudRowToSched(row),
     });
   }
+  await bulkUpsertSharedCloudRecords(db.schedules, batch, 'schedules');
 
   await pruneStaleCloudRows(db.schedules, remoteCloudIds, userId, companyId, 'schedules');
 

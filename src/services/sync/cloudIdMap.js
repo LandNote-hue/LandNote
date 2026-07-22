@@ -103,6 +103,104 @@ export async function upsertSharedCloudRecord(table, opts) {
 }
 
 /**
+ * 대량 pull용 — cloudId/local_id 조회를 묶고 bulkPut
+ * @param {import('dexie').Table} table
+ * @param {Array<{
+ *   sessionUserId: string,
+ *   cloudRow: { id?: string|number, user_id?: string, local_id?: number|null },
+ *   record: Record<string, unknown>,
+ *   mergeExisting?: (existing: Record<string, unknown>, incoming: Record<string, unknown>) => Record<string, unknown>,
+ * }>} items
+ * @param {keyof typeof ID_MAPS} resource
+ */
+export async function bulkUpsertSharedCloudRecords(table, items, resource) {
+  if (!items?.length) return;
+
+  const cloudIds = [...new Set(
+    items.map((it) => it.cloudRow?.id).filter((id) => id != null && id !== '').map(String),
+  )];
+  const existingByCloud = new Map();
+  if (cloudIds.length) {
+    const found = await table.where('cloudId').anyOf(cloudIds).toArray();
+    for (const row of found) {
+      if (row.cloudId != null) existingByCloud.set(String(row.cloudId), row);
+    }
+  }
+
+  const preferredLocalIds = [...new Set(
+    items
+      .map((it) => {
+        const ownerId = it.cloudRow.user_id || it.record.ownerId || it.sessionUserId;
+        if (ownerId !== it.sessionUserId) return null;
+        return it.cloudRow.local_id ?? null;
+      })
+      .filter((id) => id != null),
+  )];
+  const existingByLocal = new Map();
+  if (preferredLocalIds.length) {
+    const locals = await table.bulkGet(preferredLocalIds);
+    preferredLocalIds.forEach((id, idx) => {
+      if (locals[idx]) existingByLocal.set(id, locals[idx]);
+    });
+  }
+
+  /** @type {Record<string, unknown>[]} */
+  const toPut = [];
+  /** @type {Array<{ sessionUserId: string, cloudRow: any, record: Record<string, unknown>, mergeExisting?: Function }>} */
+  const fallback = [];
+
+  for (const it of items) {
+    const cloudId = it.cloudRow.id || null;
+    const ownerId = it.cloudRow.user_id || it.record.ownerId || it.sessionUserId;
+    const remoteLocalId = it.cloudRow.local_id ?? null;
+    /** @type {Record<string, unknown>} */
+    const incoming = {
+      ...it.record,
+      cloudId,
+      cloudLocalId: remoteLocalId,
+      ownerId,
+    };
+
+    const existing = cloudId != null ? existingByCloud.get(String(cloudId)) : null;
+    if (existing) {
+      const merged = it.mergeExisting
+        ? it.mergeExisting(existing, incoming)
+        : { ...existing, ...incoming };
+      const localId = existing.id;
+      toPut.push({ ...merged, id: localId, cloudId, cloudLocalId: remoteLocalId, ownerId });
+      rememberCloudLocalId(resource, ownerId, remoteLocalId, localId);
+      continue;
+    }
+
+    if (ownerId === it.sessionUserId && remoteLocalId != null) {
+      const at = existingByLocal.get(remoteLocalId);
+      if (!at) {
+        toPut.push({ ...incoming, id: remoteLocalId });
+        rememberCloudLocalId(resource, ownerId, remoteLocalId, remoteLocalId);
+        existingByLocal.set(remoteLocalId, { id: remoteLocalId, cloudId });
+        continue;
+      }
+      if (at.cloudId === cloudId || (!at.cloudId && at.ownerId === it.sessionUserId)) {
+        const merged = it.mergeExisting ? it.mergeExisting(at, incoming) : { ...at, ...incoming };
+        toPut.push({ ...merged, id: at.id, cloudId, cloudLocalId: remoteLocalId, ownerId });
+        rememberCloudLocalId(resource, ownerId, remoteLocalId, at.id);
+        continue;
+      }
+    }
+
+    fallback.push(it);
+  }
+
+  const CHUNK = 250;
+  for (let i = 0; i < toPut.length; i += CHUNK) {
+    await table.bulkPut(toPut.slice(i, i + CHUNK));
+  }
+  for (const it of fallback) {
+    await upsertSharedCloudRecord(table, { ...it, resource });
+  }
+}
+
+/**
  * @param {keyof typeof ID_MAPS} resource
  * @param {string} ownerId
  * @param {number|string|null|undefined} remoteLocalId

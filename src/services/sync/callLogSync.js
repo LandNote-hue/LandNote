@@ -9,7 +9,7 @@ import {
   cloudCompanyIdForRow,
 } from './ownerScope.js';
 import { insertOrUpdateByLocalId, pushOwnedSoftDeletes, pruneStaleCloudRows, deletedAtToIso, deletedAtFromIso, fetchAllCloudRows } from './syncHelpers.js';
-import { remapFk, upsertSharedCloudRecord } from './cloudIdMap.js';
+import { remapFk, upsertSharedCloudRecord, bulkUpsertSharedCloudRecords } from './cloudIdMap.js';
 
 const INDEX_KEYS = new Set([
   'id', 'cloudId', 'cloudLocalId', 'ownerId', 'companyId', 'pid', 'cid', 'date', 'time', 'content', 'next', 'nDate', 'schedId', 'deletedAt',
@@ -87,18 +87,19 @@ export async function syncCallLogsFromCloud(userId) {
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
+  /** @type {Array<{ sessionUserId: string, cloudRow: Record<string, unknown>, record: Record<string, unknown> }>} */
+  const batch = [];
 
   for (const row of rows) {
     if (isPurgedCloudId('call_logs', row.id, userId)) continue;
     if (row.id) remoteCloudIds.add(String(row.id));
-    const call = cloudRowToCall(row);
-    await upsertSharedCloudRecord(db.call_logs, {
+    batch.push({
       sessionUserId: userId,
       cloudRow: row,
-      record: call,
-      resource: 'call_logs',
+      record: cloudRowToCall(row),
     });
   }
+  await bulkUpsertSharedCloudRecords(db.call_logs, batch, 'call_logs');
 
   await pruneStaleCloudRows(db.call_logs, remoteCloudIds, userId, companyId, 'call_logs');
 

@@ -199,7 +199,7 @@ export function AuthProvider({ children }) {
   const sessionAutoSyncedUserIdRef = useRef(null);
   const profileLoadedUserIdRef = useRef(null);
   const [sessionCloudSyncStatus, setSessionCloudSyncStatus] = useState(
-    /** @type {'idle'|'syncing'|'done'|'error'} */ ('idle'),
+    /** @type {'idle'|'syncing'|'ready'|'done'|'error'} */ ('idle'),
   );
   const [sessionCloudSyncSummary, setSessionCloudSyncSummary] = useState(
     /** @type {null|{ ok?: boolean, pulled?: number, properties?: number, customers?: number, schedules?: number, callLogs?: number, errorMessage?: string, restoredLocalWins?: boolean }} */ (null),
@@ -238,19 +238,35 @@ export function AuthProvider({ children }) {
       const { prepareLocalStoreForUser } = await import('../services/sync/localDataCleanup.js');
       await prepareLocalStoreForUser(userId);
 
-      const { initialCloudSync } = await import('../services/sync/cloudSync.js');
-      let result = await initialCloudSync(userId, options);
+      const { initialCloudSync, isEssentialLocalEmpty } = await import('../services/sync/cloudSync.js');
+      // 로컬에 매물·고객이 있으면 전체 forcePull 생략(재로그인 가속). 빈 기기만 강제 pull.
+      const essentialEmpty = await isEssentialLocalEmpty();
+      const forcePull = options.forcePull === true || (options.forcePull !== false && essentialEmpty);
+
+      let result = await initialCloudSync(userId, {
+        ...options,
+        forcePull,
+        onEssentialReady: () => {
+          // 매물·고객 준비되면 앱 진입 허용 — 일정/통화는 이어서 수신
+          setSessionCloudSyncStatus('ready');
+          options.onEssentialReady?.();
+        },
+      });
       let summary = summarizeCloudSyncResult(result);
 
       // pull 0건 + 로컬 비어 있으면 forcePull 1회 재시도 (복원 플래그 구멍)
-      if (result?.ok !== false && summary.pulled === 0 && options.forcePull !== true) {
+      if (result?.ok !== false && summary.pulled === 0 && !forcePull) {
         const { getLocalTableCounts } = await import('../db.js');
         const counts = await getLocalTableCounts();
         const localN = (counts.properties || 0) + (counts.customers || 0)
           + (counts.schedules || 0) + (counts.call_logs || 0);
         if (localN === 0) {
           console.info('[auth] empty after login pull — retry with forcePull');
-          result = await initialCloudSync(userId, { ...options, forcePull: true });
+          result = await initialCloudSync(userId, {
+            ...options,
+            forcePull: true,
+            onEssentialReady: () => setSessionCloudSyncStatus('ready'),
+          });
           summary = summarizeCloudSyncResult(result);
         }
       }
@@ -382,9 +398,9 @@ export function AuthProvider({ children }) {
       })();
     };
 
-    // 개인(SOLO): 로그인 시 forcePull 1회 — 이후는 등록·수정·삭제 시에만 push
+    // 개인(SOLO): 로그인 시 1회 sync — 로컬 비어 있을 때만 forcePull (가속)
     if (solo || !role) {
-      runSync(() => runInitialCloudSyncForUser(user.id, { forcePull: true }));
+      runSync(() => runInitialCloudSyncForUser(user.id));
       return;
     }
 
@@ -400,7 +416,7 @@ export function AuthProvider({ children }) {
     if (!isCeoRole(role) && memberPermissions == null) return;
 
     if (isCeoRole(role)) {
-      runSync(() => runInitialCloudSyncForUser(user.id, { forcePull: true }));
+      runSync(() => runInitialCloudSyncForUser(user.id));
     } else if (hasAnySharedReadPermission(memberPermissions)) {
       runSync(async () => {
         setSessionCloudSyncStatus('syncing');

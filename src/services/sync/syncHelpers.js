@@ -1,5 +1,6 @@
 /** PostgREST/Supabase 기본 max_rows(1000) 회피 — 페이지 단위로 전부 조회 */
 export const CLOUD_PULL_PAGE_SIZE = 1000;
+const CLOUD_PULL_CONCURRENCY = 3;
 
 /**
  * @param {import('@supabase/supabase-js').SupabaseClient} client
@@ -12,19 +13,36 @@ export async function fetchAllCloudRows(client, table, opts = {}) {
   const orderColumn = opts.orderColumn || 'updated_at';
   const ascending = opts.ascending !== false;
   const pageSize = CLOUD_PULL_PAGE_SIZE;
+
+  const { count, error: countErr } = await client
+    .from(table)
+    .select('id', { count: 'exact', head: true });
+  if (countErr) throw countErr;
+  const total = count ?? 0;
+  if (total === 0) return [];
+
+  const pageCount = Math.ceil(total / pageSize);
   /** @type {Record<string, unknown>[]} */
   const all = [];
-  for (let from = 0; ; from += pageSize) {
-    const to = from + pageSize - 1;
-    const { data, error } = await client
-      .from(table)
-      .select(select)
-      .order(orderColumn, { ascending })
-      .range(from, to);
-    if (error) throw error;
-    const chunk = data ?? [];
-    all.push(...chunk);
-    if (chunk.length < pageSize) break;
+  for (let page = 0; page < pageCount; page += CLOUD_PULL_CONCURRENCY) {
+    const batch = [];
+    for (let i = 0; i < CLOUD_PULL_CONCURRENCY && page + i < pageCount; i += 1) {
+      const from = (page + i) * pageSize;
+      const to = from + pageSize - 1;
+      batch.push(
+        client
+          .from(table)
+          .select(select)
+          .order(orderColumn, { ascending })
+          .range(from, to)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return data ?? [];
+          }),
+      );
+    }
+    const parts = await Promise.all(batch);
+    for (const part of parts) all.push(...part);
   }
   return all;
 }

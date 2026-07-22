@@ -6663,7 +6663,7 @@ function AppShell(){
 
   if(!user&&!legacyUnlocked) return <AuthPublicRoutes {...legacyLoginProps} />;
 
-  // 로그인 안내 화면에서 시간을 벌어 클라우드 pull 완료 후 앱 진입 (홈/매물 탭 레이스 방지)
+  // 매물·고객 준비(ready)되면 진입 — 일정/통화는 백그라운드 수신
   const waitCloudBootstrap = isSupabaseConfigured
     && !!user?.id
     && user.id !== 'dev-local'
@@ -6672,7 +6672,7 @@ function AppShell(){
     return (
       <RouteLoading
         label="로그인 중…"
-        detail="매물·고객·일정·통화를 불러오는 중입니다. 잠시만 기다려 주세요."
+        detail="매물·고객을 먼저 불러온 뒤 바로 시작합니다. 일정·통화는 이어서 가져옵니다."
       />
     );
   }
