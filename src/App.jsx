@@ -43,7 +43,7 @@ import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRo
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
 import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
-import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars, collapseDuplicateIcsSchedules } from "./utils/icsImport.js";
+import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars, collapseDuplicateIcsSchedules, reviveOrphanSoftDeletedIcsSchedules } from "./utils/icsImport.js";
 import {
   listGoogleCalendarLinks,
   removeGoogleCalendarLink,
@@ -61,6 +61,7 @@ import {
   gcalFallbackColor,
   gcalLinkDisplayLabel,
   buildGcalMeta,
+  scheduleOriginHint,
 } from "./utils/scheduleColors.js";
 import { PhoneInput } from "./components/PhoneInput.jsx";
 import { MoneyInput } from "./components/MoneyInput.jsx";
@@ -3387,6 +3388,8 @@ const Calendar=({onOpen})=>{
           if(cancelled) return;
           await flushPendingIcsSourceIdRemaps(gcalOwnerId);
           if(cancelled) return;
+          await reviveOrphanSoftDeletedIcsSchedules();
+          if(cancelled) return;
           await collapseDuplicateIcsSchedules(gcalOwnerId);
           gcalCalendarRepairedOwners.add(gcalOwnerId);
         }catch(err){
@@ -6059,6 +6062,10 @@ const SchedDetail=({sched,onClose,onOpen,onDelete})=>{
   const detailPri=liveSched?.pri||'NORMAL';
   const detailPriC=schedulePriColor(detailPri);
   const detailPriBg=schedulePriBg(detailPri);
+  const gcalOwnerId=user?.id&&user.id!=='dev-local'?user.id:undefined;
+  const gcalMeta=useMemo(()=>buildGcalMeta(gcalOwnerId),[gcalOwnerId]);
+  const originHint=useMemo(()=>scheduleOriginHint(liveSched,gcalMeta),[liveSched,gcalMeta]);
+  const headerAccent=originHint?.color||detailPriC;
 
   if(isNew) return(
     <>
@@ -6126,7 +6133,12 @@ const SchedDetail=({sched,onClose,onOpen,onDelete})=>{
         <div style={WIN_COLUMN}>
         <div style={{...WIN_BODY_SCROLL}}>
           {/* Priority + Date Header */}
-          <div style={{padding:'18px 24px 14px',borderBottom:`1px solid ${C.bdr}`,background:C.surf,borderLeft:`4px solid ${detailPriC}`}}>
+          <div style={{padding:'18px 24px 14px',borderBottom:`1px solid ${C.bdr}`,background:C.surf,borderLeft:`4px solid ${headerAccent}`}}>
+            {originHint&&(
+              <div style={{fontSize:11,fontWeight:600,color:originHint.color,marginBottom:8,letterSpacing:'.02em'}}>
+                {originHint.badge}{originHint.detail?` · ${originHint.detail}`:''}
+              </div>
+            )}
             <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
               <span style={{fontSize:12,padding:'4px 12px',borderRadius:20,background:detailPriBg,color:detailPriC,fontWeight:700}}>{PRI_L[detailPri]||'보통'}</span>
               <span style={{fontSize:13,color:C.txS,fontWeight:500}}>{fmtSchedulePeriodKo(liveSched)}{liveSched?.time?` ${liveSched.time}`:''}</span>

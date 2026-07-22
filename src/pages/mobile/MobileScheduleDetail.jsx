@@ -5,7 +5,7 @@ import { useProperties } from '../../hooks/useProperties.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
-import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
+import { buildGcalMeta, scheduleOriginHint } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileEmptyState, M } from './mobileUi.jsx';
 
 export function MobileScheduleDetail() {
@@ -18,6 +18,7 @@ export function MobileScheduleDetail() {
 
   const gcalOwnerId = user?.id && user.id !== 'dev-local' ? user.id : undefined;
   const gcalMeta = useMemo(() => buildGcalMeta(gcalOwnerId), [gcalOwnerId]);
+  const originHint = useMemo(() => (sched ? scheduleOriginHint(sched, gcalMeta) : null), [sched, gcalMeta]);
 
   if (!sched) {
     return (
@@ -29,7 +30,7 @@ export function MobileScheduleDetail() {
   }
 
   const prop = sched.pid ? properties.find((p) => p.id === sched.pid) : null;
-  const { c, label } = scheduleSourceInfo(sched, gcalMeta);
+  const accent = originHint?.color || M.info;
 
   const chkList = Array.isArray(sched.chk)
     ? sched.chk.filter((item) => item && String(item.t || '').trim())
@@ -40,9 +41,13 @@ export function MobileScheduleDetail() {
     <>
       <MobileDetailHeader title="일정 상세" fallback="/calendar" />
       <MobilePage>
-        <MobileCard style={{ borderLeft: `3px solid ${c}` }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: c }}>{label}</span>
-          <div style={{ fontSize: 18, fontWeight: 800, color: c, marginTop: 6 }}>{sched.title}</div>
+        <MobileCard style={{ borderLeft: `3px solid ${accent}` }}>
+          {originHint && (
+            <div style={{ fontSize: 11, fontWeight: 600, color: originHint.color, marginBottom: 6 }}>
+              {originHint.badge}{originHint.detail ? ` · ${originHint.detail}` : ''}
+            </div>
+          )}
+          <div style={{ fontSize: 18, fontWeight: 800, color: M.tx }}>{sched.title}</div>
           <div style={{ fontSize: 14, color: M.txM, marginTop: 6 }}>
             {fmtSchedulePeriodDot(sched)}{sched.time ? ` ${sched.time}` : ''}
           </div>
@@ -76,8 +81,8 @@ export function MobileScheduleDetail() {
                     aria-hidden
                     style={{
                       width: 18, height: 18, borderRadius: 4, flexShrink: 0, marginTop: 1,
-                      border: `1.5px solid ${item.d ? c : M.bdr}`,
-                      background: item.d ? c : '#fff',
+                      border: `1.5px solid ${item.d ? accent : M.bdr}`,
+                      background: item.d ? accent : '#fff',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
                   >

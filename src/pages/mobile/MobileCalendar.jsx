@@ -5,12 +5,14 @@ import { useProperties } from '../../hooks/useProperties.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
-import { collapseDuplicateIcsSchedules } from '../../utils/icsImport.js';
+import { collapseDuplicateIcsSchedules, reviveOrphanSoftDeletedIcsSchedules } from '../../utils/icsImport.js';
 import { flushPendingIcsSourceIdRemaps } from '../../services/googleCalendarLinks.js';
 import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
+/** 세션당 1회만 ICS 복구·중복 합치기 (매 진입 시 soft-delete 루프 방지) */
+const gcalMobileRepairedOwners = new Set();
 
 export function MobileCalendar() {
   const navigate = useNavigate();
@@ -31,11 +33,14 @@ export function MobileCalendar() {
   useEffect(() => {
     const ownerId = user?.id;
     if (!ownerId || ownerId === 'dev-local') return;
+    if (gcalMobileRepairedOwners.has(ownerId)) return;
     let cancelled = false;
     (async () => {
       try {
         if (!cancelled) await flushPendingIcsSourceIdRemaps(ownerId);
+        if (!cancelled) await reviveOrphanSoftDeletedIcsSchedules();
         if (!cancelled) await collapseDuplicateIcsSchedules(ownerId);
+        if (!cancelled) gcalMobileRepairedOwners.add(ownerId);
       } catch (err) {
         console.warn('[MobileCalendar] collapse ics', err);
       }

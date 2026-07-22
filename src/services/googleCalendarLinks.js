@@ -269,18 +269,9 @@ export async function applyIcsSourceIdRemaps(remaps) {
 
 /** @param {string} [ownerId] @returns {GoogleCalendarLink[]} */
 export function listGoogleCalendarLinks(ownerId) {
+  // 읽기 전용 — dedupe/리맵은 upsert·flush·동기화 경로에서만 수행(매 렌더 부수효과 금지)
   const id = resolveGcalOwnerId(ownerId);
   migrateOrphanLinks(id);
-  const { remaps } = dedupeGoogleCalendarLinks(id);
-  if (remaps?.length) {
-    try {
-      const key = `landnote.gcal.pendingRemaps.${id}`;
-      const prev = JSON.parse(sessionStorage.getItem(key) || '[]');
-      sessionStorage.setItem(key, JSON.stringify([...prev, ...remaps]));
-    } catch {
-      /* ignore */
-    }
-  }
   return readLinksRaw(id);
 }
 

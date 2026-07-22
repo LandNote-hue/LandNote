@@ -79,6 +79,27 @@ export function scheduleSourceInfo(s, gcalMeta) {
 }
 
 /**
+ * 일정 상세 상단용 — 구글/ICS 연동 여부 작은 표기
+ * @param {{ icsSourceId?: string }} s
+ * @param {Map<string, { color: string, label: string }>|null|undefined} gcalMeta
+ * @returns {{ kind: 'google'|'ics'|'linked', badge: string, detail: string|null, color: string }|null}
+ */
+export function scheduleOriginHint(s, gcalMeta) {
+  const sid = s?.icsSourceId != null ? String(s.icsSourceId).trim() : '';
+  if (!sid) return null;
+  const info = scheduleSourceInfo(s, gcalMeta);
+  if (!info.isSource) return null;
+  if (sid.startsWith('gcal:')) {
+    const detail = info.label && info.label !== '연동 캘린더' ? info.label : null;
+    return { kind: 'google', badge: 'Google 연동', detail, color: info.c };
+  }
+  if (sid === 'ics-file' || sid.startsWith('ics-')) {
+    return { kind: 'ics', badge: 'ICS 연동', detail: null, color: info.c };
+  }
+  return { kind: 'linked', badge: '연동 일정', detail: info.label || null, color: info.c };
+}
+
+/**
  * @param {string|null|undefined} ownerId
  * @returns {Map<string, { color: string, label: string }>}
  */

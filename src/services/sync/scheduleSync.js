@@ -97,6 +97,10 @@ function mergeScheduleFromCloud(existing, incoming) {
   }
   if (existing.icsUid && !incoming.icsUid) merged.icsUid = existing.icsUid;
   if (existing.icsKey && !incoming.icsKey) merged.icsKey = existing.icsKey;
+  // 활성 로컬 일정을 삭제된 클라우드 쌍둥이(collapse soft-delete)로 덮지 않음
+  if (!existing.deletedAt && incoming.deletedAt) {
+    merged.deletedAt = null;
+  }
   return merged;
 }
 
@@ -112,7 +116,7 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
 
   const remoteCloudIds = new Set();
   const { isPurgedCloudId } = await import('./purgedCloudIds.js');
-  const { occurrenceKeyFromSchedule, collapseDuplicateIcsSchedules } = await import('../../utils/icsImport.js');
+  const { occurrenceKeyFromSchedule } = await import('../../utils/icsImport.js');
   const { isActive } = await import('../../db.js');
   const { flushPendingIcsSourceIdRemaps } = await import('../googleCalendarLinks.js');
 
@@ -136,9 +140,14 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
     const sched = cloudRowToSched(row);
     const occ = occurrenceKeyFromSchedule(sched);
     const local = occ ? byOcc.get(occ) : null;
-    if (local && row.id) {
+
+    // 삭제된 클라우드 행이 활성 로컬(동일 occurrence)을 덮거나 cloudId를 훔치지 않음
+    if (sched.deletedAt && local && !local.deletedAt) {
+      continue;
+    }
+
+    if (local && row.id && !sched.deletedAt) {
       if (!local.cloudId || String(local.cloudId) !== String(row.id)) {
-        // 로컬 ICS 사본에 cloudId를 붙여 upsert가 합치도록 함 — 출처 필드 보존
         await db.schedules.update(local.id, {
           cloudId: row.id,
           icsKey: local.icsKey || occ || sched.icsKey,
@@ -155,8 +164,13 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
         icsSourceId: local.icsSourceId || sched.icsSourceId,
         icsUid: local.icsUid || sched.icsUid,
         icsKey: local.icsKey || sched.icsKey || occ,
+        deletedAt: local.deletedAt && !sched.deletedAt ? null : (sched.deletedAt || null),
       }
       : sched;
+    // 활성 로컬이면 삭제 상태 강제 해제
+    if (local && !local.deletedAt) {
+      record.deletedAt = null;
+    }
     batch.push({
       sessionUserId: userId,
       cloudRow: row,
@@ -174,11 +188,7 @@ export async function syncSchedulesFromCloud(userId, options = {}) {
   } catch (err) {
     console.warn('[scheduleSync] flush ics source remaps', err);
   }
-  try {
-    await collapseDuplicateIcsSchedules(userId);
-  } catch (err) {
-    console.warn('[scheduleSync] collapse ics duplicates', err);
-  }
+  // sync 끝마다 collapse 금지 — soft-delete↔pull 오염 루프 방지. import/수동 동기화 경로에서만 collapse.
 
   localStorage.setItem(`landnote.sync.schedules.${userId}`, new Date().toISOString());
   return {

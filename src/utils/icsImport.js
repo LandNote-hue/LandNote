@@ -617,7 +617,38 @@ export function parseIcsToSchedules(icsText, options = {}) {
 }
 
 /**
- * 동일 occurrence(icsUid+일시) 중복 행을 1개로 합침
+ * collapse soft-delete로 잘못 숨겨진 ICS 일정을 복구.
+ * 같은 occurrence에 활성 행이 이미 있으면 복구하지 않음.
+ * @returns {Promise<number>}
+ */
+export async function reviveOrphanSoftDeletedIcsSchedules() {
+  const all = await db.schedules.toArray();
+  /** @type {Set<string>} */
+  const activeOcc = new Set();
+  for (const s of all) {
+    if (!isActive(s)) continue;
+    if (!(s.icsUid || s.icsKey || s.icsSourceId)) continue;
+    const k = occurrenceKeyFromSchedule(s);
+    if (k) activeOcc.add(k);
+  }
+  let revived = 0;
+  for (const s of all) {
+    if (isActive(s)) continue;
+    if (!(s.icsUid || s.icsKey || s.icsSourceId)) continue;
+    const k = occurrenceKeyFromSchedule(s);
+    if (!k || activeOcc.has(k)) continue;
+    await db.schedules.update(s.id, { deletedAt: null });
+    activeOcc.add(k);
+    revived += 1;
+  }
+  return revived;
+}
+
+/**
+ * 동일 occurrence(icsUid+일시) 중복 행을 1개로 합침.
+ * cloudId 없는 loser는 로컬 hard-delete.
+ * cloudId를 winner로 넘길 수 있으면 hard-delete(클라우드 soft-delete 푸시 안 함).
+ * 둘 다 cloudId가 다를 때만 loser soft-delete(클라우드 정리). pull merge가 활성 winner를 삭제 오염시키지 않도록 보호됨.
  * @param {string} [preferredOwnerId]
  * @returns {Promise<{ collapsed: number }>}
  */
@@ -629,7 +660,9 @@ export async function collapseDuplicateIcsSchedules(preferredOwnerId = getActive
   /** @type {Map<string, object[]>} */
   const groups = new Map();
   for (const s of all) {
-    const k = occurrenceKeyFromSchedule(s) || `content:${contentFingerprint(s)}`;
+    // content fingerprint 전역 병합 금지 — 서로 다른 일정이 지워지는 사고 방지
+    const k = occurrenceKeyFromSchedule(s);
+    if (!k) continue;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(s);
   }
@@ -649,7 +682,7 @@ export async function collapseDuplicateIcsSchedules(preferredOwnerId = getActive
       if (d !== 0) return d;
       return (a.id ?? 0) - (b.id ?? 0);
     });
-    const winner = rows[0];
+    const winner = { ...rows[0] };
     /** @type {Record<string, unknown>} */
     const patch = {};
     if (preferredOwnerId && winner.ownerId !== preferredOwnerId) patch.ownerId = preferredOwnerId;
@@ -659,16 +692,33 @@ export async function collapseDuplicateIcsSchedules(preferredOwnerId = getActive
       const uid = String(occ).split('|')[0];
       if (uid) patch.icsUid = uid;
     }
-    // 승자에 출처가 없으면 다른 행에서 가져옴. 있으면 그대로(색 안정)
     if (!winner.icsSourceId) {
       const withSrc = rows.find((r) => r.icsSourceId);
       if (withSrc?.icsSourceId) patch.icsSourceId = withSrc.icsSourceId;
+    }
+
+    for (const loser of rows.slice(1)) {
+      if (!winner.cloudId && loser.cloudId) {
+        patch.cloudId = loser.cloudId;
+        if (loser.cloudLocalId != null) patch.cloudLocalId = loser.cloudLocalId;
+        winner.cloudId = loser.cloudId;
+      }
+      if (!winner.icsSourceId && loser.icsSourceId) {
+        patch.icsSourceId = loser.icsSourceId;
+        winner.icsSourceId = loser.icsSourceId;
+      }
     }
     if (Object.keys(patch).length) await db.schedules.update(winner.id, patch);
 
     const deletedAt = formatDeletedAt();
     for (const loser of rows.slice(1)) {
-      await db.schedules.update(loser.id, { deletedAt });
+      if (!loser.cloudId || (winner.cloudId && String(winner.cloudId) === String(loser.cloudId))) {
+        // 클라우드에 안 올라갔거나, cloudId를 winner가 이어받은 경우 — soft-delete 푸시 없이 로컬만 제거
+        await db.schedules.delete(loser.id);
+      } else {
+        // 서로 다른 cloud 행 중복 — 클라우드 정리용 soft-delete
+        await db.schedules.update(loser.id, { deletedAt });
+      }
       collapsed += 1;
     }
   }
