@@ -388,7 +388,11 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    if (!usesTeamCloudSync(role)) return;
+    if (!usesTeamCloudSync(role)) {
+      sessionAutoSyncedUserIdRef.current = user.id;
+      setSessionCloudSyncStatus('done');
+      return;
+    }
 
     const workspaceId = company?.id ?? profile?.company_id;
     if (!workspaceId) return;
@@ -427,6 +431,10 @@ export function AuthProvider({ children }) {
           throw err;
         }
       });
+    } else {
+      // 공유 읽기 권한 없음 — pull 대상 없음
+      sessionAutoSyncedUserIdRef.current = user.id;
+      setSessionCloudSyncStatus('done');
     }
   }, [
     loading,

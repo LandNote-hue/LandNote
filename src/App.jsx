@@ -121,9 +121,20 @@ function findPropertyByRouteId(properties, idParam) {
   return properties.find(p => p.id === n || String(p.id) === String(idParam)) ?? null;
 }
 
-const RouteLoading=({label='불러오는 중…'})=>(
-  <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:C.txM,fontSize:14}}>
-    {label}
+const RouteLoading=({label='불러오는 중…', detail=null})=>(
+  <div style={{
+    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+    height:'100%', minHeight:'100dvh', padding:24, boxSizing:'border-box',
+    background:C.bg, color:C.txM, gap:10, textAlign:'center',
+  }}>
+    <div style={{
+      width:28, height:28, borderRadius:'50%',
+      border:`3px solid ${C.bdr}`, borderTopColor:C.brand,
+      animation:'landnote-spin .8s linear infinite',
+    }}/>
+    <div style={{fontSize:15, fontWeight:700, color:C.tx}}>{label}</div>
+    {detail&&<div style={{fontSize:13, lineHeight:1.55, maxWidth:300}}>{detail}</div>}
+    <style>{`@keyframes landnote-spin{to{transform:rotate(360deg)}}`}</style>
   </div>
 );
 
@@ -6489,7 +6500,7 @@ function AuthPublicRoutes({ onLegacyLogin }) {
 
 /* ═══ MAIN APP ═══ */
 function AppShell(){
-  const { user, loading: authLoading, profileLoading, needsSignupCompletion, signOut, passwordRecovery } = useAuth();
+  const { user, loading: authLoading, profileLoading, needsSignupCompletion, signOut, passwordRecovery, sessionCloudSyncStatus } = useAuth();
   const isMobile = useIsMobile();
   const isMobileDevice = useIsMobileDevice();
   const [forceDesktop, setForceDesktopState] = useState(getForceDesktop);
@@ -6614,14 +6625,26 @@ function AppShell(){
     navigate('/dashboard');
   };
 
-  if(authLoading) return <RouteLoading label="인증 확인 중…"/>;
+  if(authLoading){
+    return (
+      <RouteLoading
+        label="로그인 중…"
+        detail="계정 인증을 확인하고 있습니다."
+      />
+    );
+  }
 
   if(passwordRecovery||location.pathname===PASSWORD_RESET_REDIRECT_PATH){
     return <ResetPasswordScreen/>;
   }
 
   if(user?.id&&user.id!=='dev-local'&&profileLoading){
-    return <RouteLoading label="프로필 확인 중…"/>;
+    return (
+      <RouteLoading
+        label="로그인 중…"
+        detail="계정 정보를 확인하고 데이터를 준비합니다."
+      />
+    );
   }
 
   const legacyLoginProps = {
@@ -6639,6 +6662,20 @@ function AppShell(){
   }
 
   if(!user&&!legacyUnlocked) return <AuthPublicRoutes {...legacyLoginProps} />;
+
+  // 로그인 안내 화면에서 시간을 벌어 클라우드 pull 완료 후 앱 진입 (홈/매물 탭 레이스 방지)
+  const waitCloudBootstrap = isSupabaseConfigured
+    && !!user?.id
+    && user.id !== 'dev-local'
+    && (sessionCloudSyncStatus === 'idle' || sessionCloudSyncStatus === 'syncing');
+  if(waitCloudBootstrap){
+    return (
+      <RouteLoading
+        label="로그인 중…"
+        detail="매물·고객·일정·통화를 불러오는 중입니다. 잠시만 기다려 주세요."
+      />
+    );
+  }
 
   const appRoutes=(
     <RouteErrorBoundary>
