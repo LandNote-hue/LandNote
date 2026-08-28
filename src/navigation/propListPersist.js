@@ -1,3 +1,5 @@
+import { normalizePropListTab } from '../utils/propListKind.js';
+
 const STORAGE_KEY = 'landnote.propListState';
 const LEGACY_STORAGE_KEY = 'upground.propListState';
 
@@ -37,4 +39,18 @@ export function clearPropListState() {
   } catch {
     /* ignore */
   }
+}
+
+/** @param {unknown} [tab] */
+export function rememberPropListTab(tab) {
+  const id = normalizePropListTab(tab || loadPropListState().statusTab || 'ALL');
+  savePropListState({ statusTab: id });
+  return id;
+}
+
+/** 매물 목록 복귀 경로 (?tab= 포함) */
+export function propertiesListPath() {
+  const tab = normalizePropListTab(loadPropListState().statusTab || 'ALL');
+  if (!tab || tab === 'ALL') return '/properties';
+  return `/properties?tab=${encodeURIComponent(tab)}`;
 }

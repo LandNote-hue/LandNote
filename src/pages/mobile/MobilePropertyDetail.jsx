@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { propertiesListPath } from '../../navigation/propListPersist.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { propDisplayAddr, propJibunAddr } from '../../utils/propAddress.js';
 import { fmtPropPrice as propPrice, fmtWithUnit, m2ToPyung, fmtNum } from '../../utils/formatMoney.js';
@@ -29,7 +30,7 @@ export function MobilePropertyDetail() {
   if (!prop) {
     return (
       <>
-        <MobileDetailHeader title="매물 상세" fallback="/properties" />
+        <MobileDetailHeader title="매물 상세" fallback={propertiesListPath()} />
         <MobilePage><MobileEmptyState message="매물을 찾을 수 없습니다" /></MobilePage>
       </>
     );
@@ -41,7 +42,7 @@ export function MobilePropertyDetail() {
 
   return (
     <>
-      <MobileDetailHeader title={propDisplayAddr(prop)} fallback="/properties" />
+      <MobileDetailHeader title={propDisplayAddr(prop)} fallback={propertiesListPath()} />
       <MobilePage>
         {photos.length > 0 ? (
           <div style={{ position: 'relative', marginBottom: 14 }}>

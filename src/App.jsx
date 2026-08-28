@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation, useParams, useSearch
 import { useLiveQuery } from "dexie-react-hooks";
 import { useProperties, usePropertiesQuery } from "./hooks/useProperties.js";
 import { MapView } from "./features/map/MapView.jsx";
-import { loadPropListState, savePropListState, clearPropListState } from "./navigation/propListPersist.js";
+import { loadPropListState, savePropListState, clearPropListState, rememberPropListTab, propertiesListPath } from "./navigation/propListPersist.js";
 import {
   loadPropertyRegisterDraft,
   savePropertyRegisterDraft,
@@ -1516,7 +1516,10 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount 시 scroll 복원
   }, []);
-  useEffect(()=>()=>clearPropListState(),[]);
+  const persistListStateRef=useRef(persistListState);
+  persistListStateRef.current=persistListState;
+  useEffect(()=>()=>{ persistListStateRef.current(); },[]);
+  useEffect(()=>{ savePropListState({ statusTab }); },[statusTab]);
   const toggleSort=(key)=>{
     if(sortKey!==key){setSortKey(key);setSortDir('asc');}
     else if(sortDir==='asc'){setSortDir('desc');}
@@ -6637,7 +6640,7 @@ const PropDetailRedirect=({onOpen})=>{
     if(props===undefined) return;
     const prop=findPropertyByRouteId(props,id);
     if(prop) onOpen('pd',prop);
-    navigate('/properties',{replace:true});
+    navigate(propertiesListPath(),{replace:true});
   },[props,id,navigate,onOpen]);
   if(props===undefined&&(sessionCloudSyncStatus==='idle'||sessionCloudSyncStatus==='syncing')){
     return <RouteLoading label="매물 상세 여는 중…"/>;
@@ -6678,20 +6681,17 @@ const PropEditRoute=({softDelete,onOpen})=>{
     return null;
   }
   const prop=findPropertyByRouteId(props,id);
-  if(!prop) return <Navigate to="/properties" replace />;
+  if(!prop) return <Navigate to={propertiesListPath()} replace />;
   if(!canWriteRecord(prop,user?.id,companyRole,memberPermissions,'properties')){
-    return <Navigate to="/properties" replace />;
+    return <Navigate to={propertiesListPath()} replace />;
   }
-  const goDetail=()=>{
-    navigate('/properties');
-    onOpen('pd',prop);
-  };
+  const goList=()=>navigate(propertiesListPath());
   return (
     <PropEdit
       prop={prop}
-      onClose={goDetail}
-      onSaved={goDetail}
-      onDelete={(item)=>softDelete('props',item,propDisplayAddr(item)||item.bldg,()=>navigate('/properties'))}
+      onClose={goList}
+      onSaved={goList}
+      onDelete={(item)=>softDelete('props',item,propDisplayAddr(item)||item.bldg,goList)}
     />
   );
 };
@@ -6881,6 +6881,8 @@ function AppShell(){
       return;
     }
     if(type==='pe'){
+      const tab=new URLSearchParams(window.location.search).get('tab');
+      rememberPropListTab(tab||loadPropListState().statusTab||'ALL');
       navigate(`/properties/${data.id}/edit`);
       return;
     }
@@ -7040,7 +7042,7 @@ function AppShell(){
           if(w.type==='sf') return (<SchedForm key={w.wid} schedData={w.data} onClose={close} onSaved={()=>{}} onDelete={(item)=>softDelete('scheds',item,item?.title||'일정',close)}/>);
           if(w.type==='pd') return (
             <PropDetail key={w.wid} prop={w.data} onClose={close}
-              onEdit={(p)=>{ close(); navigate(`/properties/${p.id}/edit`); }}
+              onEdit={(p)=>{ close(); rememberPropListTab(new URLSearchParams(window.location.search).get('tab')); navigate(`/properties/${p.id}/edit`); }}
               onOpen={openWin}
               onDelete={(item)=>softDelete('props',item,propDisplayAddr(item)||item.bldg,close)}
               onDeleteCall={(item)=>softDelete('calls',item,item.content?.slice(0,20)||'통화기록',()=>{})}
