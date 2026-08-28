@@ -41,9 +41,10 @@ const PLACEHOLDER = {
  *   onClose: () => void,
  *   onSelect: (result: import('../services/address/parseJibunAddress.js').AddressSearchResult) => void|Promise<void>,
  *   initialKeyword?: string,
+ *   autoSearchOnOpen?: boolean,
  * }} props
  */
-export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '' }) {
+export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '', autoSearchOnOpen = true }) {
   const [mode, setMode] = useState('all');
   const [keyword, setKeyword] = useState(initialKeyword);
   const [page, setPage] = useState(1);
@@ -86,7 +87,15 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
   }, [keyword, mode]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setItems([]);
+      setTotalCount(0);
+      setError('');
+      setActiveIdx(-1);
+      setLoading(false);
+      setPage(1);
+      return undefined;
+    }
     const q = (initialKeyword || '').trim();
     setKeyword(initialKeyword || '');
     setPage(1);
@@ -95,7 +104,7 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
     setError('');
     setActiveIdx(-1);
     setTimeout(() => inputRef.current?.focus(), 80);
-    if (q.length < 2) return;
+    if (!autoSearchOnOpen || q.length < 2) return undefined;
 
     let cancelled = false;
     (async () => {
@@ -124,7 +133,7 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
     })();
 
     return () => { cancelled = true; };
-  }, [open, initialKeyword]);
+  }, [open, initialKeyword, autoSearchOnOpen]);
 
   const pickItem = useCallback(async (item) => {
     if (!item?.jibunAddr && !item?.roadAddr) return;

@@ -9,6 +9,7 @@ import {
   savePropertyRegisterDraft,
   clearPropertyRegisterDraft,
   hydratePropertyRegisterDraft,
+  isPropertyRegisterPath,
 } from "./navigation/propertyRegisterDraft.js";
 import { loadFolderState, saveFolderState, getDefaultFolderState, DEFAULT_FOLDERS, DEFAULT_PROP_FOLDERS } from "./navigation/folderPersist.js";
 import { MENU_PATHS, pathToMenuId, resolveTitle } from "./navigation/routes.js";
@@ -2541,6 +2542,7 @@ const PropRegister=({onNav})=>{
     restoreAddressLookupDraft,
   }=usePropertyAddressLookup({ mode:'register' });
 
+  const persistDraftRef=useRef(true);
   useEffect(()=>{
     if(draftRestoredRef.current||!registerDraft) return;
     draftRestoredRef.current=true;
@@ -2551,6 +2553,7 @@ const PropRegister=({onNav})=>{
   useEffect(()=>{
     if(!draftReady) return;
     const timer=window.setTimeout(()=>{
+      if(!persistDraftRef.current) return;
       savePropertyRegisterDraft({
         trade, mainType, subType, status, pub,
         priceForm, roadSearch, detailForm, photoSlots,
@@ -2586,6 +2589,8 @@ const PropRegister=({onNav})=>{
     :lookup.status==='address_confirmed'?'코드대기':'API';
 
   const handleSave=async()=>{
+    persistDraftRef.current=false;
+    try{
     const addressFields=buildPropertyAddressFields(locationForm, roadSearch);
     const mapCoordFields=await resolveMapCoordFieldsForSave(null, {
       ...addressFields,
@@ -2613,6 +2618,10 @@ const PropRegister=({onNav})=>{
     clearPropertyRegisterDraft();
     showNotification('저장하였습니다.','success');
     onNav('properties');
+    }catch(err){
+      persistDraftRef.current=true;
+      throw err;
+    }
   };
 
   return(
@@ -2622,6 +2631,7 @@ const PropRegister=({onNav})=>{
         onClose={()=>setAddressModalOpen(false)}
         onSelect={onAddressSelected}
         initialKeyword={roadSearch}
+        autoSearchOnOpen={false}
       />
       <PH title="매물 등록" sub="필드에 * 표시는 필수 입력항목입니다"
         acts={<Btn role="page-secondary" ch="일괄 등록" ic="ti-upload" on={()=>onNav&&onNav('registerBulk')}/>}
@@ -6789,6 +6799,11 @@ function AppShell(){
   const navigate=useNavigate();
   const location=useLocation();
 
+  useEffect(() => {
+    if (isPropertyRegisterPath(location.pathname)) return;
+    clearPropertyRegisterDraft();
+  }, [location.pathname]);
+
   // 앱 사용 중 경로를 계속 기록 — 새로고침 후 같은 페이지 유지
   useEffect(() => {
     if (!user?.id && !legacyUnlocked) return;
@@ -6798,6 +6813,7 @@ function AppShell(){
 
   const properties=useProperties();
   const [wins,setWins]=useState([]);
+  const [registerFormKey,setRegisterFormKey]=useState(0);
   const [showSet,setShowSet]=useState(false);
   const [sidebarExpanded,setSidebarExpanded]=useState(false);
   const [folders,setFolders]=useState(()=>loadFolderState()?.folders??FOLDERS);
@@ -6845,7 +6861,14 @@ function AppShell(){
 
   const menuId=pathToMenuId(location.pathname);
   const titleLabel=resolveTitle(location.pathname, {}, properties);
-  const navTo=(id)=>navigate(MENU_PATHS[id]||'/dashboard');
+  const navTo=(id)=>{
+    const path=MENU_PATHS[id]||'/dashboard';
+    if(path==='/register'){
+      clearPropertyRegisterDraft();
+      setRegisterFormKey((k)=>k+1);
+    }
+    navigate(path);
+  };
 
   const softDelete=(type,item,label,afterFn)=>setGlobalConfirm({
     msg:'휴지통으로 이동하시겠습니까?',
@@ -6978,7 +7001,7 @@ function AppShell(){
         <Route path="/properties/:id" element={<PropDetailRedirect onOpen={openWin}/>} />
         <Route path="/mapview" element={<MapView onOpen={openWin} Btn={Btn} PH={PH}/>} />
         <Route path="/register/bulk" element={<PropertyBulkUploadPage onNav={navTo}/>} />
-        <Route path="/register" element={<PropRegister onNav={navTo}/>} />
+        <Route path="/register" element={<PropRegister key={registerFormKey} onNav={navTo}/>} />
         <Route path="/customers/bulk" element={<CustomerBulkUploadPage onNav={navTo}/>} />
         <Route path="/customers" element={<CustList onOpen={openWin} onNav={navTo} onDeleteCustomer={(c,after)=>softDelete('custs',c,c.name,()=>{if(after)after();closeCustomerWins(c.id);})} onCustomersDeleted={(ids)=>ids.forEach((id)=>closeCustomerWins(id))}/>} />
         <Route path="/calls" element={<CallLogs onOpen={openWin} onDelete={(item)=>softDelete('calls',item,item.content?.slice(0,20)||'통화기록',()=>{})}/>} />

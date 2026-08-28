@@ -56,6 +56,11 @@ export function clearPropertyRegisterDraft() {
   }
 }
 
+/** 단건 매물 등록 화면인지 (이탈 시 초안 삭제 기준) */
+export function isPropertyRegisterPath(pathname) {
+  return pathname === '/register';
+}
+
 /** @param {Record<string, unknown>|null|undefined} raw */
 export function hydratePropertyRegisterDraft(raw) {
   if (!raw) return null;
