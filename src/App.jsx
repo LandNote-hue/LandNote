@@ -41,7 +41,7 @@ import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/cus
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
 import {
   PROP_LIST_TABS, normalizePropListTab, isRentListTab, tradesForListTab, tradeAllowedOnTab,
-  propertyBelongsToListTab, countForListTab, isRentalListProperty, RENT_TRADE_LABELS,
+  propertyBelongsToListTab, countForListTab, RENT_TRADE_LABELS,
 } from "./utils/propListKind.js";
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
@@ -1061,22 +1061,22 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
     }else if(a.kind==='rental') onOpen('pd',a.target.prop);
   };
   const stats=[
-    {id:'ALL',label:'전체 매물',val:P.length,
+    {id:'ALL',label:'전체 매물',val:countForListTab(P,'ALL'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>,
       c:'#6366F1',bg:'#EEF2FF'},
-    {id:'NEW',label:'신규',val:P.filter(x=>x.status==='NEW').length,
+    {id:'NEW',label:'신규',val:countForListTab(P,'NEW'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
       c:C.ok,bg:C.okBg},
-    {id:'ACTIVE',label:'진행중',val:P.filter(x=>x.status==='ACTIVE').length,
+    {id:'ACTIVE',label:'진행중',val:countForListTab(P,'ACTIVE'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
       c:C.info,bg:C.infoBg},
-    {id:'HOLD',label:'보류',val:P.filter(x=>x.status==='HOLD').length,
+    {id:'HOLD',label:'보류',val:countForListTab(P,'HOLD'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>,
       c:C.warn,bg:C.warnBg},
-    {id:'COMPLETED',label:'계약완료',val:P.filter(x=>x.status==='COMPLETED').length,
+    {id:'COMPLETED',label:'계약완료',val:countForListTab(P,'COMPLETED'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       c:'#64748B',bg:'#F1F5F9'},
-    {id:'RENT',label:'임대',val:P.filter(isRentalListProperty).length,
+    {id:'RENT',label:'임대',val:countForListTab(P,'RENT'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
       c:'#0D9488',bg:'#CCFBF1'},
   ];
@@ -2010,7 +2010,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:140,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,tag:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.tag?C.brand:C.tx,fontWeight:!colFilter.tag?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {[...new Set(baseProps.filter((p)=>!rentList||isRentalListProperty(p)).map(p=>p.tag).filter(Boolean))].map(t=>(
+                      {[...new Set(baseProps.filter((p)=>propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0})).map(p=>p.tag).filter(Boolean))].map(t=>(
                         <div key={t} onClick={()=>{setColFilter(f=>({...f,tag:t}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.tag===t?C.brand:C.tx,fontWeight:colFilter.tag===t?600:400}}
                           onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{t}</div>
                       ))}

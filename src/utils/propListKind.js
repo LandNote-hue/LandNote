@@ -1,4 +1,4 @@
-/** 매물관리 목록 구분 — 임대 탭은 월세·전세·단기만 모아 별도 표시 */
+/** 매물관리 목록 구분 — 임대(전세·월세·단기)는 임대 탭, 매매·분양은 전체 등 나머지 탭 */
 
 export const PROP_LIST_TAB_RENT = 'RENT';
 
@@ -46,7 +46,7 @@ export function isRentListTab(tab) {
 }
 
 export function tradesForListTab(tab) {
-  return isRentListTab(tab) ? PROP_RENTAL_TRADES : PROP_ALL_TRADES;
+  return isRentListTab(tab) ? PROP_RENTAL_TRADES : PROP_SALE_TRADES;
 }
 
 export function tradeAllowedOnTab(trade, tab) {
@@ -56,13 +56,14 @@ export function tradeAllowedOnTab(trade, tab) {
 
 /**
  * 탭별 목록 소속 (검색·필터 이전).
- * 기존 탭은 전체 매물, 임대 탭은 전세·월세·단기만.
+ * 전체·즐겨찾기·폴더·상태 탭은 매매·분양만, 임대 탭은 전세·월세·단기만.
  * @param {{ trade?: string, status?: string, fav?: boolean }} p
  * @param {string} statusTab
  * @param {{ inFolder?: boolean }} [opts]
  */
 export function propertyBelongsToListTab(p, statusTab, opts = {}) {
   if (isRentListTab(statusTab)) return isRentalListProperty(p);
+  if (!isSaleListProperty(p)) return false;
   if (statusTab === 'ALL') return true;
   if (statusTab === 'FAV') return !!p.fav;
   if (statusTab === 'FOLDER') return Boolean(opts.inFolder);
@@ -72,10 +73,11 @@ export function propertyBelongsToListTab(p, statusTab, opts = {}) {
 /** @param {Array<{ id?: number, trade?: string, status?: string, fav?: boolean }>} props */
 export function countForListTab(props, tabId, propFolders) {
   if (tabId === PROP_LIST_TAB_RENT) return props.filter(isRentalListProperty).length;
-  if (tabId === 'FAV') return props.filter((p) => p.fav).length;
+  const sale = props.filter(isSaleListProperty);
+  if (tabId === 'FAV') return sale.filter((p) => p.fav).length;
   if (tabId === 'FOLDER') {
-    return props.filter((p) => (propFolders?.[p.id] || []).length > 0).length;
+    return sale.filter((p) => (propFolders?.[p.id] || []).length > 0).length;
   }
-  if (tabId === 'ALL') return props.length;
-  return props.filter((p) => p.status === tabId).length;
+  if (tabId === 'ALL') return sale.length;
+  return sale.filter((p) => p.status === tabId).length;
 }
