@@ -1,6 +1,7 @@
 import { fmtNum, normalizeJDepToMan, formatKoreanAmountFromMan, m2ToPyung } from './formatMoney.js';
 import { RENT_TRADE_LABELS } from './propListKind.js';
 import { fmtMoveInDate, isMoveInImmediate } from './propertyForm.js';
+import { propDisplayAddr } from './propAddress.js';
 
 export { RENT_TRADE_LABELS };
 
@@ -57,8 +58,16 @@ export function rentalTradeLabel(trade) {
   return RENT_TRADE_LABELS[trade] || trade || '—';
 }
 
+/** 목록에 보이는 주소 + 건물명 (한글·숫자 정렬용) */
+export function rentalAddrSortKey(p) {
+  const addr = propDisplayAddr(p);
+  const a = !addr || addr === '—' ? '' : addr;
+  const bldg = (p?.bldg || '').trim();
+  return `${a} ${bldg}`.trim();
+}
+
 export const RENT_LIST_SORT_KEYS = new Set([
-  'contractArea', 'exclusiveArea', 'deposit', 'rent', 'maintenance', 'lastCall', 'moveInDate', 'created',
+  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'maintenance', 'lastCall', 'moveInDate', 'created',
 ]);
 
 export const SALE_LIST_SORT_KEYS = new Set([

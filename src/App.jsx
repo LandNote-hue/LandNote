@@ -45,7 +45,7 @@ import {
 } from "./utils/propListKind.js";
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
-  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
@@ -1593,11 +1593,17 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='rent') return rentalRentMan(p);
     if(key==='maintenance') return rentalMaintMan(p);
     if(key==='moveInDate') return moveInSortKey(p.moveInDate);
+    if(key==='addr') return rentalAddrSortKey(p);
     return '';
   };
   const sorted=[...rows].sort((a,b)=>{
     if(sortKey){
       const av=getSortVal(a,sortKey), bv=getSortVal(b,sortKey);
+      if(typeof av==='string'&&typeof bv==='string'){
+        const c=av.localeCompare(bv,'ko',{numeric:true,sensitivity:'base'});
+        if(c!==0) return sortDir==='asc'?c:-c;
+        return 0;
+      }
       if(av<bv) return sortDir==='asc'?-1:1;
       if(av>bv) return sortDir==='asc'?1:-1;
       return 0;
@@ -2020,7 +2026,11 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     </div>
                   )}
                 </th>
-                <th className="prop-col-addr">주소 / 건물명</th>
+                {rentList?(
+                  <th className="prop-col-addr" style={{cursor:'pointer'}} onClick={()=>toggleSort('addr')}>주소 / 건물명 {sortMark('addr')}</th>
+                ):(
+                  <th className="prop-col-addr">주소 / 건물명</th>
+                )}
                 {rentList?(
                   <>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('contractArea')}>계약면적 {sortMark('contractArea')}</th>
