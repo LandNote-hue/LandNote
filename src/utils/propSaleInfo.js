@@ -186,6 +186,9 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '거래방식', v: TL.JEONSE, c: '#2563EB' },
       { k: '전세보증금', v: fmtManwonDisplay(normalizeJDepToMan(prop.jDep)), c: '#C8102E' },
       ...rentalUnitInfoItems(prop),
+      ...(prop.moveInDate
+        ? [{ k: '입주가능일', v: String(prop.moveInDate).replace(/-/g, '.') }]
+        : []),
       ...(prop.jLeaseEnd || prop.leaseEnd
         ? [{ k: '전세계약만료일', v: String(prop.jLeaseEnd || prop.leaseEnd).replace(/-/g, '.') }]
         : []),
@@ -198,6 +201,9 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '월세', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       ...rentalUnitInfoItems(prop),
+      ...(prop.moveInDate
+        ? [{ k: '입주가능일', v: String(prop.moveInDate).replace(/-/g, '.') }]
+        : []),
       ...(prop.maintenanceDetail ? [{ k: '관리비 포함', v: prop.maintenanceDetail, full: true }] : []),
     ];
   }
@@ -208,6 +214,9 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '단기임대료', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       ...rentalUnitInfoItems(prop),
+      ...(prop.moveInDate
+        ? [{ k: '입주가능일', v: String(prop.moveInDate).replace(/-/g, '.') }]
+        : []),
       ...(prop.shortTermPeriod ? [{ k: '단기임대기간', v: prop.shortTermPeriod }] : []),
     ];
   }

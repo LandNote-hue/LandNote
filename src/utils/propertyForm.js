@@ -52,6 +52,7 @@ export function emptyPriceForm() {
     exclusiveArea: '',
     contractArea: '',
     priceNegotiable: false,
+    moveInDate: '',
   };
 }
 
@@ -76,6 +77,7 @@ export function priceFormFromProperty(prop) {
     exclusiveArea: fmtFormDecimal(prop.exclusiveArea),
     contractArea: fmtFormDecimal(prop.contractArea),
     priceNegotiable: Boolean(prop.priceNegotiable),
+    moveInDate: prop.moveInDate ?? '',
   };
 }
 
@@ -98,6 +100,7 @@ export function buildPriceFields(trade, pf) {
     exclusiveArea: 0,
     contractArea: 0,
     priceNegotiable: Boolean(pf.priceNegotiable),
+    moveInDate: '',
     roi: pf.roi?.trim() || '—',
     realInvest: pf.realInvest?.trim() || '',
   };
@@ -107,6 +110,7 @@ export function buildPriceFields(trade, pf) {
     exclusiveArea: n(pf.exclusiveArea),
     contractArea: n(pf.contractArea),
     premium: n(pf.premium),
+    moveInDate: pf.moveInDate || '',
   };
 
   if (trade === 'SALE' || trade === 'PRESALE') {

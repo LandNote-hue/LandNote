@@ -39,6 +39,14 @@ import { CUSTOMER_TRADE_OPTS, formatPreferredTradesLabel, preferredTradesOf } fr
 import { fmtCustomerBudgetRange, fmtCustomerMoney } from "./utils/customerMoney.js";
 import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/customerStatus.js";
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
+import {
+  PROP_LIST_TABS, normalizePropListTab, isRentListTab, tradesForListTab, tradeAllowedOnTab,
+  propertyBelongsToListTab, countForListTab, isRentalListProperty, RENT_TRADE_LABELS,
+} from "./utils/propListKind.js";
+import {
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS,
+} from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
@@ -1068,6 +1076,9 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
     {id:'COMPLETED',label:'계약완료',val:P.filter(x=>x.status==='COMPLETED').length,
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       c:'#64748B',bg:'#F1F5F9'},
+    {id:'RENT',label:'임대',val:P.filter(isRentalListProperty).length,
+      icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+      c:'#0D9488',bg:'#CCFBF1'},
   ];
   const propFavSortKey=(p)=>{
     if(p.favAt) return new Date(p.favAt).getTime();
@@ -1132,7 +1143,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
       <PH title="대시보드" sub={todayLabel} acts={<CloudSyncHeaderActions onNotify={onNotify}/>}/>
       <div style={{padding:'20px 28px',display:'flex',flexDirection:'column',gap:20}}>
         {/* Stats — 세로 영역 약 60% (패딩·간격·가로 배치, 폰트 크기 유지) */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:DASH_STAT_GAP}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:DASH_STAT_GAP}}>
           {stats.map((s,i)=>(
             <div key={i} style={{background:C.surf,borderRadius:8,padding:`${DASH_STAT_PAD_Y}px ${DASH_STAT_PAD_X}px`,boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)',cursor:'pointer',display:'flex',alignItems:'center',gap:10,minHeight:0}}
               onClick={()=>onNavWithTab?onNavWithTab(s.id):onNav('properties')}
@@ -1293,6 +1304,15 @@ const PROP_LIST_TBL_CREATED_STICKY_CSS=!PROP_LIST_SHOW_ROW_ACTIONS
 const PROP_LIST_TBL_ACTION_CSS=PROP_LIST_SHOW_ROW_ACTIONS
   ? `.prop-list-tbl .prop-col-action{${PROP_LIST_STICKY_COL};z-index:3;overflow:visible!important;min-width:${PROP_ROW_ACTION_COL_W}px}.prop-list-tbl thead .prop-col-action{z-index:5;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-action{background:#FAFBFF!important}`
   : '';
+const PROP_RENT_COL={
+  check:32,star:32,status:76,trade:78,tag:86,
+  contractArea:108,exclusiveArea:108,unitFloor:72,
+  deposit:100,rent:92,maintenance:80,lastCall:82,moveIn:90,
+};
+const PROP_RENT_COL_FIXED=Object.values(PROP_RENT_COL).reduce((a,b)=>a+b,0);
+const PROP_RENT_LIST_MIN_W=PROP_RENT_COL_FIXED+PROP_ADDR_MIN;
+const propRentAddrColWidth=`min(${PROP_ADDR_NOM}px, max(${PROP_ADDR_MIN}px, calc(100% - ${PROP_RENT_COL_FIXED}px)))`;
+const PROP_RENT_TBL_MOVEIN_CSS=`.prop-list-tbl .prop-col-movein{${PROP_LIST_STICKY_COL};z-index:2;min-width:${PROP_RENT_COL.moveIn}px}.prop-list-tbl thead .prop-col-movein{z-index:4;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-movein{background:#FAFBFF!important}`;
 const FOLDER_LIST_MIN_W=1150;
 const FOLDER_TBL_STYLE=`.folder-prop-tbl th,.folder-prop-tbl td{padding:10px 8px!important;vertical-align:middle;letter-spacing:-0.01em}.folder-prop-tbl .f-col-star{text-align:center}.folder-prop-tbl .f-col-num{text-align:right!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-num{text-align:right!important}.folder-prop-tbl .f-col-zone{text-align:center!important;white-space:nowrap;font-size:12px;overflow:hidden;text-overflow:ellipsis}.folder-prop-tbl th.f-col-zone{text-align:center!important}.folder-prop-tbl .f-col-date{text-align:center!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-date{text-align:center!important}`;
 
@@ -1392,9 +1412,6 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
     </>
   );
 };
-
-const PROP_LIST_TABS=new Set(['ALL','NEW','ACTIVE','HOLD','COMPLETED','FAV','FOLDER']);
-const normalizePropListTab=(tab)=>PROP_LIST_TABS.has(tab)?tab:'ALL';
 
 const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeleteProperty})=>{
   const P=useProperties();
@@ -1509,21 +1526,30 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(el.scrollHeight-el.scrollTop-el.clientHeight<80)setVisibleCount(v=>v+20);
     savePropListState({ scrollTop: el.scrollTop });
   };
-  const statusTabList=[
-    {id:'ALL',label:'전체'},
-    {id:'FAV',label:'즐겨찾기'},
-    {id:'FOLDER',label:'폴더'},
-    {id:'NEW',label:'신규'},
-    {id:'ACTIVE',label:'진행중'},
-    {id:'HOLD',label:'보류'},
-    {id:'COMPLETED',label:'계약완료'},
-  ];
-  const folderPropCount=baseProps.filter(p=>(propFolders[p.id]||[]).length>0).length;
+  const sanitizeTradeFiltersForTab=(tab)=>{
+    setColFilter((f)=>tradeAllowedOnTab(f.trade,tab)?f:{...f,trade:''});
+    setAdvTrade((t)=>tradeAllowedOnTab(t,tab)?t:'');
+    setAppliedAdv((a)=>{
+      if(!a||tradeAllowedOnTab(a.trade,tab)) return a;
+      return {...a,trade:''};
+    });
+  };
+  useEffect(()=>{
+    sanitizeTradeFiltersForTab(statusTab);
+    const sortSet=isRentListTab(statusTab)?RENT_LIST_SORT_KEYS:SALE_LIST_SORT_KEYS;
+    if(sortKey&&!sortSet.has(sortKey)){setSortKey('created');setSortDir('desc');}
+  }, [statusTab]);
+  const statusTabList=PROP_LIST_TABS;
+  const rentList=isRentListTab(statusTab);
+  const listTradeOpts=tradesForListTab(statusTab).map((k)=>({id:k,label:rentList?(RENT_TRADE_LABELS[k]||TL[k]):(TL[k]||k)}));
+  const sortMark=(key)=>(
+    <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey===key?1:.28}}>
+      {sortKey===key&&sortDir==='asc'?'▲':'▼'}
+    </span>
+  );
   const priceOfForFilter=(p)=>priceInManForFilter(p);
   const rows=baseProps.filter(p=>{
-    if(statusTab==='FAV'&&!p.fav) return false;
-    if(statusTab==='FOLDER'&&!(propFolders[p.id]||[]).length) return false;
-    if(statusTab!=='ALL'&&statusTab!=='FAV'&&statusTab!=='FOLDER'&&p.status!==statusTab) return false;
+    if(!propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0})) return false;
     if(colFilter.tag&&p.tag!==colFilter.tag) return false;
     if(colFilter.trade&&p.trade!==colFilter.trade) return false;
     if(colFilter.status&&p.status!==colFilter.status) return false;
@@ -1557,6 +1583,12 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='landPy') return calcPyUnitPriceMan(p.price,p.land)??-1;
     if(key==='lastCall') return p.lastCall==='—'?'':p.lastCall;
     if(key==='created') return p.created;
+    if(key==='contractArea') return parseFloat(p.contractArea)||-1;
+    if(key==='exclusiveArea') return parseFloat(p.exclusiveArea)||-1;
+    if(key==='deposit') return rentalDepositMan(p);
+    if(key==='rent') return rentalRentMan(p);
+    if(key==='maintenance') return rentalMaintMan(p);
+    if(key==='moveInDate') return p.moveInDate||'';
     return '';
   };
   const sorted=[...rows].sort((a,b)=>{
@@ -1743,16 +1775,20 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
       )}
       {/* Status filter tabs */}
       <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',gap:0,overflowX:isMobile?'auto':'visible',flexShrink:0}}>
-        {statusTabList.map(t=>(
-          <div key={t.id} onClick={()=>{setStatusTab(t.id);setVisibleCount(20);setSearchParams(t.id==='ALL'?{}:{tab:t.id},{replace:true});}} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:statusTab===t.id?600:400,color:statusTab===t.id?C.brand:C.txM,borderBottom:statusTab===t.id?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s',display:'flex',alignItems:'center',gap:5}}>
+        {statusTabList.map(t=>{
+          const active=statusTab===t.id;
+          return (
+          <React.Fragment key={t.id}>
+          {t.separate&&<div aria-hidden style={{width:1,alignSelf:'stretch',background:C.bdr,margin:'8px 6px',flexShrink:0}}/>}
+          <div onClick={()=>{setStatusTab(t.id);setVisibleCount(20);setSearchParams(t.id==='ALL'?{}:{tab:t.id},{replace:true});}} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:active?600:400,color:active?C.brand:C.txM,borderBottom:active?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s',display:'flex',alignItems:'center',gap:5}}>
             {t.label}
-            {t.id!=='ALL'&&<span style={{fontSize:12,color:t.id==='FAV'?'#F59E0B':C.txP}}>{
-              t.id==='FAV'?P.filter(p=>p.fav).length:
-              t.id==='FOLDER'?folderPropCount:
-              P.filter(p=>p.status===t.id).length
+            {t.id!=='ALL'&&<span style={{fontSize:12,color:t.id==='FAV'?'#F59E0B':t.id==='RENT'?'#0D9488':C.txP}}>{
+              countForListTab(baseProps,t.id,propFolders)
             }</span>}
           </div>
-        ))}
+          </React.Fragment>
+          );
+        })}
       </div>
       {filter&&(
         <div key={filterResetKey} style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:'16px 28px'}}>
@@ -1761,7 +1797,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>거래방식</div>
               <select className="sel" style={{height:34,fontSize:13}} value={advTrade} onChange={e=>setAdvTrade(e.target.value)}>
                 <option value="">전체</option>
-                {Object.entries(TL).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
+                {listTradeOpts.map((o)=>(<option key={o.id} value={o.id}>{o.label}</option>))}
               </select>
             </div>
             <div>
@@ -1892,26 +1928,41 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
         )}
         {statusTab!=='FOLDER'&&(
         isMobile?(
-          <PropertyCardList properties={visible} onOpen={openProperty} onToggleFav={togglePropertyFav} getSharedLabel={getSharedLabel} emptyMessage="조건에 맞는 매물이 없습니다"/>
+          <PropertyCardList properties={visible} variant={rentList?'rental':'sale'} onOpen={openProperty} onToggleFav={togglePropertyFav} getSharedLabel={getSharedLabel} emptyMessage={rentList?'등록된 임대 매물이 없습니다':'조건에 맞는 매물이 없습니다'}/>
         ):(
         <div style={{background:C.surf,borderRadius:10,overflowX:'auto',padding:`0 ${PROP_LIST_PAD_X}px`,boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
-          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
-          <table className="tbl prop-list-tbl" style={{tableLayout:'fixed',minWidth:PROP_LIST_MIN_W,width:'100%'}} onClick={()=>setOpenColFilter(null)}>
+          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${rentList?PROP_RENT_TBL_MOVEIN_CSS:PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
+          <table className="tbl prop-list-tbl" style={{tableLayout:'fixed',minWidth:rentList?PROP_RENT_LIST_MIN_W:PROP_LIST_MIN_W,width:'100%'}} onClick={()=>setOpenColFilter(null)}>
             <colgroup>
               <col style={{width:PROP_COL.check}}/>
               <col style={{width:PROP_COL.star}}/>
               <col style={{width:PROP_COL.status}}/>
-              <col style={{width:PROP_COL.trade}}/>
+              <col style={{width:rentList?PROP_RENT_COL.trade:PROP_COL.trade}}/>
               <col style={{width:PROP_COL.tag}}/>
-              <col style={{width:propAddrColWidth}}/>
-              <col style={{width:PROP_PRICE}}/>
-              <col style={{width:PROP_COL.roi}}/>
-              <col style={{width:PROP_COL.landArea}}/>
-              <col style={{width:PROP_COL.floorArea}}/>
-              <col style={{width:PROP_COL.zoning}}/>
-              <col style={{width:PROP_COL.landPy}}/>
-              <col style={{width:PROP_COL.lastCall}}/>
-              <col style={{width:PROP_COL.created}}/>
+              <col style={{width:rentList?propRentAddrColWidth:propAddrColWidth}}/>
+              {rentList?(
+                <>
+                  <col style={{width:PROP_RENT_COL.contractArea}}/>
+                  <col style={{width:PROP_RENT_COL.exclusiveArea}}/>
+                  <col style={{width:PROP_RENT_COL.unitFloor}}/>
+                  <col style={{width:PROP_RENT_COL.deposit}}/>
+                  <col style={{width:PROP_RENT_COL.rent}}/>
+                  <col style={{width:PROP_RENT_COL.maintenance}}/>
+                  <col style={{width:PROP_RENT_COL.lastCall}}/>
+                  <col style={{width:PROP_RENT_COL.moveIn}}/>
+                </>
+              ):(
+                <>
+                  <col style={{width:PROP_PRICE}}/>
+                  <col style={{width:PROP_COL.roi}}/>
+                  <col style={{width:PROP_COL.landArea}}/>
+                  <col style={{width:PROP_COL.floorArea}}/>
+                  <col style={{width:PROP_COL.zoning}}/>
+                  <col style={{width:PROP_COL.landPy}}/>
+                  <col style={{width:PROP_COL.lastCall}}/>
+                  <col style={{width:PROP_COL.created}}/>
+                </>
+              )}
               {PROP_LIST_SHOW_ROW_ACTIONS&&<col style={{width:PROP_COL.action}}/>}
             </colgroup>
             <thead>
@@ -1944,9 +1995,9 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:120,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,trade:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.trade?C.brand:C.tx,fontWeight:!colFilter.trade?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {Object.entries(TL).map(([k,v])=>(
-                        <div key={k} onClick={()=>{setColFilter(f=>({...f,trade:k}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.trade===k?C.brand:C.tx,fontWeight:colFilter.trade===k?600:400}}
-                          onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{v}</div>
+                      {listTradeOpts.map((o)=>(
+                        <div key={o.id} onClick={()=>{setColFilter(f=>({...f,trade:o.id}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.trade===o.id?C.brand:C.tx,fontWeight:colFilter.trade===o.id?600:400}}
+                          onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{o.label}</div>
                       ))}
                     </div>
                   )}
@@ -1958,7 +2009,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:140,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,tag:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.tag?C.brand:C.tx,fontWeight:!colFilter.tag?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {[...new Set(P.map(p=>p.tag))].map(t=>(
+                      {[...new Set(baseProps.filter((p)=>!rentList||isRentalListProperty(p)).map(p=>p.tag).filter(Boolean))].map(t=>(
                         <div key={t} onClick={()=>{setColFilter(f=>({...f,tag:t}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.tag===t?C.brand:C.tx,fontWeight:colFilter.tag===t?600:400}}
                           onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{t}</div>
                       ))}
@@ -1966,6 +2017,19 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                   )}
                 </th>
                 <th className="prop-col-addr">주소 / 건물명</th>
+                {rentList?(
+                  <>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('contractArea')}>계약면적 {sortMark('contractArea')}</th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('exclusiveArea')}>전용면적 {sortMark('exclusiveArea')}</th>
+                    <th className="prop-col-metrics" style={{textAlign:'center'}}>해당층</th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('deposit')}>보증금 {sortMark('deposit')}</th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('rent')}>임대료 {sortMark('rent')}</th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('maintenance')}>관리비 {sortMark('maintenance')}</th>
+                    <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>최종통화일 {sortMark('lastCall')}</th>
+                    <th className="prop-col-date prop-col-movein prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('moveInDate')}>입주가능일 {sortMark('moveInDate')}</th>
+                  </>
+                ):(
+                  <>
                 <th onClick={()=>toggleSort('price')} className="prop-col-price prop-col-metrics" style={{cursor:'pointer'}}>
                   가격 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='price'?1:.28}}>
                     {sortKey==='price'&&sortDir==='asc'?'▲':'▼'}
@@ -2006,11 +2070,16 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     {sortKey==='created'&&sortDir==='asc'?'▲':'▼'}
                   </span>
                 </th>
+                  </>
+                )}
                 {PROP_LIST_SHOW_ROW_ACTIONS&&<th className="prop-col-action"/>}
               </tr>
             </thead>
             <tbody>
-              {visible.map(p=>(
+              {visible.map(p=>rentList?(
+                <PropRentRow key={p.id} p={p} onOpenDetail={openProperty} onToggleFav={togglePropertyFav} checked={checked} toggleCheck={toggleCheck}
+                  sharedLabel={getSharedLabel(p)}/>
+              ):(
                 <PropRow key={p.id} p={p} onOpenDetail={openProperty} onOpen={onOpen} onToggleFav={togglePropertyFav} checked={checked} toggleCheck={toggleCheck}
                   onDelete={handleDeleteProperty}
                   sharedLabel={getSharedLabel(p)}
@@ -2071,6 +2140,37 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     </div>
   );
 };
+const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})=>(
+  <tr onClick={()=>onOpenDetail(p)}>
+    <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
+      <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${checked[p.id]?C.brand:C.bdrSt}`,background:checked[p.id]?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
+        {checked[p.id]&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+      </div>
+    </td>
+    <td onClick={e=>e.stopPropagation()} style={{cursor:'default',textAlign:'center'}}>
+      <span style={{fontSize:18,color:p.fav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}}
+        onClick={e=>onToggleFav(p,e)}>
+        {p.fav?'★':'☆'}
+      </span>
+    </td>
+    <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
+    <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{rentalTradeLabel(p.trade)}</span></td>
+    <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
+    <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
+      <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
+      {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
+      {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
+    </td>
+    <td className="prop-col-num prop-col-metrics" style={{color:p.contractArea>0?C.tx:C.txP}} title={fmtRentalAreaCell(p.contractArea)}>{fmtRentalAreaCell(p.contractArea)}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:p.exclusiveArea>0?C.tx:C.txP}} title={fmtRentalAreaCell(p.exclusiveArea)}>{fmtRentalAreaCell(p.exclusiveArea)}</td>
+    <td className="prop-col-metrics" style={{textAlign:'center',fontSize:12,color:p.unitFloor?C.tx:C.txP,whiteSpace:'nowrap'}}>{p.unitFloor||'—'}</td>
+    <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalDepositMan(p))}</td>
+    <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalRentMan(p))}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:rentalMaintMan(p)>0?C.tx:C.txP}}>{fmtRentalMan(rentalMaintMan(p))}</td>
+    <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
+    <td className="prop-col-date prop-col-movein prop-col-metrics" style={{color:p.moveInDate?C.tx:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{fmtListDotDate(p.moveInDate)}</td>
+  </tr>
+);
 const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,sharedLabel,canEditProperty=true})=>(
   <tr onClick={()=>onOpenDetail(p)}>
     <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
@@ -2321,6 +2421,7 @@ const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainT
           <div><L>해당 층</L><input className="inp" value={priceForm.unitFloor} onChange={set('unitFloor')} placeholder="예: 3F, B1, 2~3층"/></div>
           <div><L>전용면적 (㎡)</L><input className="inp" inputMode="decimal" value={decVal('exclusiveArea')} onChange={setDecNum('exclusiveArea')} placeholder="예: 84.5"/></div>
           <div><L>계약면적 (㎡)</L><input className="inp" inputMode="decimal" value={decVal('contractArea')} onChange={setDecNum('contractArea')} placeholder="예: 110.2"/></div>
+          <div><L>입주가능일</L><input type="date" className="inp" value={priceForm.moveInDate||''} onChange={set('moveInDate')}/></div>
           <div><L>권리금 (만)</L><input className="inp" inputMode="numeric" value={numVal('premium')} onChange={setNum('premium')} placeholder="0"/></div>
         </>}
         {(trade==='JEONSE'||trade==='MONTHLY'||trade==='SHORT_TERM')&&(

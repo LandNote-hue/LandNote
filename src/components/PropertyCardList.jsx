@@ -1,5 +1,9 @@
 import { propDisplayAddr } from '../utils/propAddress.js';
 import { fmtPropPrice as propPrice } from '../utils/formatMoney.js';
+import {
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell,
+  fmtListDotDate, rentalTradeLabel,
+} from '../utils/propRentList.js';
 
 const BRAND = '#C8102E';
 const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '분양' };
@@ -41,6 +45,7 @@ export function PropertyCardList({
   onToggleFav,
   emptyMessage = '매물이 없습니다',
   getSharedLabel,
+  variant = 'sale',
 }) {
   if (!properties.length) {
     return (
@@ -99,16 +104,35 @@ export function PropertyCardList({
                 </span>
               )}
               {p.trade && (
-                <span style={{ fontSize: 12, color: '#6B7280' }}>{TL[p.trade] || p.trade}</span>
+                <span style={{ fontSize: 12, color: '#6B7280' }}>
+                  {variant === 'rental' ? rentalTradeLabel(p.trade) : (TL[p.trade] || p.trade)}
+                </span>
               )}
             </div>
-            <div style={{
-              fontSize: 15, fontWeight: 700, color: '#2563EB', flexShrink: 0,
-              whiteSpace: 'nowrap', textAlign: 'right',
-            }}>
-              {propPrice(p)}
-            </div>
+            {variant !== 'rental' && (
+              <div style={{
+                fontSize: 15, fontWeight: 700, color: '#2563EB', flexShrink: 0,
+                whiteSpace: 'nowrap', textAlign: 'right',
+              }}>
+                {propPrice(p)}
+              </div>
+            )}
           </div>
+          {variant === 'rental' && (
+            <div style={{
+              marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px',
+              fontSize: 12, color: '#475569',
+            }}>
+              <div>계약면적 <strong style={{ color: '#0F172A' }}>{fmtRentalAreaCell(p.contractArea)}</strong></div>
+              <div>전용면적 <strong style={{ color: '#0F172A' }}>{fmtRentalAreaCell(p.exclusiveArea)}</strong></div>
+              <div>해당층 <strong style={{ color: '#0F172A' }}>{p.unitFloor || '—'}</strong></div>
+              <div>보증금 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalDepositMan(p))}</strong></div>
+              <div>임대료 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalRentMan(p))}</strong></div>
+              <div>관리비 <strong style={{ color: '#0F172A' }}>{fmtRentalMan(rentalMaintMan(p))}</strong></div>
+              <div>최종통화일 {p.lastCall || '—'}</div>
+              <div>입주가능일 {fmtListDotDate(p.moveInDate)}</div>
+            </div>
+          )}
         </article>
         );
       })}

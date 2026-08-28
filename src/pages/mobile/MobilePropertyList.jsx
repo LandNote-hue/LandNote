@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProperties } from '../../hooks/useProperties.js';
 import { setPropertyFav } from '../../db.js';
@@ -9,20 +9,15 @@ import {
   DEFAULT_FOLDERS,
   DEFAULT_PROP_FOLDERS,
 } from '../../navigation/folderPersist.js';
+import { PROP_LIST_TABS, propertyBelongsToListTab, isRentListTab } from '../../utils/propListKind.js';
 import {
   MobilePage, M, MobileCloudDataHint, MobileCard,
   useMobileCloudBusy,
 } from './mobileUi.jsx';
 
-const STATUS_TABS = [
-  { id: 'ALL', label: '전체' },
-  { id: 'FAV', label: '즐겨찾기' },
-  { id: 'FOLDER', label: '폴더' },
-  { id: 'NEW', label: '신규' },
-  { id: 'ACTIVE', label: '진행중' },
-  { id: 'HOLD', label: '보류' },
-  { id: 'COMPLETED', label: '완료' },
-];
+const STATUS_TABS = PROP_LIST_TABS.map((t) => (
+  t.id === 'COMPLETED' ? { ...t, label: '완료' } : t
+));
 
 function readFolderSnapshot() {
   const saved = loadFolderState();
@@ -52,12 +47,9 @@ export function MobilePropertyList() {
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return properties
-      .filter((p) => {
-        if (statusTab === 'FAV') return !!p.fav;
-        if (statusTab === 'FOLDER') return (propFolders[p.id] || []).length > 0;
-        if (statusTab !== 'ALL') return p.status === statusTab;
-        return true;
-      })
+      .filter((p) => propertyBelongsToListTab(p, statusTab, {
+        inFolder: (propFolders[p.id] || []).length > 0,
+      }))
       .filter((p) => matchesSearch(p, q))
       .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
   }, [properties, statusTab, search, propFolders]);
@@ -99,21 +91,25 @@ export function MobilePropertyList() {
               padding: '0 14px', fontSize: 15, marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit',
             }}
           />
-          <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', paddingBottom: 2 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
             {STATUS_TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setStatusTab(t.id)}
-                style={{
-                  flexShrink: 0, height: 34, padding: '0 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                  border: `1.5px solid ${statusTab === t.id ? M.brand : M.bdr}`,
-                  background: statusTab === t.id ? M.brand : '#fff',
-                  color: statusTab === t.id ? '#fff' : M.txM, cursor: 'pointer', fontFamily: 'inherit',
-                }}
-              >
-                {t.label}
-              </button>
+              <Fragment key={t.id}>
+                {t.separate && (
+                  <span aria-hidden style={{ width: 1, height: 20, background: M.bdr, flexShrink: 0, margin: '0 2px' }} />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setStatusTab(t.id)}
+                  style={{
+                    flexShrink: 0, height: 34, padding: '0 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+                    border: `1.5px solid ${statusTab === t.id ? M.brand : M.bdr}`,
+                    background: statusTab === t.id ? M.brand : '#fff',
+                    color: statusTab === t.id ? '#fff' : M.txM, cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  {t.label}
+                </button>
+              </Fragment>
             ))}
           </div>
 
@@ -176,12 +172,15 @@ export function MobilePropertyList() {
           ) : (
             <PropertyCardList
               properties={visible}
+              variant={isRentListTab(statusTab) ? 'rental' : 'sale'}
               onOpen={(p) => navigate(`/properties/${p.id}`)}
               onToggleFav={(p, e) => { e?.stopPropagation?.(); setPropertyFav(p.id, !p.fav); }}
               emptyMessage={
                 statusTab === 'FAV'
                   ? '즐겨찾기한 매물이 없습니다'
-                  : '조건에 맞는 매물이 없습니다'
+                  : isRentListTab(statusTab)
+                    ? '등록된 임대 매물이 없습니다'
+                    : '조건에 맞는 매물이 없습니다'
               }
             />
           )}
