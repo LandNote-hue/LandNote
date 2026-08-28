@@ -2668,11 +2668,6 @@ const PropRegister=({onNav})=>{
               <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={onAddressSearch}/>
               <Btn role="page-secondary" ch="재조회" ic="ti-refresh" on={refetchPublicData}/>
             </div>
-            {addressKeys.pnu&&(
-              <div style={{fontSize:11,color:C.txP,fontFamily:'monospace',letterSpacing:'.04em'}}>
-                PNU {addressKeys.pnu} · 시군구 {addressKeys.sigunguCd} · 법정동 {addressKeys.bjdongCd} · 본번 {addressKeys.bun} · 부번 {addressKeys.ji}
-              </div>
-            )}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
               <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>지번주소</div>
                 <input className="inp" value={locationForm.jibunAddr} readOnly style={{background:C.surf2}}/></div>
@@ -6528,11 +6523,6 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                   <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={onAddressSearch}/>
                   <Btn role="page-secondary" ch="재조회" ic="ti-refresh" on={refetchPublicData}/>
                 </div>
-                {addressKeys.pnu&&(
-                  <div style={{fontSize:11,color:C.txP,fontFamily:'monospace',letterSpacing:'.04em'}}>
-                    PNU {addressKeys.pnu} · 시군구 {addressKeys.sigunguCd} · 법정동 {addressKeys.bjdongCd} · 본번 {addressKeys.bun} · 부번 {addressKeys.ji}
-                  </div>
-                )}
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
                   <div><FL label="지번주소"/>
                     <input className="inp" value={locationForm.jibunAddr||prop.jibunAddr||prop.addr||''} readOnly style={{background:C.surf2}}/></div>
