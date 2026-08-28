@@ -1,4 +1,4 @@
-import { parseFormNum, deriveSalePriceFormFields } from './propertyForm.js';
+import { parseFormNum, deriveSalePriceFormFields, fmtMoveInDate } from './propertyForm.js';
 import {
   resolveSaleInvestmentMetrics,
 } from './propInvestment.js';
@@ -187,7 +187,7 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '전세보증금', v: fmtManwonDisplay(normalizeJDepToMan(prop.jDep)), c: '#C8102E' },
       ...rentalUnitInfoItems(prop),
       ...(prop.moveInDate
-        ? [{ k: '입주가능일', v: String(prop.moveInDate).replace(/-/g, '.') }]
+        ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
         : []),
       ...(prop.jLeaseEnd || prop.leaseEnd
         ? [{ k: '전세계약만료일', v: String(prop.jLeaseEnd || prop.leaseEnd).replace(/-/g, '.') }]
@@ -202,7 +202,7 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       ...rentalUnitInfoItems(prop),
       ...(prop.moveInDate
-        ? [{ k: '입주가능일', v: String(prop.moveInDate).replace(/-/g, '.') }]
+        ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
         : []),
       ...(prop.maintenanceDetail ? [{ k: '관리비 포함', v: prop.maintenanceDetail, full: true }] : []),
     ];
@@ -215,7 +215,7 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       ...rentalUnitInfoItems(prop),
       ...(prop.moveInDate
-        ? [{ k: '입주가능일', v: String(prop.moveInDate).replace(/-/g, '.') }]
+        ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
         : []),
       ...(prop.shortTermPeriod ? [{ k: '단기임대기간', v: prop.shortTermPeriod }] : []),
     ];

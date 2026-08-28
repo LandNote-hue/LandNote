@@ -1,5 +1,6 @@
 import { fmtNum, normalizeJDepToMan, formatKoreanAmountFromMan, m2ToPyung } from './formatMoney.js';
 import { RENT_TRADE_LABELS } from './propListKind.js';
+import { fmtMoveInDate, isMoveInImmediate } from './propertyForm.js';
 
 export { RENT_TRADE_LABELS };
 
@@ -35,9 +36,14 @@ export function fmtRentalAreaCell(m2) {
 }
 
 export function fmtListDotDate(iso) {
-  if (!iso) return '—';
-  const [y, m, d] = String(iso).split('-');
-  return y && m && d ? `${y}.${m}.${d}` : String(iso).replace(/-/g, '.');
+  return fmtMoveInDate(iso);
+}
+
+/** 즉시입주는 날짜보다 앞에 오도록 정렬 */
+export function moveInSortKey(v) {
+  if (!v) return '';
+  if (isMoveInImmediate(v)) return '0000-00-00';
+  return String(v);
 }
 
 export function rentalTradeLabel(trade) {

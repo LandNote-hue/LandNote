@@ -45,7 +45,7 @@ import {
 } from "./utils/propListKind.js";
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell,
-  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
@@ -134,7 +134,7 @@ import {
 import {
   emptyPriceForm, priceFormFromProperty, buildPriceFields,
   landFromProperty, buildingFromProperty, landToPropertyFields, buildingToPropertyFields,
-  detailFormFromProperty,
+  detailFormFromProperty, MOVE_IN_IMMEDIATE, isMoveInImmediate,
 } from "./utils/propertyForm.js";
 import {
   showsSaleInvestmentFields, showsPremiumField, showsRentalUnitFields,
@@ -1588,7 +1588,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='deposit') return rentalDepositMan(p);
     if(key==='rent') return rentalRentMan(p);
     if(key==='maintenance') return rentalMaintMan(p);
-    if(key==='moveInDate') return p.moveInDate||'';
+    if(key==='moveInDate') return moveInSortKey(p.moveInDate);
     return '';
   };
   const sorted=[...rows].sort((a,b)=>{
@@ -2366,7 +2366,7 @@ const FolderManageWin=({folders,setFolders,propFolders,setPropFolders,onClose,on
 };
 
 /* ═══ PROPERTY REGISTER ═══ */
-const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainType,subType})=>{
+const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainType,subType,collectMoveInDate=false})=>{
   const set=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:e.target.value}));
   const setNum=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:fmtInputNum(e.target.value)}));
   const setDecNum=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:fmtInputNum(e.target.value,{decimal:true})}));
@@ -2410,6 +2410,24 @@ const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainT
           <div><L req>월세 (만)</L><input className="inp" inputMode="numeric" value={numVal('mRent')} onChange={setNum('mRent')} placeholder="예: 350"/></div>
           <div><L>관리비 (만)</L><input className="inp" inputMode="numeric" value={numVal('maintenance')} onChange={setNum('maintenance')} placeholder="0"/></div>
           <div><L>관리비 포함 내역</L><input className="inp" value={priceForm.maintenanceDetail} onChange={set('maintenanceDetail')} placeholder="예: 전기·수도·가스"/></div>
+          {collectMoveInDate&&(()=>{
+            const immediate=isMoveInImmediate(priceForm.moveInDate);
+            const immId=`${idPrefix}moveInImm`;
+            return(
+              <div>
+                <L>입주가능일</L>
+                <input type="date" className="inp" value={immediate?'':(priceForm.moveInDate||'')}
+                  onChange={(e)=>setPriceForm((f)=>({...f,moveInDate:e.target.value}))}
+                  disabled={immediate} style={immediate?{background:C.surf2}:undefined}/>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8}}>
+                  <input type="checkbox" id={immId} checked={immediate}
+                    onChange={(e)=>setPriceForm((f)=>({...f,moveInDate:e.target.checked?MOVE_IN_IMMEDIATE:''}))}
+                    style={{width:16,height:16,accentColor:C.brand}}/>
+                  <label htmlFor={immId} style={{fontSize:13,color:C.txS,cursor:'pointer'}}>즉시입주가능</label>
+                </div>
+              </div>
+            );
+          })()}
         </>}
         {trade==='SHORT_TERM'&&<>
           <div><L req>보증금 (만)</L><input className="inp" inputMode="numeric" value={numVal('mDep')} onChange={setNum('mDep')} placeholder="예: 1000"/></div>
@@ -2421,7 +2439,6 @@ const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainT
           <div><L>해당 층</L><input className="inp" value={priceForm.unitFloor} onChange={set('unitFloor')} placeholder="예: 3F, B1, 2~3층"/></div>
           <div><L>전용면적 (㎡)</L><input className="inp" inputMode="decimal" value={decVal('exclusiveArea')} onChange={setDecNum('exclusiveArea')} placeholder="예: 84.5"/></div>
           <div><L>계약면적 (㎡)</L><input className="inp" inputMode="decimal" value={decVal('contractArea')} onChange={setDecNum('contractArea')} placeholder="예: 110.2"/></div>
-          <div><L>입주가능일</L><input type="date" className="inp" value={priceForm.moveInDate||''} onChange={set('moveInDate')}/></div>
           <div><L>권리금 (만)</L><input className="inp" inputMode="numeric" value={numVal('premium')} onChange={setNum('premium')} placeholder="0"/></div>
         </>}
         {(trade==='JEONSE'||trade==='MONTHLY'||trade==='SHORT_TERM')&&(
@@ -2648,7 +2665,7 @@ const PropRegister=({onNav})=>{
           {/* 거래방식·가격 */}
           <SecLabel ch="거래방식 · 가격"/>
           <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.bdr}`}}>
-            <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="reg_" mainType={mainType} subType={subType}/>
+            <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="reg_" mainType={mainType} subType={subType} collectMoveInDate/>
           </div>
           {/* 토지정보 — landForm: 토지대장·이용계획 API 매핑 */}
           <SecLabel ch="토지정보" badge={apiBadge}/>
@@ -6509,7 +6526,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
               {/* 3. 거래방식 · 가격 */}
               <SecLabel ch="거래방식 · 가격"/>
               <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bdr}`}}>
-                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType}/>
+                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType} collectMoveInDate={Boolean(prop.moveInDate)}/>
               </div>
 
               {/* 3-1. 임대차관리 (매매·분양) */}

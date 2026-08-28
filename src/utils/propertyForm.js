@@ -33,6 +33,24 @@ function fmtFormDecimal(v) {
   return fmtInputNum(v, { decimal: true });
 }
 
+/** 입주가능일 — 날짜(YYYY-MM-DD) 또는 즉시입주 */
+export const MOVE_IN_IMMEDIATE = 'IMMEDIATE';
+
+/** @param {unknown} v */
+export function isMoveInImmediate(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return false;
+  return s === MOVE_IN_IMMEDIATE || s === '즉시입주가능' || s === '즉시입주';
+}
+
+/** @param {unknown} v */
+export function fmtMoveInDate(v) {
+  if (v == null || v === '') return '—';
+  if (isMoveInImmediate(v)) return '즉시입주가능';
+  const [y, m, d] = String(v).split('-');
+  return y && m && d ? `${y}.${m}.${d}` : String(v).replace(/-/g, '.');
+}
+
 export function emptyPriceForm() {
   return {
     price: '',
