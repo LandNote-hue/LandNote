@@ -6535,7 +6535,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
               {/* 3. 거래방식 · 가격 */}
               <SecLabel ch="거래방식 · 가격"/>
               <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bdr}`}}>
-                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType} collectMoveInDate={Boolean(prop.moveInDate)}/>
+                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType} collectMoveInDate/>
               </div>
 
               {/* 3-1. 임대차관리 (매매·분양) */}
