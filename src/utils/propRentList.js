@@ -27,12 +27,19 @@ export function fmtRentalMan(v) {
   return formatKoreanAmountFromMan(n);
 }
 
-export function fmtRentalAreaCell(m2) {
+export function rentalAreaParts(m2) {
   const n = Number(m2);
-  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (!Number.isFinite(n) || n <= 0) return null;
   const py = m2ToPyung(n);
   const m2Label = `${fmtNum(n, { decimal: true })}㎡`;
-  return py != null ? `${m2Label} (${fmtNum(py, { decimal: true })}평)` : m2Label;
+  const pyLabel = py != null ? `(${fmtNum(py, { decimal: true })}평)` : null;
+  return { m2Label, pyLabel };
+}
+
+export function fmtRentalAreaCell(m2) {
+  const parts = rentalAreaParts(m2);
+  if (!parts) return '—';
+  return parts.pyLabel ? `${parts.m2Label} ${parts.pyLabel}` : parts.m2Label;
 }
 
 export function fmtListDotDate(iso) {

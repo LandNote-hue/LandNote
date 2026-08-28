@@ -44,7 +44,7 @@ import {
   propertyBelongsToListTab, countForListTab, isRentalListProperty, RENT_TRADE_LABELS,
 } from "./utils/propListKind.js";
 import {
-  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell,
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
   fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
@@ -1313,6 +1313,7 @@ const PROP_RENT_COL_FIXED=Object.values(PROP_RENT_COL).reduce((a,b)=>a+b,0);
 const PROP_RENT_LIST_MIN_W=PROP_RENT_COL_FIXED+PROP_ADDR_MIN;
 const propRentAddrColWidth=`min(${PROP_ADDR_NOM}px, max(${PROP_ADDR_MIN}px, calc(100% - ${PROP_RENT_COL_FIXED}px)))`;
 const PROP_RENT_TBL_MOVEIN_CSS=`.prop-list-tbl .prop-col-movein{${PROP_LIST_STICKY_COL};z-index:2;min-width:${PROP_RENT_COL.moveIn}px}.prop-list-tbl thead .prop-col-movein{z-index:4;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-movein{background:#FAFBFF!important}`;
+const PROP_RENT_TBL_AREA_CSS=`.prop-list-tbl td.prop-col-area{white-space:normal!important;line-height:1.3;height:auto}.prop-list-tbl tbody td{height:auto}`;
 const FOLDER_LIST_MIN_W=1150;
 const FOLDER_TBL_STYLE=`.folder-prop-tbl th,.folder-prop-tbl td{padding:10px 8px!important;vertical-align:middle;letter-spacing:-0.01em}.folder-prop-tbl .f-col-star{text-align:center}.folder-prop-tbl .f-col-num{text-align:right!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-num{text-align:right!important}.folder-prop-tbl .f-col-zone{text-align:center!important;white-space:nowrap;font-size:12px;overflow:hidden;text-overflow:ellipsis}.folder-prop-tbl th.f-col-zone{text-align:center!important}.folder-prop-tbl .f-col-date{text-align:center!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-date{text-align:center!important}`;
 
@@ -1931,7 +1932,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
           <PropertyCardList properties={visible} variant={rentList?'rental':'sale'} onOpen={openProperty} onToggleFav={togglePropertyFav} getSharedLabel={getSharedLabel} emptyMessage={rentList?'등록된 임대 매물이 없습니다':'조건에 맞는 매물이 없습니다'}/>
         ):(
         <div style={{background:C.surf,borderRadius:10,overflowX:'auto',padding:`0 ${PROP_LIST_PAD_X}px`,boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
-          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${rentList?PROP_RENT_TBL_MOVEIN_CSS:PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
+          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${rentList?PROP_RENT_TBL_MOVEIN_CSS+PROP_RENT_TBL_AREA_CSS:PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
           <table className="tbl prop-list-tbl" style={{tableLayout:'fixed',minWidth:rentList?PROP_RENT_LIST_MIN_W:PROP_LIST_MIN_W,width:'100%'}} onClick={()=>setOpenColFilter(null)}>
             <colgroup>
               <col style={{width:PROP_COL.check}}/>
@@ -2140,6 +2141,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     </div>
   );
 };
+const RentalAreaCell=({m2})=>{
+  const a=rentalAreaParts(m2);
+  return (
+    <td className="prop-col-num prop-col-metrics prop-col-area" style={{color:m2>0?C.tx:C.txP}} title={fmtRentalAreaCell(m2)}>
+      {a?<>{a.m2Label}{a.pyLabel&&<div style={{fontSize:11,color:C.txM}}>{a.pyLabel}</div>}</>:'—'}
+    </td>
+  );
+};
 const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})=>(
   <tr onClick={()=>onOpenDetail(p)}>
     <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
@@ -2161,8 +2170,8 @@ const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})
       {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
       {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
     </td>
-    <td className="prop-col-num prop-col-metrics" style={{color:p.contractArea>0?C.tx:C.txP}} title={fmtRentalAreaCell(p.contractArea)}>{fmtRentalAreaCell(p.contractArea)}</td>
-    <td className="prop-col-num prop-col-metrics" style={{color:p.exclusiveArea>0?C.tx:C.txP}} title={fmtRentalAreaCell(p.exclusiveArea)}>{fmtRentalAreaCell(p.exclusiveArea)}</td>
+    <RentalAreaCell m2={p.contractArea}/>
+    <RentalAreaCell m2={p.exclusiveArea}/>
     <td className="prop-col-metrics" style={{textAlign:'center',fontSize:12,color:p.unitFloor?C.tx:C.txP,whiteSpace:'nowrap'}}>{p.unitFloor||'—'}</td>
     <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalDepositMan(p))}</td>
     <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalRentMan(p))}</td>
