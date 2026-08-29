@@ -30,6 +30,16 @@ function fmtAreaM2Display(m2) {
   return py != null ? `${m2Label} (${fmtNum(py, { decimal: true })}평)` : m2Label;
 }
 
+/** 월세 NOC — (월세+관리비)만 / 전용면적(평) */
+function fmtNocPerExclusivePy(prop) {
+  const rent = parseFormNum(prop.mRent) || 0;
+  const maint = parseFormNum(prop.maintenance) || 0;
+  const monthly = rent + maint;
+  const py = m2ToPyung(prop.exclusiveArea);
+  if (!(monthly > 0) || !py) return '—';
+  return `${fmtNum(monthly / py, { decimal: true })} 만/평`;
+}
+
 /** 전세·월세·단기 공통 유닛 정보 */
 function rentalUnitInfoItems(prop) {
   return [
@@ -200,10 +210,12 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: '#C8102E' },
       { k: '월세', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
-      ...rentalUnitInfoItems(prop),
-      ...(prop.moveInDate
-        ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
-        : []),
+      { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
+      { k: 'NOC', v: fmtNocPerExclusivePy(prop) },
+      { k: '입주가능일', v: prop.moveInDate ? fmtMoveInDate(prop.moveInDate) : '—' },
+      { k: '권리금', v: fmtManwonDisplay(prop.premium) },
+      { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },
+      { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
       ...(prop.maintenanceDetail ? [{ k: '관리비 포함', v: prop.maintenanceDetail, full: true }] : []),
     ];
   }
