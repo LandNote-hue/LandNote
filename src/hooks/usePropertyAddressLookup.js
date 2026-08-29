@@ -36,6 +36,28 @@ const initialLookupMeta = () => ({
   mode: 'register',
 });
 
+const PUBLIC_DATA_RETRY_ATTEMPTS = 3;
+const PUBLIC_DATA_RETRY_DELAY_MS = 800;
+const LOOKUP_FAIL_ALERT = '대장·토지 정보 조회에 실패했습니다. 주소 검색 또는 재조회로 다시 조회해 주세요.';
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** @template T @param {() => Promise<T>} run @param {number} attempts */
+async function withRetries(run, attempts = PUBLIC_DATA_RETRY_ATTEMPTS) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await run();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await sleep(PUBLIC_DATA_RETRY_DELAY_MS * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * 매물 등록·수정 — 주소 확정 후 공공데이터 자동 채움
  * @param {{ mode?: 'register'|'edit', includeExpos?: boolean, dongNm?: string, hoNm?: string }} [options]
@@ -107,16 +129,17 @@ export function usePropertyAddressLookup(options = {}) {
       const pnu = keys.pnu;
       const stdrYear = String(new Date().getFullYear());
 
-      const [building, vworld] = await Promise.all([
-        fetchAllBuildingLedger(queryKeys, { includeExpos, dongNm, hoNm }),
-        fetchVworldLandBundle(pnu, stdrYear),
-      ]);
-
-      const useFields = vworld.landUse?.fields?.length
-        ? vworld.landUse.fields
-        : (vworld.landUse?.item ? [vworld.landUse.item] : []);
-
-      const regulation = await fetchRegulationForPrimaryZone(pnu, useFields);
+      const { building, vworld, regulation } = await withRetries(async () => {
+        const [nextBuilding, nextVworld] = await Promise.all([
+          fetchAllBuildingLedger(queryKeys, { includeExpos, dongNm, hoNm }),
+          fetchVworldLandBundle(pnu, stdrYear),
+        ]);
+        const useFields = nextVworld.landUse?.fields?.length
+          ? nextVworld.landUse.fields
+          : (nextVworld.landUse?.item ? [nextVworld.landUse.item] : []);
+        const nextRegulation = await fetchRegulationForPrimaryZone(pnu, useFields);
+        return { building: nextBuilding, vworld: nextVworld, regulation: nextRegulation };
+      });
 
       setApiRaw({ building, land: { vworld, regulation } });
 
@@ -140,7 +163,8 @@ export function usePropertyAddressLookup(options = {}) {
     } catch (err) {
       const message = err instanceof Error ? err.message : '공공데이터 조회 실패';
       setLookup(s => ({ ...s, status: 'error', error: message }));
-      throw err;
+      window.alert(LOOKUP_FAIL_ALERT);
+      return { keys: addressData, skippedApi: true, error: message };
     }
   }, [mode, includeExpos, dongNm, hoNm]);
 

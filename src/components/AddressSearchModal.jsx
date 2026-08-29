@@ -135,22 +135,21 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
     return () => { cancelled = true; };
   }, [open, initialKeyword, autoSearchOnOpen]);
 
-  const pickItem = useCallback(async (item) => {
+  const pickItem = useCallback((item) => {
     if (!item?.jibunAddr && !item?.roadAddr) return;
-    try {
-      await onSelect({
-        roadAddr: item.roadAddr || '',
-        jibunAddr: item.jibunAddr || item.roadAddr || '',
-        admCd: item.admCd,
-        platGbCd: item.platGbCd,
-        bun: item.bun,
-        ji: item.ji,
-        pnu: item.pnu,
-      });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '주소 반영 실패');
-    }
+    const addr = {
+      roadAddr: item.roadAddr || '',
+      jibunAddr: item.jibunAddr || item.roadAddr || '',
+      admCd: item.admCd,
+      platGbCd: item.platGbCd,
+      bun: item.bun,
+      ji: item.ji,
+      pnu: item.pnu,
+    };
+    onClose();
+    Promise.resolve(onSelect(addr)).catch(() => {
+      /* 대장 연동 실패는 등록 페이지에서 안내 */
+    });
   }, [onSelect, onClose]);
 
   const onKeyDown = (e) => {
@@ -175,9 +174,9 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
   };
 
   const openOfficialPopup = (type) => {
-    const handler = async (addr) => {
-      await onSelect(addr);
+    const handler = (addr) => {
       onClose();
+      Promise.resolve(onSelect(addr)).catch(() => {});
     };
     try {
       if (type === 'jibun') openJusoJibunAddressPopup(handler);
