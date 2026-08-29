@@ -42,11 +42,11 @@ import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/cus
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
 import {
   PROP_LIST_TABS, normalizePropListTab, isRentListTab, tradesForListTab, tradeAllowedOnTab,
-  propertyBelongsToListTab, countForListTab, RENT_TRADE_LABELS,
+  propertyBelongsToListTab, countForListTab, RENT_TRADE_LABELS, propListTabLabel,
 } from "./utils/propListKind.js";
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
-  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, sortRentalListByJibunGroups,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
@@ -1597,7 +1597,9 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='addr') return rentalAddrSortKey(p);
     return '';
   };
-  const sorted=[...rows].sort((a,b)=>{
+  const sorted=rentList&&!sortKey
+    ? sortRentalListByJibunGroups(rows)
+    : [...rows].sort((a,b)=>{
     if(sortKey){
       const av=getSortVal(a,sortKey), bv=getSortVal(b,sortKey);
       if(typeof av==='string'&&typeof bv==='string'){
@@ -1731,7 +1733,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
         </div>
       )}
       {!isMobile?(
-      <PH title="매물 관리" sub={`${statusTabList.find(t=>t.id===statusTab)?.label||'전체'} ${rows.length}건`}
+      <PH title="매물 관리" sub={`${propListTabLabel(statusTab)} ${rows.length}건`}
         acts={<>
           <Btn role="page-secondary" ch="폴더 관리" ic="ti-folder" on={()=>onOpen('fm',null)}/>
           <Btn role="page-secondary" ch="지도로 보기" ic="ti-map-2" on={()=>onNav&&onNav('mapview')}/>
@@ -1759,7 +1761,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/></svg>
           </button>
         </div>
-        <div style={{fontSize:13,color:C.txM}}>{statusTabList.find(t=>t.id===statusTab)?.label||'전체'} <strong style={{color:C.tx}}>{rows.length}</strong>건</div>
+        <div style={{fontSize:13,color:C.txM}}>{propListTabLabel(statusTab)} <strong style={{color:C.tx}}>{rows.length}</strong>건</div>
       </div>
       )}
       {showOwnerScopeTabs&&(

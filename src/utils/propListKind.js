@@ -28,14 +28,27 @@ export const PROP_LIST_TABS = [
   { id: 'ALL', label: '전체' },
   { id: 'FAV', label: '즐겨찾기' },
   { id: 'FOLDER', label: '폴더' },
-  { id: 'NEW', label: '신규' },
-  { id: 'ACTIVE', label: '진행중' },
-  { id: 'HOLD', label: '보류' },
-  { id: 'COMPLETED', label: '계약완료' },
   { id: PROP_LIST_TAB_RENT, label: '임대', separate: true },
 ];
 
-export const PROP_LIST_TAB_IDS = new Set(PROP_LIST_TABS.map((t) => t.id));
+/** 목록 탭에서는 숨기지만 대시보드·URL·상태 필터는 유지 */
+export const PROP_LIST_STATUS_TAB_LABELS = {
+  NEW: '신규',
+  ACTIVE: '진행중',
+  HOLD: '보류',
+  COMPLETED: '계약완료',
+};
+
+export const PROP_LIST_TAB_IDS = new Set([
+  ...PROP_LIST_TABS.map((t) => t.id),
+  ...Object.keys(PROP_LIST_STATUS_TAB_LABELS),
+]);
+
+export function propListTabLabel(tabId) {
+  const visible = PROP_LIST_TABS.find((t) => t.id === tabId);
+  if (visible) return visible.label;
+  return PROP_LIST_STATUS_TAB_LABELS[tabId] || '전체';
+}
 
 export function normalizePropListTab(tab) {
   return PROP_LIST_TAB_IDS.has(tab) ? tab : 'ALL';
@@ -56,7 +69,8 @@ export function tradeAllowedOnTab(trade, tab) {
 
 /**
  * 탭별 목록 소속 (검색·필터 이전).
- * 전체·즐겨찾기·폴더·상태 탭은 매매·분양만, 임대 탭은 전세·월세·단기만.
+ * 전체·즐겨찾기·폴더는 매매·분양만, 임대 탭은 전세·월세·단기만.
+ * NEW/ACTIVE/HOLD/COMPLETED는 탭 UI에서 숨기지만 상태 필터·대시보드 링크는 유지.
  * @param {{ trade?: string, status?: string, fav?: boolean }} p
  * @param {string} statusTab
  * @param {{ inFolder?: boolean }} [opts]

@@ -10,6 +10,7 @@ import {
   DEFAULT_PROP_FOLDERS,
 } from '../../navigation/folderPersist.js';
 import { PROP_LIST_TABS, propertyBelongsToListTab, isRentListTab, normalizePropListTab } from '../../utils/propListKind.js';
+import { sortRentalListByJibunGroups } from '../../utils/propRentList.js';
 import { loadPropListState, rememberPropListTab } from '../../navigation/propListPersist.js';
 import {
   MobilePage, M, MobileCloudDataHint, MobileCard,
@@ -62,12 +63,13 @@ export function MobilePropertyList() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return properties
+    const list = properties
       .filter((p) => propertyBelongsToListTab(p, statusTab, {
         inFolder: (propFolders[p.id] || []).length > 0,
       }))
-      .filter((p) => matchesSearch(p, q))
-      .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+      .filter((p) => matchesSearch(p, q));
+    if (isRentListTab(statusTab)) return sortRentalListByJibunGroups(list);
+    return [...list].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
   }, [properties, statusTab, search, propFolders]);
 
   const folderSections = useMemo(() => {
