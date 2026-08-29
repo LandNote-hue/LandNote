@@ -66,22 +66,56 @@ export function rentalAddrSortKey(p) {
   return `${a} ${bldg}`.trim();
 }
 
-/** 임대 목록 묶음 키 — 지번주소 (공백 무시) */
+/** 목록 기본(등록일)에서도 지번 묶음을 쓴다. 다른 열 정렬일 때만 끈다. */
+export function rentalListUsesJibunGroups(sortKey) {
+  return !sortKey || sortKey === 'created';
+}
+
+function normalizeJibunGroupText(s) {
+  return String(s || '')
+    .replace(/서울특별시|서울시/g, '서울')
+    .replace(/부산광역시|부산시/g, '부산')
+    .replace(/대구광역시|대구시/g, '대구')
+    .replace(/인천광역시|인천시/g, '인천')
+    .replace(/광주광역시|광주시/g, '광주')
+    .replace(/대전광역시|대전시/g, '대전')
+    .replace(/울산광역시|울산시/g, '울산')
+    .replace(/세종특별자치시|세종시/g, '세종')
+    .replace(/제주특별자치도|제주도/g, '제주')
+    .replace(/강원특별자치도/g, '강원')
+    .replace(/전북특별자치도/g, '전북')
+    .replace(/특별자치시|특별자치도|광역시|특별시/g, '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+function isEmptyJibunGroupText(s) {
+  const t = normalizeJibunGroupText(s);
+  return !t || t === '—' || t === '-' || t === '주소미입력';
+}
+
+/** 임대 목록 묶음 키 — 화면에 보이는 지번주소 (서울특별시/서울 표기 차이 무시) */
 export function rentalJibunGroupKey(p) {
+  const display = propDisplayAddr(p);
   const jibun = propJibunAddr(p);
-  const key = (jibun || '').replace(/\s+/g, '').toLowerCase();
-  if (key) return key;
-  return `__id:${p?.id ?? ''}`;
+  const raw = [jibun, display, p?.addr].find((s) => !isEmptyJibunGroupText(s)) || '';
+  const key = normalizeJibunGroupText(raw);
+  if (!key || isEmptyJibunGroupText(key)) return `__id:${p?.id ?? ''}`;
+  return key;
 }
 
 /**
  * 해당층 정렬값. 지하·B는 음수, 옥탑은 맨 뒤, 미입력은 그 다음.
+ * 목록의 `8/14층`은 해당층(앞 숫자)만 쓴다.
  * @param {unknown} raw
  */
 export function unitFloorSortKey(raw) {
   const s = String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '');
   if (!s) return Number.POSITIVE_INFINITY;
   if (/옥탑|옥상|^PH|펜트/.test(s)) return 10000;
+  const slash = s.match(/^(-?\d+(?:\.\d+)?)[/／]/);
+  if (slash) return Number(slash[1]);
   const range = s.match(/(-?\d+(?:\.\d+)?)[~～\-]+(-?\d+(?:\.\d+)?)/);
   if (range) return Math.min(Number(range[1]), Number(range[2]));
   const basement = s.match(/(?:B|지하|반지하)(\d+)/);
@@ -102,8 +136,10 @@ function rentalCreatedDesc(a, b) {
  * 지번이 같은 임대 매물을 연달아 두고, 그룹은 가장 최근 등록이 위.
  * 그룹 안에서는 해당층 낮은 순.
  * @param {Array<Record<string, unknown>>} items
+ * @param {{ createdDir?: 'asc'|'desc' }} [opts]
  */
-export function sortRentalListByJibunGroups(items) {
+export function sortRentalListByJibunGroups(items, opts = {}) {
+  const createdDir = opts.createdDir === 'asc' ? 'asc' : 'desc';
   const groups = new Map();
   for (const p of items) {
     const k = rentalJibunGroupKey(p);
@@ -121,7 +157,10 @@ export function sortRentalListByJibunGroups(items) {
     });
     return { newest, ordered };
   });
-  ranked.sort((a, b) => rentalCreatedDesc(a.newest, b.newest));
+  ranked.sort((a, b) => {
+    const c = rentalCreatedDesc(a.newest, b.newest);
+    return createdDir === 'asc' ? -c : c;
+  });
   return ranked.flatMap((g) => g.ordered);
 }
 

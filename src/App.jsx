@@ -46,7 +46,7 @@ import {
 } from "./utils/propListKind.js";
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
-  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, sortRentalListByJibunGroups,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, rentalListUsesJibunGroups, sortRentalListByJibunGroups,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
@@ -1597,8 +1597,8 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='addr') return rentalAddrSortKey(p);
     return '';
   };
-  const sorted=rentList&&!sortKey
-    ? sortRentalListByJibunGroups(rows)
+  const sorted=rentList&&rentalListUsesJibunGroups(sortKey)
+    ? sortRentalListByJibunGroups(rows,{createdDir:sortKey==='created'?sortDir:'desc'})
     : [...rows].sort((a,b)=>{
     if(sortKey){
       const av=getSortVal(a,sortKey), bv=getSortVal(b,sortKey);
