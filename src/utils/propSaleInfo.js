@@ -3,6 +3,7 @@ import {
   resolveSaleInvestmentMetrics,
 } from './propInvestment.js';
 import { fmtNum, normalizeJDepToMan, m2ToPyung, formatKoreanAmountFromMan } from './formatMoney.js';
+import { fmtRentalNoc } from './propRentList.js';
 
 /** 매매·분양 시 투자분석(보증금·월임대료·관리비·수익률) 입력/표시 여부 */
 export function showsSaleInvestmentFields(trade, sub) {
@@ -28,16 +29,6 @@ function fmtAreaM2Display(m2) {
   const py = m2ToPyung(n);
   const m2Label = `${fmtNum(n, { decimal: true })}㎡`;
   return py != null ? `${m2Label} (${fmtNum(py, { decimal: true })}평)` : m2Label;
-}
-
-/** 월세 NOC — (월세+관리비)만 / 전용면적(평) */
-function fmtNocPerExclusivePy(prop) {
-  const rent = parseFormNum(prop.mRent) || 0;
-  const maint = parseFormNum(prop.maintenance) || 0;
-  const monthly = rent + maint;
-  const py = m2ToPyung(prop.exclusiveArea);
-  if (!(monthly > 0) || !py) return '—';
-  return `${fmtNum(monthly / py, { decimal: true })} 만/평`;
 }
 
 /** 전세·월세·단기 공통 유닛 정보 */
@@ -211,7 +202,7 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '월세', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
-      { k: 'NOC', v: fmtNocPerExclusivePy(prop) },
+      { k: 'NOC', v: fmtRentalNoc(prop) },
       { k: '입주가능일', v: prop.moveInDate ? fmtMoveInDate(prop.moveInDate) : '—' },
       { k: '권리금', v: fmtManwonDisplay(prop.premium) },
       { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },

@@ -45,7 +45,7 @@ import {
   propertyBelongsToListTab, countForListTab, RENT_TRADE_LABELS, propListTabLabel,
 } from "./utils/propListKind.js";
 import {
-  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, rentalNocManPerPy, fmtRentalAreaCell, rentalAreaParts,
   fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, rentalListUsesJibunGroups, sortRentalListByJibunGroups,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
@@ -1308,7 +1308,7 @@ const PROP_LIST_TBL_ACTION_CSS=PROP_LIST_SHOW_ROW_ACTIONS
 const PROP_RENT_COL={
   check:32,star:32,status:76,trade:78,tag:86,
   contractArea:108,exclusiveArea:108,unitFloor:72,
-  deposit:100,rent:92,maintenance:80,lastCall:82,moveIn:90,
+  deposit:100,rent:92,noc:96,maintenance:80,lastCall:82,moveIn:90,
 };
 const PROP_RENT_COL_FIXED=Object.values(PROP_RENT_COL).reduce((a,b)=>a+b,0);
 const PROP_RENT_LIST_MIN_W=PROP_RENT_COL_FIXED+PROP_ADDR_MIN;
@@ -1592,6 +1592,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='exclusiveArea') return parseFloat(p.exclusiveArea)||-1;
     if(key==='deposit') return rentalDepositMan(p);
     if(key==='rent') return rentalRentMan(p);
+    if(key==='noc') return rentalNocManPerPy(p)??-1;
     if(key==='maintenance') return rentalMaintMan(p);
     if(key==='moveInDate') return moveInSortKey(p.moveInDate);
     if(key==='addr') return rentalAddrSortKey(p);
@@ -1960,6 +1961,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                   <col style={{width:PROP_RENT_COL.unitFloor}}/>
                   <col style={{width:PROP_RENT_COL.deposit}}/>
                   <col style={{width:PROP_RENT_COL.rent}}/>
+                  <col style={{width:PROP_RENT_COL.noc}}/>
                   <col style={{width:PROP_RENT_COL.maintenance}}/>
                   <col style={{width:PROP_RENT_COL.lastCall}}/>
                   <col style={{width:PROP_RENT_COL.moveIn}}/>
@@ -2041,6 +2043,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <th className="prop-col-metrics" style={{textAlign:'center'}}>해당층</th>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('deposit')}>보증금 {sortMark('deposit')}</th>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('rent')}>임대료 {sortMark('rent')}</th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('noc')}>NOC {sortMark('noc')}</th>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('maintenance')}>관리비 {sortMark('maintenance')}</th>
                     <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>최종통화일 {sortMark('lastCall')}</th>
                     <th className="prop-col-date prop-col-movein prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('moveInDate')}>입주가능일 {sortMark('moveInDate')}</th>
@@ -2191,6 +2194,7 @@ const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})
     <td className="prop-col-metrics" style={{textAlign:'center',fontSize:12,color:p.unitFloor?C.tx:C.txP,whiteSpace:'nowrap'}}>{p.unitFloor||'—'}</td>
     <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalDepositMan(p))}</td>
     <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalRentMan(p))}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:rentalNocManPerPy(p)!=null?C.tx:C.txP,whiteSpace:'nowrap'}}>{fmtRentalNoc(p)}</td>
     <td className="prop-col-num prop-col-metrics" style={{color:rentalMaintMan(p)>0?C.tx:C.txP}}>{fmtRentalMan(rentalMaintMan(p))}</td>
     <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
     <td className="prop-col-date prop-col-movein prop-col-metrics" style={{color:p.moveInDate?C.tx:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{fmtListDotDate(p.moveInDate)}</td>

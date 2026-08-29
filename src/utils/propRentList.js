@@ -28,6 +28,20 @@ export function fmtRentalMan(v) {
   return formatKoreanAmountFromMan(n);
 }
 
+/** NOC(만/평) = (월세+관리비) / 전용면적(평). 없거나 계산 불가면 null */
+export function rentalNocManPerPy(p) {
+  const monthly = rentalRentMan(p) + rentalMaintMan(p);
+  const py = m2ToPyung(p?.exclusiveArea);
+  if (!(monthly > 0) || !py) return null;
+  return monthly / py;
+}
+
+export function fmtRentalNoc(p) {
+  const n = rentalNocManPerPy(p);
+  if (n == null) return '—';
+  return `${fmtNum(n, { decimal: true })} 만/평`;
+}
+
 export function rentalAreaParts(m2) {
   const n = Number(m2);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -165,7 +179,7 @@ export function sortRentalListByJibunGroups(items, opts = {}) {
 }
 
 export const RENT_LIST_SORT_KEYS = new Set([
-  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'maintenance', 'lastCall', 'moveInDate', 'created',
+  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'noc', 'maintenance', 'lastCall', 'moveInDate', 'created',
 ]);
 
 export const SALE_LIST_SORT_KEYS = new Set([

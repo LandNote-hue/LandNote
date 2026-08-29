@@ -1,7 +1,7 @@
 import { propDisplayAddr } from '../utils/propAddress.js';
 import { fmtPropPrice as propPrice } from '../utils/formatMoney.js';
 import {
-  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell,
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, fmtRentalAreaCell,
   fmtListDotDate, rentalTradeLabel,
 } from '../utils/propRentList.js';
 
@@ -128,6 +128,7 @@ export function PropertyCardList({
               <div>해당층 <strong style={{ color: '#0F172A' }}>{p.unitFloor || '—'}</strong></div>
               <div>보증금 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalDepositMan(p))}</strong></div>
               <div>임대료 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalRentMan(p))}</strong></div>
+              <div>NOC <strong style={{ color: '#0F172A' }}>{fmtRentalNoc(p)}</strong></div>
               <div>관리비 <strong style={{ color: '#0F172A' }}>{fmtRentalMan(rentalMaintMan(p))}</strong></div>
               <div>최종통화일 {p.lastCall || '—'}</div>
               <div>입주가능일 {fmtListDotDate(p.moveInDate)}</div>
