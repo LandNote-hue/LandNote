@@ -1,28 +1,22 @@
 import { propDisplayAddr } from '../utils/propAddress.js';
-import { PROP_STATUS_LABEL } from '../utils/propStatus.js';
+import { propStatusStyle, propStatusChipStyle } from '../utils/propStatus.js';
 import { fmtPropPrice as propPrice } from '../utils/formatMoney.js';
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, fmtRentalAreaCell,
   fmtListDotDate, rentalTradeLabel,
 } from '../utils/propRentList.js';
 
-const BRAND = '#C8102E';
-const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '분양' };
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
+import { propKindDisplayLabel } from '../data/propertyTypes.js';
+import { propAgentLabel } from '../utils/propAgent.js';
 
-const STATUS = {
-  NEW: { label: PROP_STATUS_LABEL.NEW, bg: '#ECFDF5', color: '#047857' },
-  ACTIVE: { label: PROP_STATUS_LABEL.ACTIVE, bg: '#EFF6FF', color: '#2563EB' },
-  HOLD: { label: PROP_STATUS_LABEL.HOLD, bg: '#FFFBEB', color: '#D97706' },
-  COMPLETED: { label: '완료', bg: '#F1F5F9', color: '#475569' },
-};
+const BRAND = BRAND_CSS.brand;
+const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '매매' };
 
-function StatusChip({ status }) {
-  const s = STATUS[status] || STATUS.NEW;
+function StatusChip({ status, rent }) {
+  const s = propStatusStyle(status, { rent });
   return (
-    <span style={{
-      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
-      background: s.bg, color: s.color, whiteSpace: 'nowrap',
-    }}>
+    <span style={propStatusChipStyle(status, { compact: true, rent })}>
       {s.label}
     </span>
   );
@@ -95,13 +89,13 @@ export function PropertyCardList({
               >
                 {p.fav ? '★' : '☆'}
               </button>
-              <StatusChip status={p.status} />
+              <StatusChip status={p.status} rent={variant === 'rental'} />
               {p.tag && (
                 <span style={{
                   fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 4,
                   background: '#F1F5F9', color: '#475569',
                 }}>
-                  {p.tag}
+                  {propKindDisplayLabel(p) || p.tag}
                 </span>
               )}
               {p.trade && (
@@ -119,6 +113,11 @@ export function PropertyCardList({
               </div>
             )}
           </div>
+          {variant !== 'rental' && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
+              담당자 <strong style={{ color: '#0F172A' }}>{propAgentLabel(p)}</strong>
+            </div>
+          )}
           {variant === 'rental' && (
             <div style={{
               marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px',
@@ -133,6 +132,7 @@ export function PropertyCardList({
               <div>관리비 <strong style={{ color: '#0F172A' }}>{fmtRentalMan(rentalMaintMan(p))}</strong></div>
               <div>최종통화일 {p.lastCall || '—'}</div>
               <div>입주가능일 {fmtListDotDate(p.moveInDate)}</div>
+              <div>담당자 <strong style={{ color: '#0F172A' }}>{propAgentLabel(p)}</strong></div>
             </div>
           )}
         </article>

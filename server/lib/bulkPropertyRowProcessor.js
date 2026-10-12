@@ -11,7 +11,7 @@ const TYPE_MAP = {
   '토지': { main: 'COMMERCIAL', sub: 'LAND', tag: '토지' },
 };
 
-const TRADE_MAP = { '매매': 'SALE', '전세': 'JEONSE', '월세': 'MONTHLY', '임대': 'MONTHLY', '단기': 'SHORT_TERM', '분양': 'PRESALE' };
+const TRADE_MAP = { '매매': 'SALE', '전세': 'JEONSE', '월세': 'MONTHLY', '임대': 'MONTHLY', '단기': 'SHORT_TERM', '분양': 'SALE' };
 
 const BUILDING_LEDGER = {
   TITLE: 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo',

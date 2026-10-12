@@ -1,9 +1,11 @@
 import React, { useRef } from 'react';
 import { readImageAsDataUrl, normalizePhotoSlots } from '../utils/readImageFile.js';
 
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
+
 const C = {
-  brand: '#C8102E',
-  brandL: '#FBE9EC',
+  brand: BRAND_CSS.brand,
+  brandL: BRAND_CSS.brandL,
   surf2: '#F8F9FB',
   bdr: '#E8EAED',
   txM: '#6B7280',

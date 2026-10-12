@@ -11,6 +11,7 @@ const DEFAULT_DETAIL = () => ({
   promo: '',
   memo: '',
   discoUrl: '',
+  folderUrl: '',
 });
 
 /** @param {string} [userId] */
@@ -68,6 +69,7 @@ export function hydratePropertyRegisterDraft(raw) {
     trade: typeof raw.trade === 'string' ? raw.trade : 'SALE',
     mainType: typeof raw.mainType === 'string' ? raw.mainType : 'COMMERCIAL',
     subType: typeof raw.subType === 'string' ? raw.subType : 'WHOLE_BUILDING',
+    saleKind: typeof raw.saleKind === 'string' ? raw.saleKind : 'BUILDING',
     status: typeof raw.status === 'string' ? raw.status : 'NEW',
     pub: typeof raw.pub === 'string' ? raw.pub : 'true',
     priceForm: { ...emptyPriceForm(), ...(raw.priceForm && typeof raw.priceForm === 'object' ? raw.priceForm : {}) },
@@ -80,6 +82,7 @@ export function hydratePropertyRegisterDraft(raw) {
     landForm: { ...emptyLandForm(), ...(raw.landForm && typeof raw.landForm === 'object' ? raw.landForm : {}) },
     buildingForm: { ...emptyBuildingForm(), ...(raw.buildingForm && typeof raw.buildingForm === 'object' ? raw.buildingForm : {}) },
     addressKeys: { ...initialAddressKeys(), ...(raw.addressKeys && typeof raw.addressKeys === 'object' ? raw.addressKeys : {}) },
+    extraParcels: Array.isArray(raw.extraParcels) ? raw.extraParcels : [],
     lookup: raw.lookup && typeof raw.lookup === 'object' ? raw.lookup : null,
   };
 }

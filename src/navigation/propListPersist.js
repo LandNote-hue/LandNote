@@ -31,6 +31,19 @@ export function clearPropListScroll() {
   savePropListState({ scrollTop: 0 });
 }
 
+/** 매물 등록·수정 후 목록을 최종수정일 최신순 맨 위로 */
+export const PROP_LIST_LATEST_EVENT = 'landnote:prop-list-latest';
+
+export function rememberPropListLatestActivity() {
+  savePropListState({ sortKey: 'updatedAt', sortDir: 'desc', scrollTop: 0 });
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new Event(PROP_LIST_LATEST_EVENT));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 매물 목록 검색·필터·스크롤 등 저장 상태 전체 삭제 */
 export function clearPropListState() {
   try {

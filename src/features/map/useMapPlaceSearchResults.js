@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { loadKakaoMaps, searchMapLocations } from '../../services/kakao/kakaoMaps.js';
+import { searchMapLocations } from '../../services/naver/naverMaps.js';
 
 /**
- * 입력된 쿼리로 카카오맵 장소·주소·지하철역을 디바운스 검색한다.
- * (지하철역은 별도 API 없이 카카오 키워드 검색(장소) 결과에 포함된다)
+ * 입력된 쿼리로 네이버 지도 geocoder 주소 검색을 디바운스한다.
  * @param {string} query
  * @param {{ debounceMs?: number }} [opts]
- * @returns {{ results: import('../../services/kakao/kakaoMaps.js').MapSearchResult[], loading: boolean }}
+ * @returns {{ results: import('../../services/naver/naverMaps.js').MapSearchResult[], loading: boolean }}
  */
 export function useMapPlaceSearchResults(query, opts = {}) {
   const { debounceMs = 320 } = opts;
-  const [results, setResults] = useState(/** @type {import('../../services/kakao/kakaoMaps.js').MapSearchResult[]} */ ([]));
+  const [results, setResults] = useState(/** @type {import('../../services/naver/naverMaps.js').MapSearchResult[]} */ ([]));
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
   const reqIdRef = useRef(0);
@@ -28,8 +27,7 @@ export function useMapPlaceSearchResults(query, opts = {}) {
       const reqId = (reqIdRef.current += 1);
       setLoading(true);
       try {
-        const kakao = await loadKakaoMaps(['services']);
-        const found = await searchMapLocations(kakao, q);
+        const found = await searchMapLocations(q);
         if (reqIdRef.current === reqId) setResults(found);
       } catch {
         if (reqIdRef.current === reqId) setResults([]);

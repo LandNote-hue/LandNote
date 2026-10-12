@@ -1,6 +1,24 @@
 /* LandNote — global reset + UI scale (110%) */
 :root {
   --ui-scale: 1.1;
+  --ln-brand: #C8102E;
+  --ln-brand-d: #A00E25;
+  --ln-brand-l: #FBE9EC;
+  --ln-brand-rgb: 200, 16, 46;
+}
+
+[data-deal-mode="sale"] {
+  --ln-brand: #C8102E;
+  --ln-brand-d: #A00E25;
+  --ln-brand-l: #FBE9EC;
+  --ln-brand-rgb: 200, 16, 46;
+}
+
+[data-deal-mode="rent"] {
+  --ln-brand: #2563EB;
+  --ln-brand-d: #1D4ED8;
+  --ln-brand-l: #EFF6FF;
+  --ln-brand-rgb: 37, 99, 235;
 }
 
 *,
@@ -90,7 +108,7 @@ input.range-filter-thumb::-webkit-slider-thumb {
   height: 18px;
   border-radius: 50%;
   background: #fff;
-  border: 2.5px solid #2563EB;
+  border: 2.5px solid var(--ln-brand);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.9);
   cursor: grab;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
@@ -104,11 +122,11 @@ input.range-filter-thumb:hover::-webkit-slider-thumb {
 input.range-filter-thumb:active::-webkit-slider-thumb {
   cursor: grabbing;
   transform: scale(1.05);
-  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.16), 0 1px 3px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 0 0 5px rgba(var(--ln-brand-rgb), 0.16), 0 1px 3px rgba(15, 23, 42, 0.28);
 }
 
 input.range-filter-thumb:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.22), 0 1px 3px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 0 0 4px rgba(var(--ln-brand-rgb), 0.22), 0 1px 3px rgba(15, 23, 42, 0.22);
 }
 
 input.range-filter-thumb::-moz-range-thumb {
@@ -117,7 +135,7 @@ input.range-filter-thumb::-moz-range-thumb {
   height: 18px;
   border-radius: 50%;
   background: #fff;
-  border: 2.5px solid #2563EB;
+  border: 2.5px solid var(--ln-brand);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.9);
   cursor: grab;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
@@ -131,11 +149,11 @@ input.range-filter-thumb:hover::-moz-range-thumb {
 input.range-filter-thumb:active::-moz-range-thumb {
   cursor: grabbing;
   transform: scale(1.05);
-  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.16), 0 1px 3px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 0 0 5px rgba(var(--ln-brand-rgb), 0.16), 0 1px 3px rgba(15, 23, 42, 0.28);
 }
 
 input.range-filter-thumb:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.22), 0 1px 3px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 0 0 4px rgba(var(--ln-brand-rgb), 0.22), 0 1px 3px rgba(15, 23, 42, 0.22);
 }
 
 input.range-filter-thumb::-webkit-slider-runnable-track {
@@ -146,4 +164,44 @@ input.range-filter-thumb::-webkit-slider-runnable-track {
 input.range-filter-thumb::-moz-range-track {
   background: transparent;
   height: 4px;
+}
+
+.prop-pdf-print-only {
+  display: none;
+}
+
+@media print {
+  @page { size: A4 landscape; margin: 5mm; }
+}
+
+.prop-pdf-sale-badge,
+.prop-pdf-ink-bar,
+.prop-pdf-doc-header {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  color-adjust: exact;
+}
+
+.prop-pdf-ink-bar {
+  height: 3px;
+  background: #1B3A5F;
+  box-shadow: inset 0 0 0 100vmax #1B3A5F;
+}
+
+/* PDF뷰 01 PHOTO: 박스 크기는 고정, 이미지만 영역에 맞춤 */
+.prop-pdf-photo-fit,
+.prop-pdf-photo-fit > * {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
+}
+.prop-pdf-photo-fit img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain !important;
+  object-position: center;
+  display: block;
 }

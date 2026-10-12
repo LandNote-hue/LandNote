@@ -12,12 +12,7 @@ export function showsSaleInvestmentFields(trade, sub) {
   return true;
 }
 
-/** 상가 소분류 — 권리금 필드 (매매·분양) */
-export function showsPremiumField(trade, sub) {
-  return (trade === 'SALE' || trade === 'PRESALE') && sub === 'STORE';
-}
-
-/** 전세·월세·단기 — 해당 층·전용/계약면적·권리금 */
+/** 전세·월세·단기 — 해당 층·전용/계약면적 */
 export function showsRentalUnitFields(trade) {
   return trade === 'JEONSE' || trade === 'MONTHLY' || trade === 'SHORT_TERM';
 }
@@ -37,7 +32,6 @@ function rentalUnitInfoItems(prop) {
     { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
     { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
     { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },
-    { k: '권리금', v: fmtManwonDisplay(prop.premium) },
   ];
 }
 
@@ -52,7 +46,7 @@ export function getSaleMetricsForDisplay(priceMan, rentals, prop) {
 }
 
 /**
- * 등록/수정 폼 — 매매·분양 수익률·실투자금 자동 계산
+ * 등록/수정 폼 — 매매·분양 수익률 자동 계산
  * @param {ReturnType<import('./propertyForm.js').emptyPriceForm>} priceForm
  */
 export function deriveSalePriceFormFieldsForUi(priceForm) {
@@ -94,32 +88,32 @@ export function buildPropSaleInfoRows(prop, rentals, fmt) {
     const metrics = getSaleMetricsForDisplay(prop.price, rentals, prop);
     const rows = [
       {
-        full: {
+        left: {
           k: '매각가액',
           v: fmt.fmtSalePriceEokWon(prop.price),
-          c: '#C8102E',
+          c: 'var(--ln-brand)',
+          bold: true,
+        },
+        right: {
+          k: '입금가',
+          v: fmt.fmtSalePriceEokWon(prop.inPrice),
+          c: 'var(--ln-brand)',
           bold: true,
         },
       },
       {
         left: {
-          k: '대지평단가',
+          k: '대지단가',
           v: prop.land > 0 && prop.price > 0 ? fmt.fmtLandPyUnit(prop.price, prop.land) : '—',
         },
         right: {
-          k: '연면적평단가',
+          k: '연면적단가',
           v: prop.floor > 0 && prop.price > 0 ? fmt.fmtLandPyUnit(prop.price, prop.floor) : '—',
         },
       },
     ];
 
     if (showsSaleInvestmentFields(trade, sub)) {
-      const realInvestLabel =
-        metrics.realInvest != null && Number.isFinite(metrics.realInvest)
-          ? formatKoreanAmountFromMan(metrics.realInvest)
-          : (prop.realInvest ? formatKoreanAmountFromMan(String(prop.realInvest).replace(/만원$/, '')) : '—');
-      const leaseEndLabel = formatRentalLeaseEnds(rentals, prop);
-
       rows.push(
         {
           left: {
@@ -141,32 +135,7 @@ export function buildPropSaleInfoRows(prop, rentals, fmt) {
             v: metrics.yieldLabel !== '—' ? metrics.yieldLabel : (prop.roi || '—'),
           },
         },
-        {
-          left: {
-            k: '실투자금',
-            v: realInvestLabel,
-          },
-          right: {
-            k: '임차계약만료일',
-            v: leaseEndLabel,
-          },
-        },
       );
-
-      if (showsPremiumField(trade, sub)) {
-        const premium = parseFormNum(prop.premium);
-        const loan = parseFormNum(prop.loan);
-        rows.push({
-          left: {
-            k: '권리금',
-            v: premium > 0 ? formatKoreanAmountFromMan(premium) : '—',
-          },
-          right: {
-            k: '융자금',
-            v: loan > 0 ? formatKoreanAmountFromMan(loan) : '—',
-          },
-        });
-      }
     }
 
     return rows;
@@ -185,7 +154,7 @@ export function buildTradePriceInfoItems(prop, TL) {
   if (trade === 'JEONSE') {
     return [
       { k: '거래방식', v: TL.JEONSE, c: '#2563EB' },
-      { k: '전세보증금', v: fmtManwonDisplay(normalizeJDepToMan(prop.jDep)), c: '#C8102E' },
+      { k: '전세보증금', v: fmtManwonDisplay(normalizeJDepToMan(prop.jDep)), c: 'var(--ln-brand)' },
       ...rentalUnitInfoItems(prop),
       ...(prop.moveInDate
         ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
@@ -198,13 +167,12 @@ export function buildTradePriceInfoItems(prop, TL) {
   if (trade === 'MONTHLY') {
     return [
       { k: '거래방식', v: TL.MONTHLY, c: '#2563EB' },
-      { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: '#C8102E' },
+      { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: 'var(--ln-brand)' },
       { k: '월세', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
       { k: 'NOC', v: fmtRentalNoc(prop) },
       { k: '입주가능일', v: prop.moveInDate ? fmtMoveInDate(prop.moveInDate) : '—' },
-      { k: '권리금', v: fmtManwonDisplay(prop.premium) },
       { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },
       { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
       ...(prop.maintenanceDetail ? [{ k: '관리비 포함', v: prop.maintenanceDetail, full: true }] : []),
@@ -213,7 +181,7 @@ export function buildTradePriceInfoItems(prop, TL) {
   if (trade === 'SHORT_TERM') {
     return [
       { k: '거래방식', v: TL.SHORT_TERM, c: '#2563EB' },
-      { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: '#C8102E' },
+      { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: 'var(--ln-brand)' },
       { k: '단기임대료', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
       ...rentalUnitInfoItems(prop),
@@ -225,6 +193,6 @@ export function buildTradePriceInfoItems(prop, TL) {
   }
   return [
     { k: '거래방식', v: TL[trade] || '—', c: '#2563EB' },
-    { k: '가격', v: prop.price ? fmtManwonDisplay(prop.price) : '—', c: '#C8102E' },
+    { k: '가격', v: prop.price ? fmtManwonDisplay(prop.price) : '—', c: 'var(--ln-brand)' },
   ];
 }

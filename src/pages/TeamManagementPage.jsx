@@ -9,7 +9,10 @@ import {
   mapInviteError,
   revokeTeamInvite,
   removeTeamMember,
+  updateCompanyMemberContact,
 } from '../services/teamService.js';
+import { PhoneInput } from '../components/PhoneInput.jsx';
+import { copyTextToClipboard } from '../utils/copyToClipboard.js';
 import {
   fetchMemberPermissionsDashboard,
   saveMemberSharingPolicies,
@@ -168,6 +171,11 @@ export function TeamManagementPage({ onToast }) {
     }
   };
 
+  const handlePhone = (userId, phone) => {
+    setMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, phone } : m)));
+    setDirtyIds((prev) => new Set(prev).add(userId));
+  };
+
   const handleToggle = (userId, permission, next) => {
     setMembers((prev) => prev.map((m) => {
       if (m.user_id !== userId) return m;
@@ -188,8 +196,15 @@ export function TeamManagementPage({ onToast }) {
     if (!member) return;
     setToggleBusy(`save:${userId}`);
     try {
+      try {
+        await updateCompanyMemberContact(userId, member.phone);
+      } catch (contactErr) {
+        const missing = /could not find the function/i.test(String(contactErr?.message || ''));
+        if (!missing) throw contactErr;
+        onToast?.(mapInviteError(contactErr));
+      }
       const updated = await saveMemberSharingPolicies(userId, normalizeMemberPermissions(member));
-      setMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, ...updated } : m)));
+      setMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, ...updated, phone: member.phone } : m)));
       setDirtyIds((prev) => {
         const n = new Set(prev);
         n.delete(userId);
@@ -211,8 +226,15 @@ export function TeamManagementPage({ onToast }) {
       for (const userId of [...dirtyIds]) {
         const member = members.find((m) => m.user_id === userId);
         if (!member) continue;
+        try {
+          await updateCompanyMemberContact(userId, member.phone);
+        } catch (contactErr) {
+          const missing = /could not find the function/i.test(String(contactErr?.message || ''));
+          if (!missing) throw contactErr;
+          onToast?.(mapInviteError(contactErr));
+        }
         const updated = await saveMemberSharingPolicies(userId, normalizeMemberPermissions(member));
-        setMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, ...updated } : m)));
+        setMembers((prev) => prev.map((m) => (m.user_id === userId ? { ...m, ...updated, phone: member.phone } : m)));
       }
       setDirtyIds(new Set());
       await refreshMemberPermissions?.();
@@ -389,10 +411,11 @@ export function TeamManagementPage({ onToast }) {
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table className="tbl" style={{ fontSize: 13, minWidth: 720 }}>
+              <table className="tbl" style={{ fontSize: 13, minWidth: 860 }}>
                 <thead style={{ background: C.thead }}>
                   <tr>
-                    <th style={{ width: '22%', textAlign: 'left', background: C.thead }}>직원</th>
+                    <th style={{ width: '18%', textAlign: 'left', background: C.thead }}>담당자</th>
+                    <th style={{ width: 150, textAlign: 'left', background: C.thead, borderLeft: `1px solid ${C.bdrLight}` }}>연락처</th>
                     {RESOURCE_GROUPS.map((g) => (
                       <th key={g.key} colSpan={2} style={{ textAlign: 'center', borderLeft: `1px solid ${C.bdrLight}`, background: C.thead }}>
                         {g.label}
@@ -403,6 +426,7 @@ export function TeamManagementPage({ onToast }) {
                   </tr>
                   <tr>
                     <th style={{ background: C.thead }} />
+                    <th style={{ fontSize: 11, fontWeight: 500, color: C.txM, background: C.thead, borderLeft: `1px solid ${C.bdrLight}` }} />
                     {RESOURCE_GROUPS.flatMap((g) => ([
                       <th key={`${g.key}-r`} style={{ fontSize: 11, fontWeight: 500, color: C.txM, textAlign: 'center', borderLeft: `1px solid ${C.bdrLight}`, background: C.thead }}>보기</th>,
                       <th key={`${g.key}-w`} style={{ fontSize: 11, fontWeight: 500, color: C.txM, textAlign: 'center', background: C.thead }}>쓰기</th>,
@@ -418,6 +442,14 @@ export function TeamManagementPage({ onToast }) {
                         <div style={{ fontWeight: 600, color: C.tx }}>{m.display_name || '—'}</div>
                         <div style={{ fontSize: 11, color: C.txM, marginTop: 2 }}>{m.email}</div>
                         <div style={{ fontSize: 11, color: C.txM }}>{companyRoleLabel(m.role)}</div>
+                      </td>
+                      <td style={{ borderLeft: `1px solid ${C.bdrLight}`, verticalAlign: 'middle' }}>
+                        <PhoneInput
+                          value={m.phone || ''}
+                          onChange={(e) => handlePhone(m.user_id, e.target.value)}
+                          placeholder="010-0000-0000"
+                          style={{ height: 32, fontSize: 13, width: '100%', minWidth: 128 }}
+                        />
                       </td>
                       {RESOURCE_GROUPS.flatMap((g) => ([
                         <td key={`${m.user_id}-${g.read}`} style={{ textAlign: 'center', borderLeft: `1px solid ${C.bdrLight}` }}>

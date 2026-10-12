@@ -655,7 +655,7 @@ export function AuthProvider({ children }) {
   const updateProfile = useCallback(async (patch) => {
     if (!user?.id) return { error: new Error('로그인이 필요합니다.') };
     if (user.id === 'dev-local') {
-      const metaKeys = ['title', 'phone', 'tel', 'agency_phone', 'address', 'website'];
+      const metaKeys = ['title', 'phone', 'tel', 'agency_phone', 'address', 'website', 'work_email'];
       setProfile((prev) => ({
         ...prev,
         ...(patch.display_name != null ? { display_name: patch.display_name } : {}),

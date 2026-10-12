@@ -16,7 +16,7 @@ function hasCeoSignupIntent(user) {
   return userType === 'BUSINESS' && !!companyName;
 }
 
-const META_KEYS = ['title', 'phone', 'tel', 'agency_phone', 'address', 'website'];
+const META_KEYS = ['title', 'phone', 'tel', 'agency_phone', 'address', 'website', 'work_email'];
 
 /** @param {import('@supabase/supabase-js').User|null|undefined} user */
 /** @param {Record<string, unknown>|null|undefined} profile */
@@ -32,10 +32,11 @@ export function accountDefaultsFromProfile(user, profile, company = null) {
   return {
     displayName,
     title: meta.title || '',
-    phone: formatPhone(meta.phone) || '',
+    phone: formatPhone(profile?.phone || meta.phone) || '',
     tel: formatPhone(meta.tel) || '',
     email: user?.email || '',
-    agencyName: company?.name || profile?.agency_name || meta.agency_name || '',
+    workEmail: meta.work_email || '',
+    agencyName: profile?.agency_name || company?.name || meta.agency_name || '',
     agencyPhone: formatPhone(meta.agency_phone) || '',
     address: meta.address || '',
     website: meta.website || '',
@@ -118,7 +119,7 @@ function metaCompanyName(user) {
 
 /**
  * profiles 테이블: display_name, agency_name (001 스키마)
- * user_metadata: title, phone, tel, agency_phone, address, website
+ * user_metadata: title, phone, tel, agency_phone, address, website, work_email
  */
 export async function updateProfileRow(userId, patch) {
   const profilePatch = {};
@@ -126,6 +127,7 @@ export async function updateProfileRow(userId, patch) {
 
   if ('display_name' in patch) profilePatch.display_name = patch.display_name;
   if ('agency_name' in patch) profilePatch.agency_name = patch.agency_name;
+  if ('phone' in patch) profilePatch.phone = patch.phone;
   for (const key of META_KEYS) {
     if (key in patch) metaPatch[key] = patch[key];
   }
@@ -134,12 +136,21 @@ export async function updateProfileRow(userId, patch) {
   let error = null;
 
   if (Object.keys(profilePatch).length > 0) {
-    const res = await supabase
+    const stamp = { updated_at: new Date().toISOString() };
+    let res = await supabase
       .from('profiles')
-      .update({ ...profilePatch, updated_at: new Date().toISOString() })
+      .update({ ...profilePatch, ...stamp })
       .eq('id', userId)
       .select()
       .single();
+    if (res.error && 'phone' in profilePatch && /phone|schema cache|column/i.test(res.error.message || '')) {
+      const { phone: _phone, ...restPatch } = profilePatch;
+      if (Object.keys(restPatch).length > 0) {
+        res = await supabase.from('profiles').update({ ...restPatch, ...stamp }).eq('id', userId).select().single();
+      } else {
+        res = { data: await fetchProfile(userId), error: null };
+      }
+    }
     profile = res.data;
     error = res.error;
   } else {

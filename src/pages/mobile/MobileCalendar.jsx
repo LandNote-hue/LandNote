@@ -1,12 +1,14 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDealMode } from '../../contexts/DealModeContext.jsx';
+import { scheduleMatchesDealMode } from '../../utils/dealModeMatch.js';
 import { useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
 import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
-import { repairIcsScheduleIntegrity } from '../../utils/icsImport.js';
-import { flushPendingIcsSourceIdRemaps } from '../../services/googleCalendarLinks.js';
+import { repairIcsScheduleIntegrity, syncLinkedGoogleCalendars } from '../../utils/icsImport.js';
+import { flushPendingIcsSourceIdRemaps, listGoogleCalendarLinks } from '../../services/googleCalendarLinks.js';
 import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
@@ -16,9 +18,14 @@ const gcalMobileRepairedOwners = new Set();
 
 export function MobileCalendar() {
   const navigate = useNavigate();
+  const { mode } = useDealMode();
   const { user } = useAuth();
-  const schedules = useOwnerSchedules();
+  const schedulesAll = useOwnerSchedules();
   const properties = useProperties();
+  const schedules = useMemo(
+    () => schedulesAll.filter((s) => scheduleMatchesDealMode(s, properties, mode)),
+    [schedulesAll, properties, mode],
+  );
   const today = useMemo(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() + 1, date: d.getDate() };
@@ -29,6 +36,20 @@ export function MobileCalendar() {
 
   const gcalOwnerId = user?.id && user.id !== 'dev-local' ? user.id : undefined;
   const gcalMeta = useMemo(() => buildGcalMeta(gcalOwnerId), [gcalOwnerId]);
+
+  useEffect(() => {
+    const links = listGoogleCalendarLinks(gcalOwnerId).filter((l) => l.enabled !== false);
+    if (!links.length) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        await syncLinkedGoogleCalendars({ force: false, ownerId: gcalOwnerId });
+      } catch (err) {
+        if (!cancelled) console.warn('[MobileCalendar] auto gcal sync', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [gcalOwnerId]);
 
   useEffect(() => {
     const ownerId = user?.id;

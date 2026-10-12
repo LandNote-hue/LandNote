@@ -12,12 +12,13 @@ const C = {
  * @param {{
  *   title: string,
  *   sub?: string,
+ *   lead?: string,
  *   actions?: import('react').ReactNode,
  *   acts?: import('react').ReactNode,
  *   ch?: import('react').ReactNode,
  * }} props
  */
-export function PageHeader({ title, sub, actions, acts, ch }) {
+export function PageHeader({ title, sub, lead, actions, acts, ch }) {
   const right = actions || acts;
   return (
     <div style={{
@@ -58,6 +59,23 @@ export function PageHeader({ title, sub, actions, acts, ch }) {
           </div>
         ) : null}
       </div>
+      {lead ? (
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          paddingLeft: 8,
+          fontSize: 17,
+          fontWeight: 700,
+          color: C.tx,
+          letterSpacing: '-0.02em',
+          lineHeight: 1.3,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }} title={lead}>
+          {lead}
+        </div>
+      ) : null}
       {ch ? <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>{ch}</div> : null}
       {right ? (
         <div style={{

@@ -4,9 +4,11 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { isSupabaseConfigured } from '../../lib/supabase.js';
 import { normalizeCompanyRole } from '../../data/companyRoles.js';
 
+import { BRAND_CSS } from '../../theme/dealModeTheme.js';
+
 /** 모바일 조회 전용 화면 공용 색상 — MobileShell과 동일 값 사용 */
 export const M = {
-  brand: '#C8102E',
+  brand: BRAND_CSS.brand,
   bg: '#F5F6FA',
   surf: '#FFFFFF',
   bdr: '#E8EAED',

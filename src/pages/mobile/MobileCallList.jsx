@@ -1,22 +1,27 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useOwnerCallLogs, useOwnerCustomers } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
-import { propDisplayAddr } from '../../utils/propAddress.js';
+import { useOwnerCallLogs, useOwnerCustomers } from '../../hooks/useOwnerScopedData.js';
+import { useDealMode } from '../../contexts/DealModeContext.jsx';
+import { callMatchesDealMode } from '../../utils/dealModeMatch.js';
+import { propCallIdentLabel } from '../../utils/propAddress.js';
 import { MobilePage, MobileCard, MobileEmptyState, MobileCloudDataHint, M } from './mobileUi.jsx';
 
 export function MobileCallList() {
   const navigate = useNavigate();
+  const { mode } = useDealMode();
   const callLogs = useOwnerCallLogs();
   const customers = useOwnerCustomers();
   const properties = useProperties();
 
   const sorted = useMemo(
-    () => [...callLogs].sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)),
-    [callLogs],
+    () => [...callLogs]
+      .filter((c) => callMatchesDealMode(c, properties, mode))
+      .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)),
+    [callLogs, properties, mode],
   );
   const findCust = (cid) => customers.find((c) => c.id === cid);
-  const findProp = (pid) => properties.find((p) => p.id === pid);
+  const findProp = (pid) => properties.find((p) => p.id === pid || String(p.id) === String(pid) || (p.cloudId != null && String(p.cloudId) === String(pid)));
 
   return (
     <MobilePage>
@@ -48,7 +53,7 @@ export function MobileCallList() {
                       marginTop: 8, fontSize: 12, color: M.txM, lineHeight: 1.45,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {[cust?.name, prop ? propDisplayAddr(prop) : null].filter(Boolean).join(' · ')}
+                      {[cust?.name, prop ? propCallIdentLabel(prop) : null].filter(Boolean).join(' · ')}
                     </div>
                   )}
                 </div>

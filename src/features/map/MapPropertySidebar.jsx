@@ -1,29 +1,73 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { fmtLandPyUnit, fmtPropPrice as propPrice } from '../../utils/formatMoney.js';
-import { propDisplayAddr } from '../../utils/propAddress.js';
-import { PROP_STATUS_OPTS } from '../../utils/propStatus.js';
-import { MAP_STATUS, TL } from './MapInfoCard.jsx';
+import { PROP_STATUS_OPTS, PROP_STATUS_STYLE, propStatusLabel } from '../../utils/propStatus.js';
+import { TL } from './MapInfoCard.jsx';
+import { isRentalListProperty } from '../../utils/propListKind.js';
 import { useMapPlaceSearchResults } from './useMapPlaceSearchResults.js';
+import { typeTheme, kindLabel, compactPrice, landPyLabel, floorPyLabel, formatArea } from './mapCardMeta.js';
 
 const KAKAO_BLUE = '#3396FF';
 
+import { BRAND_CSS } from '../../theme/dealModeTheme.js';
+
 const C = {
-  brand: '#C8102E',
-  brandL: '#FBE9EC',
+  brand: BRAND_CSS.brand,
+  brandL: BRAND_CSS.brandL,
   surf: '#FFFFFF',
   surf2: '#F8F9FB',
   bdr: '#E8EAED',
   tx: '#0F172A',
-  txS: '#374151',
+  txD: '#374151',
+  txS: '#4B5563',
   txM: '#6B7280',
   txP: '#94A3B8',
-  info: '#2563EB',
 };
 
 const STATUS_OPTIONS = [
   ['', '전체'],
   ...PROP_STATUS_OPTS.map(({ id, label }) => [id, id === 'COMPLETED' ? '완료' : label]),
 ];
+
+function floorScale(p) {
+  const above = Number(p.floorsAbove) || 0;
+  const below = Number(p.floorsBelow) || 0;
+  if (above && below) return `${above}F / B${below}`;
+  if (above) return `${above}F`;
+  if (below) return `B${below}`;
+  return '';
+}
+
+function specLine(p, areaUnit = 'py') {
+  const parts = [];
+  if (isRentalListProperty(p)) {
+    const excl = formatArea(p.exclusiveArea, areaUnit);
+    const cont = formatArea(p.contractArea, areaUnit);
+    if (excl) parts.push(`전용 ${excl}`);
+    if (cont) parts.push(`계약 ${cont}`);
+    const unit = String(p.unitFloor || '').trim();
+    if (unit) parts.push(unit);
+  } else {
+    const land = formatArea(p.land, areaUnit);
+    const gfa = formatArea(p.floor, areaUnit);
+    if (land) parts.push(`대지 ${land}`);
+    if (gfa) parts.push(`연 ${gfa}`);
+    const fl = floorScale(p);
+    if (fl) parts.push(fl);
+  }
+  return parts.join(' · ');
+}
+
+function statusLabel(p) {
+  if (!p?.status || !PROP_STATUS_STYLE[p.status]) return '';
+  return propStatusLabel(p.status, isRentalListProperty(p));
+}
+
+function typeTag(p) {
+  const use = String(p?.mainUse || '').trim().replace(/\s+/g, '');
+  if (!use) return '';
+  const kind = kindLabel(p).replace(/[\s,·/()]/g, '');
+  if (kind && use.replace(/[\s,·/()]/g, '') === kind) return '';
+  return `#${use}`;
+}
 
 /**
  * @param {{
@@ -48,6 +92,7 @@ export function MapPropertySidebar({
   selectedId, setSelectedId, onOpenDetail,
   loadingCoords,
   onPlaceSelect,
+  areaUnit = 'py',
 }) {
   const [placeOpen, setPlaceOpen] = useState(false);
   const [placeActiveIdx, setPlaceActiveIdx] = useState(-1);
@@ -173,11 +218,11 @@ export function MapPropertySidebar({
             ? <>검색 결과 {listP.length}건<span style={{ fontWeight: 400, color: C.txM }}> · 전체 {visibleCount}건</span></>
             : <>화면 내 {listP.length}건<span style={{ fontWeight: 400, color: C.txM }}> · 전체 {visibleCount}건</span></>}
         </div>
-        <div style={{ fontSize: 10, color: C.txP, marginTop: 2 }}>
-          {listMode === 'search'
-            ? '전체 매물에서 검색 · 클릭 시 해당 위치로 이동'
-            : '클릭 → 상세카드 줌 · 더블클릭 → 상세'}
-        </div>
+        {listMode === 'search' && (
+          <div style={{ fontSize: 10, color: C.txP, marginTop: 2 }}>
+            전체 매물에서 검색 · 클릭 시 해당 위치로 이동
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {listP.length === 0 && (
@@ -190,21 +235,56 @@ export function MapPropertySidebar({
           </div>
         )}
         {listP.map((p) => {
-          const landPy2 = p.land > 0 && p.price > 0 ? fmtLandPyUnit(p.price, p.land) : null;
           const selected = selectedId === p.id;
+          const theme = typeTheme(p);
+          const price = compactPrice(p);
+          const priceText = price ? [TL[p.trade], price].filter(Boolean).join(' ') : '';
+          const specs = specLine(p, areaUnit);
+          const kind = kindLabel(p);
+          const tag = typeTag(p);
+          const status = statusLabel(p);
+          const landPy = landPyLabel(p, areaUnit);
+          const floorPy = floorPyLabel(p, areaUnit);
+          const hasRates = Boolean(landPy || floorPy);
+          const hasTitle = Boolean(priceText || kind || status);
           return (
             <div key={p.id} onClick={() => setSelectedId(p.id)} onDoubleClick={() => onOpenDetail(p)}
-              style={{ padding: '10px 12px', borderBottom: `1px solid ${C.bdr}`, cursor: 'pointer', background: selected ? C.brandL : 'transparent', borderLeft: selected ? `3px solid ${C.brand}` : '3px solid transparent' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.brand }}>{p.tag}</div>
-              <div style={{ fontSize: 12, color: C.tx, fontWeight: 600, marginTop: 3, lineHeight: 1.35 }}>{propDisplayAddr(p)}</div>
-              {p.bldg && <div style={{ fontSize: 11, color: C.txS, marginTop: 2 }}>{p.bldg}</div>}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <span style={{ fontSize: 11, color: C.txM }}>{TL[p.trade]}</span>
-                <span style={{ fontSize: 12, color: C.info, fontWeight: 700 }}>{propPrice(p)}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-                <span style={{ fontSize: 10, color: MAP_STATUS[p.status]?.c || C.txS, fontWeight: 600 }}>{MAP_STATUS[p.status]?.l || '—'}</span>
-                {landPy2 && <span style={{ fontSize: 10, color: C.txM }}>대지 {landPy2}</span>}
+              style={{ display: 'flex', borderBottom: `1px solid ${C.bdr}`, cursor: 'pointer', background: selected ? C.brandL : 'transparent' }}>
+              <div style={{ width: 5, flexShrink: 0, background: theme.pin }} />
+              <div style={{ minWidth: 0, flex: 1, padding: '10px 12px' }}>
+                {hasTitle && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, lineHeight: 1.3, flexWrap: 'wrap' }}>
+                    {priceText && (
+                      <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>{priceText}</span>
+                    )}
+                    {kind && (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.txD }}>{kind}</span>
+                    )}
+                    {status && (
+                      <span style={{ fontSize: 11, fontWeight: 400, color: C.txP }}>{status}</span>
+                    )}
+                  </div>
+                )}
+                {specs && (
+                  <div style={{ fontSize: 11, fontWeight: 400, color: C.txM, marginTop: hasTitle ? 3 : 0, lineHeight: 1.35 }}>{specs}</div>
+                )}
+                {hasRates && (
+                  <div style={{
+                    fontSize: 11, fontWeight: 600, color: C.txS, marginTop: (hasTitle || specs) ? 3 : 0,
+                    lineHeight: 1.35, display: 'flex', flexWrap: 'wrap', gap: '0 8px',
+                  }}>
+                    {landPy && <span>{landPy}</span>}
+                    {floorPy && <span>{floorPy}</span>}
+                  </div>
+                )}
+                {tag && (
+                  <div style={{ marginTop: (hasTitle || specs || hasRates) ? 6 : 0 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, color: theme.chipFg, background: theme.chipBg,
+                      borderRadius: 999, padding: '2px 8px', lineHeight: 1.4,
+                    }}>{tag}</span>
+                  </div>
+                )}
               </div>
             </div>
           );

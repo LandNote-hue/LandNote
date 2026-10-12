@@ -14,16 +14,19 @@ export async function pushRestoredLocalData(userId) {
   const { pushUnsyncedCustomersToCloud } = await import('./customerSync.js');
   const { pushUnsyncedSchedulesToCloud } = await import('./scheduleSync.js');
   const { pushUnsyncedCallLogsToCloud } = await import('./callLogSync.js');
+  const { pushUnsyncedRentalsToCloud } = await import('./rentalSync.js');
   const properties = await pushUnsyncedPropertiesToCloud(userId);
   const customers = await pushUnsyncedCustomersToCloud(userId);
   const schedules = await pushUnsyncedSchedulesToCloud(userId);
   const callLogs = await pushUnsyncedCallLogsToCloud(userId);
+  const rentals = await pushUnsyncedRentalsToCloud(userId);
   const failed =
     (properties.failed || 0)
     + (customers.failed || 0)
     + (schedules.failed || 0)
-    + (callLogs.failed || 0);
-  return { properties, customers, schedules, callLogs, failed };
+    + (callLogs.failed || 0)
+    + (rentals.failed || 0);
+  return { properties, customers, schedules, callLogs, rentals, failed };
 }
 
 /** @returns {Promise<boolean>} */
@@ -66,6 +69,7 @@ async function initialCloudSyncInner(userId, options = {}) {
   const { initialCustomerSync } = await import('./customerSync.js');
   const { initialScheduleSync } = await import('./scheduleSync.js');
   const { initialCallLogSync } = await import('./callLogSync.js');
+  const { initialRentalSync } = await import('./rentalSync.js');
 
   const forcePull = options.forcePull === true;
   // 로그인/세션 sync 기본은 merge-only (삭제 없음). 명시적으로 mergeOnly:false 일 때만 prune.
@@ -135,6 +139,8 @@ async function initialCloudSyncInner(userId, options = {}) {
     runOne('customers', () => initialCustomerSync(userId, syncOpts)),
   ]);
 
+  await runOne('rentals', () => initialRentalSync(userId, syncOpts));
+
   // 클라우드가 비어 보이는데 로컬에 매물·고객이 있으면 → 로컬을 클라우드에 올려 복구
   const propPulled = Number(results.properties?.pulled ?? results.properties?.count ?? 0) || 0;
   const custPulled = Number(results.customers?.pulled ?? results.customers?.count ?? 0) || 0;
@@ -168,11 +174,16 @@ async function initialCloudSyncInner(userId, options = {}) {
   ]);
 
   try {
-    await remapSharedForeignKeys({ schedules: db.schedules, call_logs: db.call_logs });
+    await remapSharedForeignKeys({
+      schedules: db.schedules,
+      call_logs: db.call_logs,
+      rentals: db.rentals,
+      properties: db.properties,
+    });
   } catch (err) {
     console.warn('[initialCloudSync] fk remap', err);
   }
-  const failed = ['properties', 'customers', 'schedules', 'callLogs']
+  const failed = ['properties', 'customers', 'rentals', 'schedules', 'callLogs']
     .some((key) => results[key]?.ok === false || results[key]?.error);
   return { ...results, ok: !failed, mergeOnly };
 }
@@ -198,25 +209,32 @@ export async function refreshSharedCloudData(userId) {
     const { syncCustomersFromCloud } = await import('./customerSync.js');
     const { syncSchedulesFromCloud } = await import('./scheduleSync.js');
     const { syncCallLogsFromCloud } = await import('./callLogSync.js');
-    // 직원이 올린 로컬 사진(data URL)을 Storage로 먼저 반영
+    const { syncRentalsFromCloud, pushUnsyncedRentalsToCloud } = await import('./rentalSync.js');
     try {
       await pushUnsyncedPropertiesToCloud(userId);
+      await pushUnsyncedRentalsToCloud(userId);
     } catch (err) {
-      console.warn('[refreshSharedCloudData] property photo push', err);
+      console.warn('[refreshSharedCloudData] property/rental push', err);
     }
     resetCloudLocalIdMaps();
-    const [properties, customers, schedules, callLogs] = await Promise.all([
+    const [properties, customers, schedules, callLogs, rentals] = await Promise.all([
       syncPropertiesFromCloud(userId),
       syncCustomersFromCloud(userId),
       syncSchedulesFromCloud(userId),
       syncCallLogsFromCloud(userId),
+      syncRentalsFromCloud(userId),
     ]);
     try {
-      await remapSharedForeignKeys({ schedules: db.schedules, call_logs: db.call_logs });
+      await remapSharedForeignKeys({
+        schedules: db.schedules,
+        call_logs: db.call_logs,
+        rentals: db.rentals,
+        properties: db.properties,
+      });
     } catch (err) {
       console.warn('[refreshSharedCloudData] fk remap', err);
     }
-    return { ok: true, properties, customers, schedules, callLogs };
+    return { ok: true, properties, customers, schedules, callLogs, rentals };
   });
 }
 

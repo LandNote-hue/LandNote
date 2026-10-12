@@ -1,8 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { authStorage } from './authStorage.js';
 
-const url = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || '';
+const env = import.meta.env || {};
+const url = env.VITE_SUPABASE_URL?.trim() || '';
+const anonKey = env.VITE_SUPABASE_ANON_KEY?.trim() || '';
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
 

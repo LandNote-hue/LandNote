@@ -5,9 +5,8 @@ import {
 } from '../../utils/propAddress.js';
 import {
   geocodeAddressVariants,
-  getKakaoMapJsKey,
-  loadKakaoMaps,
-} from './kakaoMaps.js';
+  getNaverMapClientId,
+} from './naverMaps.js';
 
 const ADDRESS_KEYS = ['jibunAddr', 'addr', 'roadAddr', 'bldg'];
 
@@ -41,7 +40,6 @@ export function buildPropertyDetailMapMarker(p) {
     id: p.id ?? 'detail',
     address: queries[0] || jibun,
     fallbackAddresses: queries.slice(1),
-    // 지번이 있으면 저장 좌표(도로명 지오코딩 잔재)보다 지번 재조회 우선
     lat: hasJibun ? undefined : stored?.lat,
     lng: hasJibun ? undefined : stored?.lng,
     title: jibun || propDisplayAddr(p),
@@ -50,14 +48,13 @@ export function buildPropertyDetailMapMarker(p) {
 
 /** @param {Record<string, unknown>} propertyLike */
 export async function geocodePropertyCoords(propertyLike) {
-  if (!getKakaoMapJsKey()) return null;
+  if (!getNaverMapClientId()) return null;
 
   const queries = propJibunGeocodeQueries(propertyLike);
   if (!queries.length) return null;
 
   try {
-    const kakao = await loadKakaoMaps(['services']);
-    const point = await geocodeAddressVariants(kakao, queries[0], queries.slice(1));
+    const point = await geocodeAddressVariants(queries[0], queries.slice(1));
     if (!point) return null;
     return {
       mapLat: point.lat,
@@ -107,7 +104,7 @@ const backfillInFlight = new Set();
  * @param {(id: number, fields: Record<string, unknown>) => Promise<void>} updateFn
  */
 export async function backfillPropertyMapCoords(properties, updateFn) {
-  if (!getKakaoMapJsKey()) return;
+  if (!getNaverMapClientId()) return;
 
   for (const p of properties) {
     if (!p?.id || propertyHasStoredCoords(p) || backfillInFlight.has(p.id)) continue;

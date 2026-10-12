@@ -36,6 +36,7 @@ export async function fetchMemberPermissionsDashboard() {
   if (error) throw error;
   return (data ?? []).map((row) => ({
     ...row,
+    phone: row.phone || '',
     ...normalizeMemberPermissions(row),
   }));
 }

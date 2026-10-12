@@ -55,6 +55,7 @@ export const emptyBuildingForm = () => ({
 export const emptyLocationForm = () => ({
   roadAddr: '',
   jibunAddr: '',
+  ownerName: '',
   ownerTel: '',
   roadInfo: '',
 });
@@ -211,6 +212,13 @@ export function mapPublicDataToPropertyForm(building, landBundle) {
   }
 
   return { landForm, buildingForm };
+}
+
+/** 추가 필지 — 건축물대장 없이 vworld만 쓸 때도 동일 매핑 */
+export function mapVworldBundleToLandForm(vworld) {
+  if (!vworld) return emptyLandForm();
+  const emptyBuilding = { title: { items: [] }, recap: { items: [] }, jijigu: { items: [] } };
+  return mapPublicDataToPropertyForm(emptyBuilding, { vworld }).landForm;
 }
 
 export { applyMeaningfulPatch };

@@ -6,7 +6,7 @@ import {
   BULK_LEGACY_HEADERS,
   BULK_UNIFIED_HEADERS,
 } from '../../data/propertyBulkCsv.js';
-import { resolvePropTypeFromLabels, PROP_MAIN, PROP_SUB } from '../../data/propertyTypes.js';
+import { resolvePropTypeFromLabels, PROP_MAIN, PROP_SUB, resolveSaleKindFromLabel, typeCodesForSaleKind, saleKindLabel, saleKindFromProp } from '../../data/propertyTypes.js';
 
 const STATUS_CODE_TO_LABEL = Object.fromEntries(
   Object.entries(BULK_STATUS_MAP).map(([label, code]) => [code, label]),
@@ -14,7 +14,7 @@ const STATUS_CODE_TO_LABEL = Object.fromEntries(
 
 /** 신규로 추가된 컬럼들의 기본값 (모두 빈 문자열) */
 const EXTRA_UNIFIED_KEYS = [
-  '매물대분류', '매물소분류', '진행여부', '공개여부', '도로상황',
+  '매물대분류', '매물소분류', '매물종류', '진행여부', '공개여부', '도로상황',
   '전세보증금', '전세계약만료일', '전용면적(㎡)', '계약면적(㎡)', '보증금',
   '단기임대료', '단기임대기간', '게시글제목', '담당자이름', '담당자연락처', '홍보문구', '내부메모',
 ];
@@ -81,8 +81,12 @@ function mapUnifiedFormat(row, rowIndex) {
   const maintenance = parseNum(row['관리비']);
   const areaPyeong = parseNum(row['면적(평)']);
 
-  // 매물대분류/매물소분류가 채워져 있으면 우선, 없으면 기존 매물유형으로 폴백
-  const resolvedType = resolvePropTypeFromLabels(row['매물대분류'], row['매물소분류']);
+  // 매매 매물종류 → 대/소분류 → 기존 매물유형 순
+  const saleKind = resolveSaleKindFromLabel(row['매물종류'] || row['매물유형']);
+  const resolvedType = (tradeCode === 'SALE' || tradeCode === 'PRESALE') && saleKind
+    ? typeCodesForSaleKind(saleKind)
+    : (resolvePropTypeFromLabels(row['매물대분류'], row['매물소분류'])
+      || (saleKind ? typeCodesForSaleKind(saleKind) : null));
   const typeLabel = resolvedType?.tag || BULK_PROPERTY_TYPE_MAP[propertyType]?.tag || propertyType;
 
   let priceManwon = 0;
@@ -244,6 +248,7 @@ export function rowToUnifiedInput(row) {
     '면적(평)': u.areaPyeong || '0',
     '매물대분류': mainLabel,
     '매물소분류': subLabel,
+    '매물종류': saleKindLabel(saleKindFromProp(u.resolvedType || {})) || '',
     '진행여부': STATUS_CODE_TO_LABEL[u.status] || '',
     '공개여부': u.pub === false ? '비공개' : '공개',
     '도로상황': u.roadInfo || '',

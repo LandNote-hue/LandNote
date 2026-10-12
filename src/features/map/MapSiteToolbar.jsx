@@ -7,8 +7,14 @@ import {
   MAP_MOBILE_TOOLBAR_TOP,
   MAP_MOBILE_TOOLBAR_MAX_WIDTH,
 } from './mapSiteLayout.js';
+import {
+  buildNaverMapExportUrl,
+  clearMapOverlayLayers,
+  setMapOverlayLayer,
+  setMapSurface,
+} from './mapLayers.js';
 
-const KAKAO_BLUE = '#3396FF';
+const MAP_BLUE = '#3396FF';
 
 /** @typedef {'roadmap' | 'skyview'} MapSurfaceType */
 /** @typedef {'traffic' | 'terrain' | 'bicycle' | 'useDistrict'} MapLayerId */
@@ -19,13 +25,6 @@ const LAYER_OPTIONS = [
   { id: 'bicycle', label: '자전거' },
   { id: 'useDistrict', label: '지적편집도' },
 ];
-
-const LAYER_TYPE = {
-  traffic: 'TRAFFIC',
-  terrain: 'TERRAIN',
-  bicycle: 'BICYCLE',
-  useDistrict: 'USE_DISTRICT',
-};
 
 const btnBase = {
   border: 'none',
@@ -39,18 +38,19 @@ const btnBase = {
 
 /** @param {{
  *   map: object | null,
- *   kakao: typeof window.kakao | null,
+ *   mapsNs?: typeof window.naver | null,
  *   mapReady: boolean,
  *   roadviewActive?: boolean,
  *   onRoadviewToggle?: () => void,
  * }} props */
 export function MapSiteToolbar({
   map,
-  kakao,
+  mapsNs,
   mapReady,
   roadviewActive = false,
   onRoadviewToggle,
 }) {
+  const ns = mapsNs || (typeof window !== 'undefined' ? window.naver : null);
   const isMobile = useIsMobile();
   const [surface, setSurface] = useState(/** @type {MapSurfaceType} */ ('roadmap'));
   const [layerOpen, setLayerOpen] = useState(false);
@@ -59,37 +59,26 @@ export function MapSiteToolbar({
   const layerRef = useRef(null);
 
   const applySurface = useCallback((next) => {
-    if (!map || !kakao?.maps?.MapTypeId) return;
+    if (!map) return;
     setSurface(next);
-    map.setMapTypeId(next === 'skyview' ? kakao.maps.MapTypeId.HYBRID : kakao.maps.MapTypeId.ROADMAP);
-  }, [map, kakao]);
+    setMapSurface(map, next);
+  }, [map]);
 
   const toggleLayer = useCallback((layerId) => {
-    if (!map || !kakao?.maps?.MapTypeId) return;
-    const typeKey = LAYER_TYPE[layerId];
-    const typeId = kakao.maps.MapTypeId[typeKey];
-    if (!typeId) return;
-
+    if (!map) return;
     setActiveLayers((prev) => {
       const next = new Set(prev);
-      if (next.has(layerId)) {
-        next.delete(layerId);
-        map.removeOverlayMapTypeId(typeId);
-      } else {
-        next.add(layerId);
-        map.addOverlayMapTypeId(typeId);
-      }
+      const enabled = !next.has(layerId);
+      if (enabled) next.add(layerId);
+      else next.delete(layerId);
+      setMapOverlayLayer(map, layerId, enabled);
       return next;
     });
-  }, [map, kakao]);
+  }, [map]);
 
   const exportMapLink = useCallback(async () => {
     if (!map) return;
-    const center = map.getCenter();
-    const lat = center.getLat();
-    const lng = center.getLng();
-    const lvl = map.getLevel();
-    const url = `https://map.kakao.com/link/map/${lat},${lng},${lvl}`;
+    const url = buildNaverMapExportUrl(map);
 
     try {
       await navigator.clipboard.writeText(url);
@@ -121,19 +110,11 @@ export function MapSiteToolbar({
   useEffect(() => {
     if (!mapReady) return undefined;
     return () => {
-      const mapInstance = map;
-      const kakaoInstance = kakao;
-      if (!mapInstance || !kakaoInstance?.maps?.MapTypeId) return;
-      const { MapTypeId } = kakaoInstance.maps;
-      [MapTypeId.TRAFFIC, MapTypeId.TERRAIN, MapTypeId.BICYCLE, MapTypeId.USE_DISTRICT]
-        .filter(Boolean)
-        .forEach((typeId) => {
-          try { mapInstance.removeOverlayMapTypeId(typeId); } catch { /* ignore */ }
-        });
+      clearMapOverlayLayers(map);
     };
-  }, [mapReady, map, kakao]);
+  }, [mapReady, map]);
 
-  if (!mapReady || !map || !kakao) return null;
+  if (!mapReady || !map || !ns) return null;
 
   const btnH = 32;
 
@@ -194,7 +175,7 @@ export function MapSiteToolbar({
                 width: isMobile ? 32 : 36,
                 height: btnH,
                 color: active ? '#fff' : '#222',
-                background: active ? KAKAO_BLUE : '#fff',
+                background: active ? MAP_BLUE : '#fff',
               }}
             >
               {id === 'roadmap' ? (
@@ -230,7 +211,7 @@ export function MapSiteToolbar({
           flexShrink: 0,
         }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={roadviewActive ? KAKAO_BLUE : '#222'} strokeWidth="1.8">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={roadviewActive ? MAP_BLUE : '#222'} strokeWidth="1.8">
           <circle cx="12" cy="7" r="3" />
           <path d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6" strokeLinecap="round" />
           <path d="M12 10v2" />
@@ -284,7 +265,7 @@ export function MapSiteToolbar({
                   justifyContent: 'flex-start',
                   padding: '8px 14px',
                   fontSize: 13,
-                  color: activeLayers.has(/** @type {MapLayerId} */ (id)) ? KAKAO_BLUE : '#222',
+                  color: activeLayers.has(/** @type {MapLayerId} */ (id)) ? MAP_BLUE : '#222',
                   fontWeight: activeLayers.has(/** @type {MapLayerId} */ (id)) ? 600 : 400,
                 }}
               >
@@ -311,7 +292,7 @@ export function MapSiteToolbar({
           }}
         >
           {exportMsg ? (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={KAKAO_BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={MAP_BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           ) : (

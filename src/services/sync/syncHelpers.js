@@ -1,3 +1,5 @@
+import { isLocalSyncPending } from '../../utils/recordSyncState.js';
+
 /** PostgREST/Supabase 기본 max_rows(1000) 회피 — 페이지 단위로 전부 조회 */
 export const CLOUD_PULL_PAGE_SIZE = 1000;
 const CLOUD_PULL_CONCURRENCY = 3;
@@ -161,6 +163,7 @@ export async function pushOwnedSoftDeletes(tableName, syncOne, userId, resource 
   const rows = await db.table(tableName).toArray();
   for (const row of rows) {
     if (!row.deletedAt || !row.cloudId) continue;
+    if (row.syncStatus === 'conflict') continue;
     if (!matchesOwner(row, userId)) continue;
     if (!canMutateRecord(row, resource)) continue;
     try {
@@ -243,6 +246,8 @@ export async function pruneStaleCloudRows(table, remoteCloudIds, userId, company
       pruned += 1;
       continue;
     }
+
+    if (isLocalSyncPending(rec)) continue;
 
     await table.delete(rec.id);
     pruned += 1;

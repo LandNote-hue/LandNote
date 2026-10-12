@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../features/map/MapView.jsx';
 import { PageHeader } from '../../components/PageHeader.jsx';
+import { MENU_PATHS } from '../../navigation/routes.js';
 import { M } from './mobileUi.jsx';
 
 /** MapView가 기대하는 최소 Btn 컨트랙트 — 필터 적용/초기화 버튼용 (조회 보조 액션만) */
@@ -32,5 +33,9 @@ export function MobileMapView() {
   const onOpen = (type, data) => {
     if (type === 'pd' && data?.id != null) navigate(`/properties/${data.id}`);
   };
-  return <MapView onOpen={onOpen} Btn={MobileMapBtn} PH={PageHeader} />;
+  const onNav = (id) => {
+    const path = MENU_PATHS[id];
+    if (path) navigate(path);
+  };
+  return <MapView onOpen={onOpen} onNav={onNav} Btn={MobileMapBtn} PH={PageHeader} />;
 }

@@ -2,76 +2,147 @@
  * 지도 매물 레이어 — 화면 좌표(screen-space) HTML 레이어
  *
  * CustomOverlay는 콘텐츠 크기·렌더 타이밍에 따라 앵커가 틀어집니다.
- * → map.getProjection().containerPointFromCoords() 로 픽셀 좌표를 직접 계산
+ * → projection.fromCoordToOffset / containerPointFromCoords 로 픽셀 좌표를 직접 계산
  * → 카드+핀을 하나의 flex 스택(MapMarkerStack)으로 핀 끝에 고정
  */
 
 import { createRoot } from 'react-dom/client';
+import { latLng } from '../../services/naver/naverMaps.js';
+import { addMapListener, removeMapListener } from './mapEvents.js';
 
 function markerKey(id) {
   return id == null ? '' : String(id);
 }
 
-/** @param {typeof window.kakao} kakao @param {unknown} map @param {number} lat @param {number} lng */
-function latLngToContainerPoint(kakao, map, lat, lng) {
-  const projection = map?.getProjection?.();
-  if (!projection?.containerPointFromCoords) return null;
-  try {
-    const point = projection.containerPointFromCoords(new kakao.maps.LatLng(lat, lng));
-    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
-    return { x: point.x, y: point.y };
-  } catch {
-    return null;
-  }
+function readXy(pt) {
+  if (!pt) return null;
+  const x = Number(pt.x);
+  const y = Number(pt.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
 }
 
-function positionScreenMarker(kakao, map, entry, mapContainerEl) {
+function paneOffset(map, lat, lng) {
+  const projection = map?.getProjection?.();
+  if (!projection) return null;
+  try {
+    const coord = latLng(lat, lng);
+    if (typeof projection.fromCoordToOffset === 'function') {
+      return readXy(projection.fromCoordToOffset(coord));
+    }
+    if (typeof projection.containerPointFromCoords === 'function') {
+      return readXy(projection.containerPointFromCoords(coord));
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function mapCenterLatLng(map) {
+  const center = map?.getCenter?.();
+  if (!center) return null;
+  const lat = typeof center.lat === 'function' ? center.lat() : center.lat;
+  const lng = typeof center.lng === 'function' ? center.lng() : center.lng;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+/** 지도 컨테이너(뷰포트) 기준 픽셀 — 팬 후 getCenter 반영 */
+function viewportPoint(map, lat, lng) {
+  const offset = paneOffset(map, lat, lng);
+  if (!offset) return null;
+  try {
+    const center = mapCenterLatLng(map);
+    const size = map.getSize?.();
+    if (center && size) {
+      const c = paneOffset(map, center.lat, center.lng);
+      if (c && Number.isFinite(size.width) && Number.isFinite(size.height)) {
+        return {
+          x: size.width / 2 + (offset.x - c.x),
+          y: size.height / 2 + (offset.y - c.y),
+        };
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return offset;
+}
+
+function markerUsesMapPane(map, el) {
+  const mapEl = typeof map?.getElement === 'function' ? map.getElement() : null;
+  return !!(mapEl && el && mapEl.contains(el));
+}
+
+function positionScreenMarker(naver, map, entry, mapContainerEl) {
   const { el, item } = entry;
   if (!el || !item || !Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return;
 
-  const pt = latLngToContainerPoint(kakao, map, item.lat, item.lng);
-  if (!pt) {
+  const viewPt = viewportPoint(map, item.lat, item.lng);
+  const panePt = paneOffset(map, item.lat, item.lng);
+  if (!viewPt && !panePt) {
     el.style.visibility = 'hidden';
     return;
   }
 
-  if (mapContainerEl) {
+  if (mapContainerEl && viewPt) {
     const w = mapContainerEl.clientWidth;
     const h = mapContainerEl.clientHeight;
-    if (pt.x < 0 || pt.x > w || pt.y < 0 || pt.y > h) {
+    const pad = 120;
+    if (viewPt.x < -pad || viewPt.x > w + pad || viewPt.y < -pad || viewPt.y > h + pad) {
       el.style.visibility = 'hidden';
       return;
     }
   }
 
+  const inPane = markerUsesMapPane(map, el);
+  const pt = inPane ? (panePt || viewPt) : (viewPt || panePt);
   el.style.visibility = 'visible';
   el.style.transform = `translate(${Math.round(pt.x)}px, ${Math.round(pt.y)}px)`;
 }
 
-/** @param {typeof window.kakao} kakao @param {unknown} map @param {{ current: unknown[] }} propertyRefs @param {HTMLElement | null} [mapContainerEl] */
-export function refreshScreenMarkerPositions(kakao, map, propertyRefs, mapContainerEl = null) {
-  if (!kakao || !map) return;
-  propertyRefs.current.forEach((entry) => positionScreenMarker(kakao, map, entry, mapContainerEl));
+/** @param {typeof window.naver} naver @param {unknown} map @param {{ current: unknown[] }} propertyRefs @param {HTMLElement | null} [mapContainerEl] */
+export function refreshScreenMarkerPositions(naver, map, propertyRefs, mapContainerEl = null) {
+  if (!naver || !map) return;
+  propertyRefs.current.forEach((entry) => positionScreenMarker(naver, map, entry, mapContainerEl));
 }
 
 /**
  * 줌·드래그·idle 시 화면 좌표 재계산 (지도 컨테이너 위 HTML 레이어)
  * @returns {() => void} cleanup
  */
-export function attachScreenMarkerPositionSync(kakao, map, propertyRefs, mapContainer) {
-  if (!map || !kakao?.maps?.event) return () => {};
+export function attachScreenMarkerPositionSync(naver, map, propertyRefs, mapContainer) {
+  if (!map || !naver?.maps?.Event) return () => {};
 
-  const refresh = () => refreshScreenMarkerPositions(kakao, map, propertyRefs, mapContainer ?? null);
+  const refresh = () => refreshScreenMarkerPositions(naver, map, propertyRefs, mapContainer ?? null);
 
-  const onZoom = () => refresh();
-  const onDrag = () => refresh();
-  const onIdle = () => refresh();
-  const onCenter = () => refresh();
+  let dragging = false;
+  let raf = 0;
+  const tick = () => {
+    raf = 0;
+    refresh();
+    if (dragging) raf = requestAnimationFrame(tick);
+  };
+  const startDrag = () => {
+    dragging = true;
+    if (!raf) raf = requestAnimationFrame(tick);
+  };
+  const endDrag = () => {
+    dragging = false;
+    refresh();
+  };
 
-  kakao.maps.event.addListener(map, 'zoom_changed', onZoom);
-  kakao.maps.event.addListener(map, 'drag', onDrag);
-  kakao.maps.event.addListener(map, 'idle', onIdle);
-  kakao.maps.event.addListener(map, 'center_changed', onCenter);
+  const listeners = [
+    addMapListener(map, 'zoom_changed', refresh),
+    addMapListener(map, 'zoomend', refresh),
+    addMapListener(map, 'dragstart', startDrag),
+    addMapListener(map, 'drag', refresh),
+    addMapListener(map, 'dragend', endDrag),
+    addMapListener(map, 'idle', refresh),
+    addMapListener(map, 'center_changed', refresh),
+    addMapListener(map, 'bounds_changed', refresh),
+  ];
 
   let resizeObserver = null;
   if (mapContainer && typeof ResizeObserver !== 'undefined') {
@@ -83,29 +154,73 @@ export function attachScreenMarkerPositionSync(kakao, map, propertyRefs, mapCont
   requestAnimationFrame(() => requestAnimationFrame(refresh));
 
   return () => {
+    dragging = false;
+    if (raf) cancelAnimationFrame(raf);
     resizeObserver?.disconnect();
-    kakao.maps.event.removeListener(map, 'zoom_changed', onZoom);
-    kakao.maps.event.removeListener(map, 'drag', onDrag);
-    kakao.maps.event.removeListener(map, 'idle', onIdle);
-    kakao.maps.event.removeListener(map, 'center_changed', onCenter);
+    listeners.forEach(removeMapListener);
+  };
+}
+
+/**
+ * HTML 카드 레이어를 네이버 지도 팬 페인에 붙여, 드래그 시 타일과 같이 움직이게 한다.
+ * @returns {{ host: HTMLElement, unmount: () => void } | null}
+ */
+export function mountOverlayHost(naver, map) {
+  if (!naver?.maps?.OverlayView || !map) return null;
+
+  const host = document.createElement('div');
+  host.style.cssText = [
+    'position:absolute',
+    'left:0',
+    'top:0',
+    'width:0',
+    'height:0',
+    'overflow:visible',
+    'pointer-events:none',
+  ].join(';');
+
+  const OverlayView = naver.maps.OverlayView;
+  function Binder() {
+    OverlayView.call(this);
+  }
+  Binder.prototype = Object.create(OverlayView.prototype);
+  Binder.prototype.constructor = Binder;
+  Binder.prototype.onAdd = function onAdd() {
+    const panes = this.getPanes();
+    const pane = panes?.overlayMouseTarget || panes?.floatPane || panes?.overlayLayer;
+    pane?.appendChild(host);
+  };
+  Binder.prototype.draw = function draw() {};
+  Binder.prototype.onRemove = function onRemove() {
+    if (host.parentNode) host.parentNode.removeChild(host);
+  };
+
+  const binder = new Binder();
+  binder.setMap(map);
+
+  return {
+    host,
+    unmount() {
+      try { binder.setMap(null); } catch { /* ignore */ }
+    },
   };
 }
 
 /** @deprecated refreshScreenMarkerPositions 사용 */
-export function refreshCardOverlayPositions(kakao, propertyRefs) {
-  refreshScreenMarkerPositions(kakao, null, propertyRefs);
+export function refreshCardOverlayPositions(naver, propertyRefs) {
+  refreshScreenMarkerPositions(naver, null, propertyRefs);
 }
 
 /** @deprecated attachScreenMarkerPositionSync 사용 */
-export function scheduleCardOverlayLayoutSync(kakao, map, propertyRefs) {
-  refreshScreenMarkerPositions(kakao, map, propertyRefs);
+export function scheduleCardOverlayLayoutSync(naver, map, propertyRefs) {
+  refreshScreenMarkerPositions(naver, map, propertyRefs);
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    refreshScreenMarkerPositions(kakao, map, propertyRefs);
+    refreshScreenMarkerPositions(naver, map, propertyRefs);
   }));
 }
 
-export function syncCardOverlaysOnIdle(kakao, map, propertyRefs) {
-  scheduleCardOverlayLayoutSync(kakao, map, propertyRefs);
+export function syncCardOverlaysOnIdle(naver, map, propertyRefs) {
+  scheduleCardOverlayLayoutSync(naver, map, propertyRefs);
 }
 
 export function clearPropertyLayer(propertyRefs) {
@@ -175,12 +290,12 @@ function createScreenMarker(
 }
 
 /**
- * @param {typeof window.kakao} kakao
+ * @param {typeof window.naver} naver
  * @param {unknown} map
  * @param {HTMLElement} screenLayer
  */
 export function placePropertyLayer(
-  kakao,
+  naver,
   map,
   resolved,
   renderMarkerCard,
@@ -217,14 +332,14 @@ export function placePropertyLayer(
     }
   });
 
-  refreshScreenMarkerPositions(kakao, map, propertyRefs);
+  refreshScreenMarkerPositions(naver, map, propertyRefs);
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    refreshScreenMarkerPositions(kakao, map, propertyRefs);
+    refreshScreenMarkerPositions(naver, map, propertyRefs);
   }));
 }
 
 export function updatePropertyLayerInPlace(
-  kakao,
+  naver,
   map,
   propertyRefs,
   renderMarkerCard,
@@ -242,9 +357,9 @@ export function updatePropertyLayerInPlace(
     root.render(renderMarkerCard(item, isSelected, cardDisplayMode));
   });
 
-  refreshScreenMarkerPositions(kakao, map, propertyRefs);
+  refreshScreenMarkerPositions(naver, map, propertyRefs);
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    refreshScreenMarkerPositions(kakao, map, propertyRefs);
+    refreshScreenMarkerPositions(naver, map, propertyRefs);
   }));
   return true;
 }

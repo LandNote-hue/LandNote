@@ -16,6 +16,7 @@ export const BULK_UNIFIED_HEADERS = [
   // 아래부터는 나중에 추가된 컬럼 — 기존 업로드 파일과의 호환을 위해 항상 끝에 이어붙일 것
   '매물대분류',
   '매물소분류',
+  '매물종류',
   '진행여부',
   '공개여부',
   '도로상황',
@@ -56,12 +57,12 @@ export const BULK_CSV_HEADERS = BULK_UNIFIED_HEADERS;
 export const BULK_UNIFIED_SAMPLE_ROWS = [
   [
     '1', '서울시 노원구 상계동 123', '101동 502호', '아파트', '매매', '85000', '0', '0', '15', '25',
-    '아파트·오피스텔', '아파트', '매각중', '공개', '8m 도로 접함', '', '', '84.5', '105.2', '', '', '',
+    '아파트·오피스텔', '아파트', '', '매각중', '공개', '8m 도로 접함', '', '', '84.5', '105.2', '', '', '',
     '역세권 신축급 아파트 매매', '홍길동', '010-1234-5678', '역세권 도보 5분, 남향 고층 세대', '집주인 직접 거주 중, 이사 협의 필요',
   ],
   [
     '2', '서울시 수지구 풍덕천동 456', '1층 102호', '상가', '월세', '5000', '250', '3000', '20', '18',
-    '상가·업무·공장·토지', '상가', '준비중', '공개', '왕복 4차선 대로변', '', '', '59.5', '66.1', '5000', '', '',
+    '상가·업무·공장·토지', '상가', '', '준비중', '공개', '왕복 4차선 대로변', '', '', '59.5', '66.1', '5000', '', '',
     '역세권 1층 상가 임대', '김민수', '010-9876-5432', '유동인구 많은 코너 상가, 즉시 입주 가능', '보증금 협의 가능',
   ],
 ];
@@ -75,10 +76,18 @@ export const BULK_PROPERTY_TYPE_MAP = {
   '아파트': { main: 'APT_OFFICETEL', sub: 'APARTMENT', tag: '아파트' },
   '오피스텔': { main: 'APT_OFFICETEL', sub: 'OFFICETEL_RESI', tag: '오피스텔' },
   '빌라': { main: 'VILLA_HOUSE', sub: 'VILLA', tag: '빌라/연립' },
-  '단독': { main: 'VILLA_HOUSE', sub: 'DETACHED', tag: '단독/다가구' },
+  '단독': { main: 'VILLA_HOUSE', sub: 'DETACHED', tag: '단독·다가구' },
+  '단독·다가구': { main: 'VILLA_HOUSE', sub: 'DETACHED', tag: '단독·다가구' },
   '상가': { main: 'COMMERCIAL', sub: 'STORE', tag: '상가' },
   '사무실': { main: 'COMMERCIAL', sub: 'OFFICE', tag: '사무실' },
-  '건물': { main: 'COMMERCIAL', sub: 'WHOLE_BUILDING', tag: '건물(통건물)' },
+  '건물': { main: 'COMMERCIAL', sub: 'WHOLE_BUILDING', tag: '빌딩(통건물)' },
+  '빌딩': { main: 'COMMERCIAL', sub: 'WHOLE_BUILDING', tag: '빌딩(통건물)' },
+  '빌딩(통건물)': { main: 'COMMERCIAL', sub: 'WHOLE_BUILDING', tag: '빌딩(통건물)' },
+  '공장': { main: 'COMMERCIAL', sub: 'FACTORY_WAREHOUSE', tag: '공장·창고' },
+  '공장·창고': { main: 'COMMERCIAL', sub: 'FACTORY_WAREHOUSE', tag: '공장·창고' },
+  '지식산업센터': { main: 'COMMERCIAL', sub: 'KNOWLEDGE_INDUSTRY', tag: '지식산업센터' },
+  '숙박업, 호텔': { main: 'COMMERCIAL', sub: 'HOTEL_ACCOMMODATION', tag: '숙박업, 호텔' },
+  '호텔': { main: 'COMMERCIAL', sub: 'HOTEL_ACCOMMODATION', tag: '숙박업, 호텔' },
   '토지': { main: 'COMMERCIAL', sub: 'LAND', tag: '토지' },
 };
 
@@ -89,7 +98,7 @@ export const BULK_TRADE_TYPE_MAP = {
   '월세': 'MONTHLY',
   '임대': 'MONTHLY',
   '단기': 'SHORT_TERM',
-  '분양': 'PRESALE',
+  '분양': 'SALE',
 };
 
 /** 진행여부 한글 라벨 → status 코드 (구 라벨 호환) */

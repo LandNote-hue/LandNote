@@ -5,7 +5,6 @@ export const CUSTOMER_TRADE_OPTS = [
   { id: 'JEONSE', label: '전세' },
   { id: 'MONTHLY', label: '월세' },
   { id: 'SHORT_TERM', label: '단기' },
-  { id: 'PRESALE', label: '분양' },
 ];
 
 /** @type {Record<string, string>} */
@@ -19,8 +18,8 @@ export const CUSTOMER_TRADE_MAP = {
   단기: 'SHORT_TERM',
   SHORT_TERM: 'SHORT_TERM',
   단기임대: 'SHORT_TERM',
-  분양: 'PRESALE',
-  PRESALE: 'PRESALE',
+  분양: 'SALE',
+  PRESALE: 'SALE',
 };
 
 /** @type {Record<string, string>} */
@@ -66,7 +65,9 @@ export function parsePreferredTradesFromText(text) {
 
 /** @param {string[]|undefined|null} trades */
 export function normalizePreferredTradesField(trades) {
-  const raw = Array.isArray(trades) ? trades.filter(Boolean) : [];
+  const raw = Array.isArray(trades)
+    ? trades.filter(Boolean).map((t) => (t === 'PRESALE' ? 'SALE' : t))
+    : [];
   const unique = TRADE_PRIORITY.filter((code) => raw.includes(code));
   return unique;
 }

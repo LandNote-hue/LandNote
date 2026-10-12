@@ -6,7 +6,7 @@ import {
 } from './mapSiteLayout.js';
 import { useMapPlaceSearchResults } from './useMapPlaceSearchResults.js';
 
-const KAKAO_BLUE = '#3396FF';
+const MAP_BLUE = '#3396FF';
 const C = {
   bdr: '#E8EAED',
   tx: '#0F172A',
@@ -14,7 +14,7 @@ const C = {
   txP: '#94A3B8',
 };
 
-/** @param {{ onSelect: (item: import('../../services/kakao/kakaoMaps.js').MapSearchResult) => void, isMobile?: boolean }} props */
+/** @param {{ onSelect: (item: import('../../services/naver/naverMaps.js').MapSearchResult) => void, isMobile?: boolean }} props */
 export function MapPlaceSearch({ onSelect, isMobile = false }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -92,11 +92,11 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
           background: '#fff',
           borderRadius: 8,
           boxShadow: '0 2px 12px rgba(0,0,0,.14)',
-          border: `1px solid ${open ? KAKAO_BLUE : C.bdr}`,
+          border: `1px solid ${open ? MAP_BLUE : C.bdr}`,
           overflow: 'hidden',
         }}
       >
-        <span style={{ padding: isMobile ? '0 10px' : '0 12px', color: KAKAO_BLUE, display: 'flex' }} aria-hidden>
+        <span style={{ padding: isMobile ? '0 10px' : '0 12px', color: MAP_BLUE, display: 'flex' }} aria-hidden>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
             <circle cx="11" cy="11" r="7" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -126,7 +126,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
           onClick={() => { if (results.length) setOpen(true); }}
           style={{
             border: 'none',
-            background: KAKAO_BLUE,
+            background: MAP_BLUE,
             color: '#fff',
             height: inputH,
             padding: isMobile ? '0 12px' : '0 16px',
@@ -183,7 +183,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
                 style={{
                   fontSize: 10,
                   fontWeight: 700,
-                  color: item.kind === 'place' ? KAKAO_BLUE : C.txM,
+                  color: item.kind === 'place' ? MAP_BLUE : C.txM,
                   background: item.kind === 'place' ? '#E8F3FF' : '#F3F4F6',
                   borderRadius: 4,
                   padding: '2px 6px',

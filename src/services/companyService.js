@@ -26,7 +26,7 @@ export async function fetchUserCompany(userId) {
     return {
       company: {
         id: profile.company_id,
-        name: `${label} 워크스페이스`,
+        name: label,
         slug: `solo-${String(userId).replace(/-/g, '')}`,
         representative_id: userId,
       },

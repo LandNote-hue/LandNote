@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { searchJusoAddress, messageFromJusoHttpError } from '../services/address/jusoApi.js';
 import { openJusoAddressPopup, openJusoJibunAddressPopup, hasJusoPopupKey } from '../services/address/jusoPopup.js';
 
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
+
 const C = {
-  brand: '#C8102E',
-  brandL: '#FBE9EC',
+  brand: BRAND_CSS.brand,
+  brandL: BRAND_CSS.brandL,
   bg: '#F5F6FA',
   surf: '#FFFFFF',
   surf2: '#F8F9FB',
@@ -44,7 +46,7 @@ const PLACEHOLDER = {
  *   autoSearchOnOpen?: boolean,
  * }} props
  */
-export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '', autoSearchOnOpen = true }) {
+export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '', autoSearchOnOpen = true, initialMode = 'all' }) {
   const [mode, setMode] = useState('all');
   const [keyword, setKeyword] = useState(initialKeyword);
   const [page, setPage] = useState(1);
@@ -98,6 +100,7 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
     }
     const q = (initialKeyword || '').trim();
     setKeyword(initialKeyword || '');
+    setMode(MODES.some((m) => m.id === initialMode) ? initialMode : 'all');
     setPage(1);
     setItems([]);
     setTotalCount(0);
@@ -141,6 +144,8 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
       roadAddr: item.roadAddr || '',
       jibunAddr: item.jibunAddr || item.roadAddr || '',
       admCd: item.admCd,
+      sigunguCd: item.sigunguCd,
+      bjdongCd: item.bjdongCd,
       platGbCd: item.platGbCd,
       bun: item.bun,
       ji: item.ji,

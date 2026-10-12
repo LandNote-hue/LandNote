@@ -1,9 +1,13 @@
 import { useParams } from 'react-router-dom';
 import { useOwnerCustomers, useOwnerCallLogs } from '../../hooks/useOwnerScopedData.js';
 import { formatCustomerTypesLabel } from '../../utils/customerTypes.js';
-import { formatPreferredTradesLabel } from '../../utils/customerTradePreference.js';
+import { customerBuyTypeLabelOf } from '../../utils/customerBuyTypes.js';
+import { CUST_STATUS_OPTS, normalizeCustStatus } from '../../utils/customerStatus.js';
 import { formatPhone } from '../../utils/formatPhone.js';
 import { formatKoreanAmountFromMan } from '../../utils/formatMoney.js';
+import { fmtLeaseAreaRange, fmtLeaseBudgetRange, leaseConditionsFromCustomer, serializeLeaseConditions } from '../../utils/customerLeaseConditions.js';
+import { inferCustomerDealMode } from '../../utils/dealModeMatch.js';
+import { DEAL_MODE_RENT } from '../../theme/dealModeTheme.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileInfoRow, MobileEmptyState, M } from './mobileUi.jsx';
 
 export function MobileCustomerDetail() {
@@ -26,7 +30,9 @@ export function MobileCustomerDetail() {
     .filter((c) => c.cid === cust.id)
     .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
   const typesLabel = formatCustomerTypesLabel(cust.customer_types?.length ? cust.customer_types : [cust.type]);
-  const tradesLabel = formatPreferredTradesLabel?.(cust.preferred_trades) || '';
+  const gradeLabel = CUST_STATUS_OPTS.find((o) => o.id === normalizeCustStatus(cust.status))?.label || '보통';
+  const isRent = inferCustomerDealMode(cust) === DEAL_MODE_RENT;
+  const leaseRows = serializeLeaseConditions(leaseConditionsFromCustomer(cust));
 
   return (
     <>
@@ -49,11 +55,39 @@ export function MobileCustomerDetail() {
         <MobileSectionTitle>기본 정보</MobileSectionTitle>
         <MobileCard>
           <MobileInfoRow label="소속" value={cust.co} />
-          <MobileInfoRow label="선호 거래" value={tradesLabel} />
-          <MobileInfoRow label="보유 현금" value={cust.cash ? formatKoreanAmountFromMan(cust.cash) : null} />
-          <MobileInfoRow label="매수 희망가" value={(cust.buyMin || cust.buyMax) ? `${formatKoreanAmountFromMan(cust.buyMin || 0)} ~ ${formatKoreanAmountFromMan(cust.buyMax || 0)}` : null} />
+          <MobileInfoRow label="등급" value={gradeLabel} />
+          {!isRent && <MobileInfoRow label="매수유형" value={customerBuyTypeLabelOf(cust)} />}
+          {!isRent && <MobileInfoRow label="매수시기" value={cust.buyTiming || null} />}
+          {!isRent && <MobileInfoRow label="보유 현금" value={cust.cash ? formatKoreanAmountFromMan(cust.cash) : null} />}
+          {!isRent && (
+            <MobileInfoRow
+              label="매수 희망가"
+              value={(cust.buyMin || cust.buyMax) ? `${formatKoreanAmountFromMan(cust.buyMin || 0)} ~ ${formatKoreanAmountFromMan(cust.buyMax || 0)}` : null}
+            />
+          )}
           <MobileInfoRow label="등록일" value={cust.created} />
         </MobileCard>
+
+        {isRent && (
+          <>
+            <MobileSectionTitle>임차조건</MobileSectionTitle>
+            {leaseRows.length === 0 ? (
+              <MobileCard>
+                <MobileInfoRow label="임차조건" value="—" />
+              </MobileCard>
+            ) : leaseRows.map((row, i) => (
+              <MobileCard key={i} style={{ marginBottom: i < leaseRows.length - 1 ? 10 : 0 }}>
+                {leaseRows.length > 1 && (
+                  <div style={{ fontSize: 12, fontWeight: 800, color: M.txM, marginBottom: 6 }}>조건 {i + 1}</div>
+                )}
+                <MobileInfoRow label="필요 전용면적" value={fmtLeaseAreaRange(row.exclusiveAreaPyMin, row.exclusiveAreaPyMax)} />
+                <MobileInfoRow label="예산" value={fmtLeaseBudgetRange(row.budgetManMin, row.budgetManMax)} />
+                <MobileInfoRow label="선호지역" value={row.region || '—'} />
+                <MobileInfoRow label="이전시기" value={row.moveTiming || '—'} />
+              </MobileCard>
+            ))}
+          </>
+        )}
 
         {cust.memo && (
           <>

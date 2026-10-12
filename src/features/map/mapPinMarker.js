@@ -1,4 +1,4 @@
-/** MapPropertyPin SVG — kakao.maps.MarkerImage (줌 시 좌표 고정) */
+/** MapPropertyPin SVG — 네이버 Marker icon (줌 시 좌표 고정) */
 
 export const PIN_WIDTH = 26;
 export const PIN_HEIGHT = 36;
@@ -21,12 +21,14 @@ const PIN_IMAGE = {
   selected: svgDataUrl(PIN_SVG('#C8102E')),
 };
 
-/** @param {typeof window.kakao} kakao @param {boolean} [selected] */
-export function createPropertyPinMarkerImage(kakao, selected = false) {
+/** @param {boolean} [selected] */
+export function createPropertyPinMarkerIcon(selected = false) {
   const src = selected ? PIN_IMAGE.selected : PIN_IMAGE.default;
-  return new kakao.maps.MarkerImage(
-    src,
-    new kakao.maps.Size(PIN_WIDTH, PIN_HEIGHT),
-    { offset: new kakao.maps.Point(PIN_WIDTH / 2, PIN_HEIGHT) },
-  );
+  const naver = window.naver;
+  return {
+    url: src,
+    size: new naver.maps.Size(PIN_WIDTH, PIN_HEIGHT),
+    scaledSize: new naver.maps.Size(PIN_WIDTH, PIN_HEIGHT),
+    anchor: new naver.maps.Point(PIN_WIDTH / 2, PIN_HEIGHT),
+  };
 }

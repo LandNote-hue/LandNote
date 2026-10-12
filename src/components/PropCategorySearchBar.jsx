@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { PROP_MAIN } from '../data/propertyTypes.js';
 import {
-  PROP_MAIN_SEARCH_TABS, PROP_TRADE_LABELS, emptyCategorySearch, subOptionsForMain,
+  PROP_MAIN_SEARCH_TABS, emptyCategorySearch, subOptionsForMain,
   selectedMains, mergeSearchSpec, pruneCategorySearch, ALL_SEARCH_MAINS, BAND_TO_RANGE_KEY,
 } from '../utils/propCategorySearch.js';
 import { RANGE_FILTER_STEPS } from '../utils/rangeFilterConfig.js';
 import { RangeFilterPopover } from './RangeFilterPopover.jsx';
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
 
 const C = {
-  brand: '#C8102E',
-  brandL: '#FBE9EC',
+  brand: BRAND_CSS.brand,
+  brandL: BRAND_CSS.brandL,
   bdr: '#E8EAED',
   tx: '#0F172A',
   txM: '#6B7280',
@@ -44,9 +45,9 @@ const controlStyle = (compact, active = false) => ({
 /** 데스크톱 상세검색에서 select류 필드 하나의 폭 — 부모가 flex-wrap일 때만 적용 (compact=그리드 레이아웃) */
 const fieldWrapStyle = (compact) => (compact ? undefined : { flex: '0 1 150px', minWidth: 110 });
 
-const LEAD_KEYS = new Set(['trade', 'priceBand']);
+const LEAD_KEYS = new Set(['priceBand']);
 /** 상세검색 1행(진행상태 우측)에 고정 배치 — lead/rest/global에서 제외 */
-const HEADER_ROW_KEYS = new Set(['trade', 'floorBand']);
+const HEADER_ROW_KEYS = new Set(['floorBand']);
 const GLOBAL_DROP_KEYS = new Set(['approvalBand', 'floorBand', 'loanBand', 'maintBand', 'extras']);
 
 /**
@@ -242,24 +243,6 @@ export function PropCategorySearchBar({ value, onChange, compact = false, scroll
 }
 
 function DropField({ drop, cat, patch, compact, extrasOpen, setExtrasOpen, extrasRef, extras }) {
-  if (drop.kind === 'trade') {
-    return (
-      <div style={fieldWrapStyle(compact)}>
-        <div style={lblStyle(compact)}>거래방식</div>
-        <select
-          className="sel"
-          value={cat.trade}
-          onChange={(e) => patch({ trade: e.target.value })}
-          style={controlStyle(compact, !!cat.trade)}
-        >
-          <option value="">전체</option>
-          {Object.entries(PROP_TRADE_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-      </div>
-    );
-  }
   if (drop.kind === 'bands') {
     const rangeKey = BAND_TO_RANGE_KEY[drop.key];
     if (rangeKey && RANGE_FILTER_STEPS[rangeKey]) {

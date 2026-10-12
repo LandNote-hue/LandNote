@@ -22,6 +22,19 @@ export function propDetailWinTitle(p) {
   return addr !== '—' ? addr : (title || '—');
 }
 
+/** 통화내역 등 — 지번을 항상 앞에 두고, 건물명이 있으면 뒤에 붙임 */
+/** @param {{ addr?: string, jibunAddr?: string, bldg?: string, extraParcels?: unknown[] }|null|undefined} p */
+export function propCallIdentLabel(p) {
+  if (!p) return '';
+  const extra = Array.isArray(p.extraParcels) ? p.extraParcels.filter(Boolean).length : 0;
+  let addr = propDisplayAddr(p);
+  if (addr === '—') addr = '';
+  if (extra > 0) addr = addr ? `${addr} 외 ${extra}필지` : `외 ${extra}필지`;
+  const title = String(p.bldg || '').trim();
+  if (addr && title && title !== addr) return `${addr} · ${title}`;
+  return addr || title || '';
+}
+
 /** @param {{ addr?: string, jibunAddr?: string, roadAddr?: string }|null|undefined} p */
 export function propRoadAddr(p) {
   if (!p) return '';
@@ -129,6 +142,12 @@ export function propMatchesSearch(p, kw) {
     });
   }
   return false;
+}
+
+export function isPlaceholderPropertyAddress(value) {
+  const t = String(value || '').trim();
+  if (!t) return true;
+  return t === '주소 미입력' || t === '—' || t === '-' || t === '없음';
 }
 
 /** @param {{ jibunAddr?: string, roadAddr?: string }} locationForm @param {string} [searchKeyword] */

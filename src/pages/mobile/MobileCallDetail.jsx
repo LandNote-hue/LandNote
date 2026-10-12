@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useOwnerCallLogs, useOwnerCustomers } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
-import { propDisplayAddr } from '../../utils/propAddress.js';
+import { propCallIdentLabel } from '../../utils/propAddress.js';
 import { formatPhone } from '../../utils/formatPhone.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileInfoRow, MobileEmptyState, M } from './mobileUi.jsx';
 
@@ -23,7 +23,7 @@ export function MobileCallDetail() {
   }
 
   const cust = customers.find((c) => c.id === call.cid);
-  const prop = properties.find((p) => p.id === call.pid);
+  const prop = properties.find((p) => p.id === call.pid || String(p.id) === String(call.pid) || (p.cloudId != null && String(p.cloudId) === String(call.pid)));
   const telDigits = String(cust?.phone || '').replace(/[^0-9+]/g, '');
 
   return (
@@ -49,7 +49,7 @@ export function MobileCallDetail() {
             label="매물"
             value={prop ? (
               <span onClick={() => navigate(`/properties/${prop.id}`)} style={{ color: M.info, cursor: 'pointer' }}>
-                {propDisplayAddr(prop)}
+                {propCallIdentLabel(prop)}
               </span>
             ) : null}
           />

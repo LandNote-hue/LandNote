@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MENU_PATHS } from '../navigation/routes.js';
 
-const BRAND = '#C8102E';
+import { DealModeToggle } from '../components/DealModeToggle.jsx';
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
+
+const BRAND = BRAND_CSS.brand;
 const SIDEBAR = '#1A2332';
 const NAV_H = 56;
 
@@ -33,7 +36,6 @@ const TabIcon = ({ id, active }) => {
 
 export function MobileShell({
   children,
-  screenTitle,
   menuId,
   onSettings,
   onViewDesktop,
@@ -75,14 +77,7 @@ export function MobileShell({
           style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
           <span translate="no" lang="en" style={{ fontSize: 17, fontWeight: 800, color: BRAND, letterSpacing: '-.02em' }}>LandNote</span>
         </button>
-        {screenTitle && screenTitle !== 'LandNote' && (
-          <>
-            <span style={{ color: 'rgba(255,255,255,.25)', fontSize: 12 }}>›</span>
-            <span style={{ fontSize: 14, color: 'rgba(255,255,255,.65)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {screenTitle}
-            </span>
-          </>
-        )}
+        <div style={{ marginLeft: 10, flexShrink: 0 }}><DealModeToggle compact /></div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
           <button type="button" onClick={onSettings} aria-label="설정"
             style={headerBtn}>

@@ -4,10 +4,11 @@ import { isSupabaseConfigured } from '../lib/supabase.js';
 import { isBusinessRole, isCeoRole, normalizeCompanyRole, usesTeamCloudSync } from '../data/companyRoles.js';
 import { initialCloudSync, refreshSharedCloudData } from '../services/sync/cloudSync.js';
 import { BTN_SIZE } from '../theme/buttonLayout.js';
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
 
 const C = {
-  brand: '#C8102E',
-  brandD: '#A50E25',
+  brand: BRAND_CSS.brand,
+  brandD: BRAND_CSS.brandD,
   surf2: '#F8F9FB',
   bdr: '#E8EAED',
   tx: '#0F172A',

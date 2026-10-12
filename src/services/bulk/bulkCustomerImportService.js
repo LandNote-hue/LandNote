@@ -2,6 +2,7 @@ import { addCustomer, bulkAddCustomers, loadCustomerPhoneKeySet } from '../../db
 import { customerPhoneKey } from '../../utils/formatPhone.js';
 import { CUSTOMER_BULK_MAX_ROWS } from '../../data/customerBulkCsv.js';
 import { parseCustomerBulkFile } from '../../utils/parseCustomerBulkFile.js';
+import { normalizeDealMode } from '../../utils/dealModeMatch.js';
 import {
   parseCustomerBulkRow,
   rowToCustomerBulkInput,
@@ -70,7 +71,7 @@ export async function runBulkCustomerImportFromRows(rows, opts = {}) {
     throw new Error('이미 일괄 등록이 진행 중입니다. 잠시 후 다시 시도해 주세요.');
   }
   customerBulkImportInFlight = true;
-  const { onProgress } = opts;
+  const { onProgress, dealMode } = opts;
   try {
   onProgress?.(5);
 
@@ -78,7 +79,7 @@ export async function runBulkCustomerImportFromRows(rows, opts = {}) {
     throw new Error(customerBulkMaxRowsExceededMessage(rows.length));
   }
 
-  const existingPhoneKeys = await loadCustomerPhoneKeySet();
+  const existingPhoneKeys = await loadCustomerPhoneKeySet(dealMode);
   /** @type {Set<string>} */
   const batchPhoneKeys = new Set();
 
@@ -118,7 +119,7 @@ export async function runBulkCustomerImportFromRows(rows, opts = {}) {
     }
 
     batchPhoneKeys.add(phoneKey);
-    validCustomers.push(parsed.customer);
+    validCustomers.push({ ...parsed.customer, dealMode: normalizeDealMode(dealMode) });
   });
 
   onProgress?.(40);
@@ -155,14 +156,14 @@ export async function runBulkCustomerImportFromFile(file, opts = {}) {
   return runBulkCustomerImportFromRows(rows, opts);
 }
 
-/** @param {Record<string, string>} row */
-export async function retryBulkCustomerRow(row) {
+/** @param {Record<string, string>} row @param {{ dealMode?: string }} [opts] */
+export async function retryBulkCustomerRow(row, opts = {}) {
   const rowIndex = Number(row._rowIndex) || 0;
   const parsed = parseCustomerBulkRow(row, rowIndex);
   if (!parsed.ok || !parsed.customer) {
     throw new Error(parsed.error || '유효하지 않은 데이터입니다.');
   }
-  const id = await addCustomer(parsed.customer);
+  const id = await addCustomer({ ...parsed.customer, dealMode: normalizeDealMode(opts.dealMode) });
   return { id, reportKey: parsed.reportKey };
 }
 

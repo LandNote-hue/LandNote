@@ -1,6 +1,8 @@
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
+
 const C = {
   bdr: '#E8EAED',
-  brand: '#C8102E',
+  brand: BRAND_CSS.brand,
   txM: '#6B7280',
 };
 

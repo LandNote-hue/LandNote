@@ -80,7 +80,7 @@ function rowToServerPayload(row, fallbackIndex) {
 async function processRowClient(row, rowIndex) {
   const normalized = normalizeBulkRow(row);
   const property = await enrichBulkPropertyRow(normalized);
-  const id = await addProperty(property);
+  const { id } = await addProperty(property);
   return {
     rowIndex,
     success: true,
@@ -117,7 +117,7 @@ async function processChunkViaServer(chunk, startIndex) {
   for (const item of data.results || []) {
     if (item.success && item.property) {
       try {
-        const id = await addProperty(item.property);
+        const { id } = await addProperty(item.property);
         results.push({
           rowIndex: item.rowIndex,
           success: true,

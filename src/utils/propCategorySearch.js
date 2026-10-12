@@ -2,7 +2,7 @@
  * 매물 대분류별 세부검색 — 필드 구성·매칭
  * 등록 폼에 없는 항목(세대수·방/욕실·방향·분양단계 등)은 UI에서 제외
  */
-import { PROP_MAIN, PROP_SUB } from '../data/propertyTypes.js';
+import { visiblePropMainEntries, visiblePropSubEntries } from '../data/propertyTypes.js';
 import { m2ToPyung, priceInManForFilter } from './formatMoney.js';
 import { emptyRangeFilters, isRangeActive } from './rangeFilterConfig.js';
 import { propertyMatchesRangeFilters, rangeFiltersActive } from './rangeFilterMatch.js';
@@ -14,15 +14,14 @@ export const PROP_TRADE_LABELS = {
   JEONSE: '전세',
   MONTHLY: '월세',
   SHORT_TERM: '단기',
-  PRESALE: '분양',
 };
 
 export const PROP_MAIN_SEARCH_TABS = [
   { id: '', label: '전체' },
-  ...Object.entries(PROP_MAIN).map(([id, label]) => ({ id, label })),
+  ...visiblePropMainEntries().map(([id, label]) => ({ id, label })),
 ];
 
-const MAIN_ORDER = Object.keys(PROP_MAIN);
+const MAIN_ORDER = visiblePropMainEntries().map(([id]) => id);
 export const ALL_SEARCH_MAINS = MAIN_ORDER;
 
 /** @param {ReturnType<typeof emptyCategorySearch>} cat */
@@ -36,8 +35,7 @@ export function selectedMains(cat) {
 
 /** @param {string} main */
 export function subOptionsForMain(main) {
-  const map = PROP_SUB[main] || {};
-  return Object.entries(map).map(([id, label]) => ({ id, label }));
+  return visiblePropSubEntries(main).map(([id, label]) => ({ id, label }));
 }
 
 /** @param {string[]} mains */
@@ -144,7 +142,6 @@ export const EXTRA_OPTS = {
 };
 
 const DROP = {
-  trade: { key: 'trade', label: '거래방식', kind: 'trade' },
   price: { key: 'priceBand', label: '가격대', kind: 'bands', bands: PRICE_BANDS },
   area: { key: 'areaBand', label: '면적', kind: 'bands', bands: AREA_BANDS },
   approval: { key: 'approvalBand', label: '사용승인일', kind: 'bands', bands: APPROVAL_BANDS },
@@ -157,22 +154,22 @@ const DROP = {
 /** @type {Record<string, { drops: typeof DROP[keyof typeof DROP][], extras: {id:string,label:string}[] }>} */
 export const SEARCH_BY_MAIN = {
   APT_OFFICETEL: {
-    drops: [DROP.trade, DROP.price, DROP.area, DROP.approval, DROP.floor, DROP.loan, DROP.extras],
+    drops: [DROP.price, DROP.area, DROP.approval, DROP.floor, DROP.loan, DROP.extras],
     extras: [EXTRA_OPTS.parking, EXTRA_OPTS.urgent, EXTRA_OPTS.roadside, EXTRA_OPTS.station],
   },
   VILLA_HOUSE: {
-    drops: [DROP.trade, DROP.price, DROP.area, DROP.approval, DROP.loan, DROP.extras],
+    drops: [DROP.price, DROP.area, DROP.approval, DROP.loan, DROP.extras],
     extras: [EXTRA_OPTS.renovated, EXTRA_OPTS.parking, EXTRA_OPTS.yard, EXTRA_OPTS.urgent, EXTRA_OPTS.withTenant],
   },
   ONEROOM_TWOROOM: {
-    drops: [DROP.trade, DROP.price, DROP.maint, DROP.extras],
+    drops: [DROP.price, DROP.maint, DROP.extras],
     extras: [
       EXTRA_OPTS.fullOpt, EXTRA_OPTS.rooftop, EXTRA_OPTS.duplex, EXTRA_OPTS.separated,
       EXTRA_OPTS.roadside, EXTRA_OPTS.parking, EXTRA_OPTS.newlyBuilt,
     ],
   },
   COMMERCIAL: {
-    drops: [DROP.trade, DROP.price, DROP.area, DROP.floor, DROP.loan, DROP.maint, DROP.extras],
+    drops: [DROP.price, DROP.area, DROP.floor, DROP.loan, DROP.maint, DROP.extras],
     extras: [EXTRA_OPTS.parking, EXTRA_OPTS.urgent, EXTRA_OPTS.roadside, EXTRA_OPTS.station],
   },
   NEW_DEVELOPMENT: {
