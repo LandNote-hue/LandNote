@@ -1,13 +1,10 @@
-/** 지도 우측 컨트롤 공통 레이아웃 (툴바·줌 겹침 방지) */
+/** 지도 우측 컨트롤 공통 레이아웃 */
 export const MAP_CONTROL_RIGHT = 10;
-export const MAP_TOOLBAR_TOP = 10;
-export const MAP_TOOLBAR_HEIGHT = 32;
-export const MAP_CONTROL_GAP = 8;
+/** 데스크톱: 지도/스카이뷰·로드뷰·레이어·내보내기 툴바 — 우측 중앙(세로 가운데) 고정, 세로 1열 */
+export const MAP_TOOLBAR_ROW_GAP = 4;
 export const MAP_ZOOM_RAIL_WIDTH = 36;
-export const MAP_ZOOM_RAIL_TOP = MAP_TOOLBAR_TOP + MAP_TOOLBAR_HEIGHT + MAP_CONTROL_GAP;
-
-/** 툴바가 줌 레일 영역을 침범하지 않도록 우측 여백 */
-export const MAP_TOOLBAR_MAX_WIDTH = `calc(100% - ${MAP_CONTROL_RIGHT * 2 + MAP_ZOOM_RAIL_WIDTH}px)`;
+/** 데스크톱: 확대·축소 레일은 툴바와 분리해 우측 하단 고정 */
+export const MAP_CONTROL_BOTTOM = 10;
 
 /* ── 모바일: 장소검색 → 툴바/줌 세로 스택 (동일 top 겹침 방지) ── */
 export const MAP_MOBILE_INSET = 8;

@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { propertiesListPath } from '../../navigation/propListPersist.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { propDisplayAddr, propJibunAddr } from '../../utils/propAddress.js';
 import { fmtPropPrice as propPrice, fmtWithUnit, m2ToPyung, fmtNum } from '../../utils/formatMoney.js';
 import { PropertyDetailMap } from '../../components/PropertyDetailMap.jsx';
+import { PROP_STATUS_LABEL } from '../../utils/propStatus.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileInfoRow, MobileEmptyState, M } from './mobileUi.jsx';
 
 const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '분양' };
 const STATUS = {
-  NEW: { label: '신규', bg: '#ECFDF5', color: '#047857' },
-  ACTIVE: { label: '진행중', bg: '#EFF6FF', color: '#2563EB' },
-  HOLD: { label: '보류', bg: '#FFFBEB', color: '#D97706' },
+  NEW: { label: PROP_STATUS_LABEL.NEW, bg: '#ECFDF5', color: '#047857' },
+  ACTIVE: { label: PROP_STATUS_LABEL.ACTIVE, bg: '#EFF6FF', color: '#2563EB' },
+  HOLD: { label: PROP_STATUS_LABEL.HOLD, bg: '#FFFBEB', color: '#D97706' },
   COMPLETED: { label: '완료', bg: '#F1F5F9', color: '#475569' },
 };
 
@@ -29,7 +31,7 @@ export function MobilePropertyDetail() {
   if (!prop) {
     return (
       <>
-        <MobileDetailHeader title="매물 상세" fallback="/properties" />
+        <MobileDetailHeader title="매물 상세" fallback={propertiesListPath()} />
         <MobilePage><MobileEmptyState message="매물을 찾을 수 없습니다" /></MobilePage>
       </>
     );
@@ -41,7 +43,7 @@ export function MobilePropertyDetail() {
 
   return (
     <>
-      <MobileDetailHeader title={propDisplayAddr(prop)} fallback="/properties" />
+      <MobileDetailHeader title={propDisplayAddr(prop)} fallback={propertiesListPath()} />
       <MobilePage>
         {photos.length > 0 ? (
           <div style={{ position: 'relative', marginBottom: 14 }}>

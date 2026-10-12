@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { searchJusoAddress } from '../services/address/jusoApi.js';
+import { searchJusoAddress, messageFromJusoHttpError } from '../services/address/jusoApi.js';
 import { openJusoAddressPopup, openJusoJibunAddressPopup, hasJusoPopupKey } from '../services/address/jusoPopup.js';
 
 const C = {
@@ -41,9 +41,10 @@ const PLACEHOLDER = {
  *   onClose: () => void,
  *   onSelect: (result: import('../services/address/parseJibunAddress.js').AddressSearchResult) => void|Promise<void>,
  *   initialKeyword?: string,
+ *   autoSearchOnOpen?: boolean,
  * }} props
  */
-export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '' }) {
+export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '', autoSearchOnOpen = true }) {
   const [mode, setMode] = useState('all');
   const [keyword, setKeyword] = useState(initialKeyword);
   const [page, setPage] = useState(1);
@@ -79,14 +80,22 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
       }
     } catch (err) {
       setItems([]);
-      setError(err instanceof Error ? err.message : '주소 검색 실패');
+      setError(messageFromJusoHttpError(err));
     } finally {
       setLoading(false);
     }
   }, [keyword, mode]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setItems([]);
+      setTotalCount(0);
+      setError('');
+      setActiveIdx(-1);
+      setLoading(false);
+      setPage(1);
+      return undefined;
+    }
     const q = (initialKeyword || '').trim();
     setKeyword(initialKeyword || '');
     setPage(1);
@@ -95,7 +104,7 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
     setError('');
     setActiveIdx(-1);
     setTimeout(() => inputRef.current?.focus(), 80);
-    if (q.length < 2) return;
+    if (!autoSearchOnOpen || q.length < 2) return undefined;
 
     let cancelled = false;
     (async () => {
@@ -117,31 +126,30 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
       } catch (err) {
         if (cancelled) return;
         setItems([]);
-        setError(err instanceof Error ? err.message : '주소 검색 실패');
+        setError(messageFromJusoHttpError(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [open, initialKeyword]);
+  }, [open, initialKeyword, autoSearchOnOpen]);
 
-  const pickItem = useCallback(async (item) => {
+  const pickItem = useCallback((item) => {
     if (!item?.jibunAddr && !item?.roadAddr) return;
-    try {
-      await onSelect({
-        roadAddr: item.roadAddr || '',
-        jibunAddr: item.jibunAddr || item.roadAddr || '',
-        admCd: item.admCd,
-        platGbCd: item.platGbCd,
-        bun: item.bun,
-        ji: item.ji,
-        pnu: item.pnu,
-      });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '주소 반영 실패');
-    }
+    const addr = {
+      roadAddr: item.roadAddr || '',
+      jibunAddr: item.jibunAddr || item.roadAddr || '',
+      admCd: item.admCd,
+      platGbCd: item.platGbCd,
+      bun: item.bun,
+      ji: item.ji,
+      pnu: item.pnu,
+    };
+    onClose();
+    Promise.resolve(onSelect(addr)).catch(() => {
+      /* 대장 연동 실패는 등록 페이지에서 안내 */
+    });
   }, [onSelect, onClose]);
 
   const onKeyDown = (e) => {
@@ -166,9 +174,9 @@ export function AddressSearchModal({ open, onClose, onSelect, initialKeyword = '
   };
 
   const openOfficialPopup = (type) => {
-    const handler = async (addr) => {
-      await onSelect(addr);
+    const handler = (addr) => {
       onClose();
+      Promise.resolve(onSelect(addr)).catch(() => {});
     };
     try {
       if (type === 'jibun') openJusoJibunAddressPopup(handler);

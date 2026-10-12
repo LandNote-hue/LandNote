@@ -1,5 +1,6 @@
 import React from 'react';
 import { propDisplayAddr, propRoadAddr } from '../../utils/propAddress.js';
+import { PROP_STATUS_LABEL } from '../../utils/propStatus.js';
 import { fmtPropPrice as propPrice } from '../../utils/formatMoney.js';
 
 const C = {
@@ -13,11 +14,11 @@ const C = {
   txM2: '#6B7280',
 };
 
-const MAP_STATUS = {
-  NEW: { l: '신규', c: C.ok },
-  ACTIVE: { l: '진행중', c: C.info },
-  HOLD: { l: '보류', c: C.warn },
-  COMPLETED: { l: '계약완료', c: C.txM2 },
+export const MAP_STATUS = {
+  NEW: { l: PROP_STATUS_LABEL.NEW, c: C.ok },
+  ACTIVE: { l: PROP_STATUS_LABEL.ACTIVE, c: C.info },
+  HOLD: { l: PROP_STATUS_LABEL.HOLD, c: C.warn },
+  COMPLETED: { l: PROP_STATUS_LABEL.COMPLETED, c: C.txM2 },
 };
 
 const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '분양' };
@@ -227,4 +228,4 @@ export function MapInfoCard({
   );
 }
 
-export { MAP_STATUS, TL };
+export { TL };

@@ -1,11 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { loadKakaoMaps, searchMapLocations } from '../../services/kakao/kakaoMaps.js';
-import { ZOOM_PLACE_SEARCH_PERCENT } from './mapZoom.js';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   MAP_MOBILE_INSET,
   MAP_MOBILE_PLACE_SEARCH_HEIGHT,
   MAP_MOBILE_PLACE_SEARCH_TOP,
 } from './mapSiteLayout.js';
+import { useMapPlaceSearchResults } from './useMapPlaceSearchResults.js';
 
 const KAKAO_BLUE = '#3396FF';
 const C = {
@@ -19,46 +18,18 @@ const C = {
 export function MapPlaceSearch({ onSelect, isMobile = false }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(/** @type {import('../../services/kakao/kakaoMaps.js').MapSearchResult[]} */ ([]));
   const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef(null);
-  const debounceRef = useRef(null);
-
-  const runSearch = useCallback(async (text) => {
-    const q = text.trim();
-    if (!q) {
-      setResults([]);
-      setOpen(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const kakao = await loadKakaoMaps(['services']);
-      const found = await searchMapLocations(kakao, q);
-      setResults(found);
-      setOpen(true);
-      setActiveIdx(found.length ? 0 : -1);
-    } catch {
-      setResults([]);
-      setOpen(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { results, loading } = useMapPlaceSearchResults(query);
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
-      setResults([]);
       setOpen(false);
       return;
     }
-    debounceRef.current = setTimeout(() => runSearch(query), 320);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query, runSearch]);
+    setOpen(true);
+    setActiveIdx(results.length ? 0 : -1);
+  }, [query, results]);
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -85,7 +56,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (activeIdx >= 0 && results[activeIdx]) pick(results[activeIdx]);
-      else runSearch(query);
+      else if (results.length) pick(results[0]);
     } else if (e.key === 'Escape') {
       setOpen(false);
     }
@@ -152,7 +123,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
         />
         <button
           type="button"
-          onClick={() => runSearch(query)}
+          onClick={() => { if (results.length) setOpen(true); }}
           style={{
             border: 'none',
             background: KAKAO_BLUE,
@@ -228,11 +199,6 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
               </span>
             </button>
           ))}
-        </div>
-      )}
-      {!isMobile && (
-        <div style={{ fontSize: 10, color: C.txP, textAlign: 'center', marginTop: 4 }}>
-          카카오맵 지도검색 · 선택 시 해당 위치로 이동 (줌 {ZOOM_PLACE_SEARCH_PERCENT}%)
         </div>
       )}
     </div>

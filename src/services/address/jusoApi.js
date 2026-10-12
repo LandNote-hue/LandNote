@@ -20,6 +20,7 @@ const jusoClient = axios.create({
   baseURL,
   timeout: 20_000,
   headers: { Accept: 'application/json' },
+  validateStatus: () => true,
 });
 
 function getSearchKey() {
@@ -33,6 +34,38 @@ function getSearchKey() {
     );
   }
   return key;
+}
+
+/** @param {unknown} err */
+export function messageFromJusoHttpError(err) {
+  const data = err?.response?.data;
+  const common = data?.results?.common;
+  if (common?.errorCode || common?.errorMessage) {
+    return formatJusoApiError(common.errorCode || 'E9999', common.errorMessage || '주소 검색 API 오류');
+  }
+  const status = err?.response?.status;
+  if (status === 503 || status === 502) {
+    return '주소 검색 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  if (err?.code === 'ECONNABORTED' || err?.name === 'AbortError') {
+    return '주소 검색 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.';
+  }
+  if (typeof err?.message === 'string' && err.message && !/status code \d+/.test(err.message)) {
+    return err.message;
+  }
+  return '주소 검색에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+}
+
+function parseJusoResponseData(data) {
+  if (data && typeof data === 'object') return data;
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** @param {string} code @param {string} msg */
@@ -96,23 +129,35 @@ async function fetchJusoPage({ keyword, currentPage, countPerPage, firstSort, mo
     params.confmKey = confmKey;
   }
 
-  const { data } = await jusoClient.get(
-    serverInjectsKey ? '/' : '/addrlink/addrLinkApi.do',
-    { params },
-  );
-  const common = data?.results?.common;
-  const errorCode = common?.errorCode;
-  if (errorCode && errorCode !== '0') {
-    const msg = common?.errorMessage || '주소 검색 API 오류';
-    throw new Error(formatJusoApiError(errorCode, msg));
-  }
+  try {
+    const { data, status } = await jusoClient.get(
+      serverInjectsKey ? '/' : '/addrlink/addrLinkApi.do',
+      { params },
+    );
+    const payload = parseJusoResponseData(data);
+    const common = payload?.results?.common;
+    const errorCode = common?.errorCode;
+    if (errorCode === 'E0001') {
+      throw new Error(formatJusoApiError(errorCode, common?.errorMessage || '검색 키가 없습니다.'));
+    }
+    if (status >= 500 || !payload || errorCode === 'E9999') {
+      return { items: [], totalCount: 0, unavailable: true };
+    }
+    if (errorCode && errorCode !== '0') {
+      const msg = common?.errorMessage || '주소 검색 API 오류';
+      throw new Error(formatJusoApiError(errorCode, msg));
+    }
 
-  const raw = data?.results?.juso;
-  const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-  return {
-    items: list.map(mapJusoApiItem),
-    totalCount: parseInt(String(common?.totalCount ?? list.length), 10) || list.length,
-  };
+    const raw = payload?.results?.juso;
+    const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    return {
+      items: list.map(mapJusoApiItem),
+      totalCount: parseInt(String(common?.totalCount ?? list.length), 10) || list.length,
+    };
+  } catch (err) {
+    if (typeof err?.message === 'string' && err.message.startsWith('[juso')) throw err;
+    return { items: [], totalCount: 0, unavailable: true };
+  }
 }
 
 /**
@@ -166,65 +211,78 @@ export async function searchJusoAddress({
 
   let mapped = [];
   let totalCount = 0;
+  let items = [];
+  let jusoErr = null;
 
-  for (const variant of variants) {
-    const res = await fetchJusoPage({
-      keyword: variant,
-      currentPage,
-      countPerPage,
-      firstSort,
-      mobile,
-    });
-    if (res.items.length) {
-      mapped = res.items;
-      totalCount = res.totalCount;
-      break;
-    }
-  }
-
-  let filtered = filterJusoResults(mapped, mode, q);
-
-  if (!filtered.length && !mapped.length) {
-    const parsed = parseDongLotKeyword(q);
-    if (parsed) {
-      const fallback = await searchJusoByDongLot({
-        dong: parsed.dong,
-        lot: parsed.lot,
-        mode,
-        mobile,
+  try {
+    for (const variant of variants) {
+      const res = await fetchJusoPage({
+        keyword: variant,
+        currentPage,
         countPerPage,
+        firstSort,
+        mobile,
       });
-      if (fallback.length) {
-        mapped = fallback;
-        filtered = fallback;
-        totalCount = fallback.length;
+      if (res.unavailable) continue;
+      if (res.items.length) {
+        mapped = res.items;
+        totalCount = res.totalCount;
+        break;
       }
     }
-  } else if (!filtered.length && mapped.length && mode !== 'all') {
-    const relaxed = filterJusoResults(mapped, 'all', q);
-    if (relaxed.length) {
-      mapped = relaxed;
-      filtered = relaxed;
+
+    let filtered = filterJusoResults(mapped, mode, q);
+
+    if (!filtered.length && !mapped.length) {
+      const parsed = parseDongLotKeyword(q);
+      if (parsed) {
+        const fallback = await searchJusoByDongLot({
+          dong: parsed.dong,
+          lot: parsed.lot,
+          mode,
+          mobile,
+          countPerPage,
+        });
+        if (fallback.length) {
+          mapped = fallback;
+          filtered = fallback;
+          totalCount = fallback.length;
+        }
+      }
+    } else if (!filtered.length && mapped.length && mode !== 'all') {
+      const relaxed = filterJusoResults(mapped, 'all', q);
+      if (relaxed.length) {
+        mapped = relaxed;
+        filtered = relaxed;
+      }
     }
+
+    items = filtered.length ? filtered : mapped;
+  } catch (err) {
+    jusoErr = err;
+    items = [];
   }
 
-  let items = filtered.length ? filtered : mapped;
-
   if (!items.length) {
-    const vworld = await searchVworldAddress({
-      keyword: q,
-      mode,
-      currentPage,
-      countPerPage,
-    });
-    if (vworld.items.length) {
-      items = vworld.items;
-      totalCount = vworld.totalCount;
+    try {
+      const vworld = await searchVworldAddress({
+        keyword: q,
+        mode,
+        currentPage,
+        countPerPage,
+      });
+      if (vworld.items.length) {
+        items = vworld.items;
+        totalCount = vworld.totalCount;
+        jusoErr = null;
+      }
+    } catch {
+      /* vworld 보조 실패는 무시 */
     }
   }
 
   const hint = !items.length
-    ? '검색 결과가 없습니다. 지번·도로명·동 이름을 다시 확인해 주세요.'
+    ? (jusoErr ? messageFromJusoHttpError(jusoErr) : '검색 결과가 없습니다. 지번·도로명·동 이름을 다시 확인해 주세요.')
     : null;
 
   return {

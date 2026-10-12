@@ -8,6 +8,8 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
 
 import { useProperties } from '../../hooks/useProperties.js';
 
+import { emptyCategorySearch, propertyMatchesCategorySearch, categorySearchIsActive, selectedMains } from '../../utils/propCategorySearch.js';
+
 import { coordsFromProperty } from '../../services/kakao/propertyGeocode.js';
 
 import { fmtLandPyUnit, priceInManForFilter } from '../../utils/formatMoney.js';
@@ -27,6 +29,7 @@ import {
   propSearchHaystack,
 
 } from '../../utils/propAddress.js';
+import { PROP_STATUS_LABEL_TO_CODE } from '../../utils/propStatus.js';
 
 import { getCardDisplayMode } from './cardDisplayMode.js';
 
@@ -51,6 +54,8 @@ import { MapPlaceSearch } from './MapPlaceSearch.jsx';
 
 import { MapPropertySidebar } from './MapPropertySidebar.jsx';
 
+import { MapTopFilterBar } from './MapTopFilterBar.jsx';
+
 import { getZoomPercentLabel } from './mapZoom.js';
 
 import { MapMarkerStack } from './MapMarkerStack.jsx';
@@ -73,7 +78,7 @@ const C = {
 
 
 
-const STATUS_LABEL_TO_CODE = { '신규': 'NEW', '진행중': 'ACTIVE', '보류': 'HOLD', '계약완료': 'COMPLETED' };
+const STATUS_LABEL_TO_CODE = PROP_STATUS_LABEL_TO_CODE;
 
 
 
@@ -101,13 +106,9 @@ export function MapView({ onOpen, Btn, PH }) {
 
   const [propSearch, setPropSearch] = useState('');
 
-  const [advOpen, setAdvOpen] = useState(false);
-
   const [selSido, setSelSido] = useState('');
 
   const [selGu, setSelGu] = useState('');
-
-  const [filterResetKey, setFilterResetKey] = useState(0);
 
   const [advTag, setAdvTag] = useState('');
 
@@ -127,9 +128,7 @@ export function MapView({ onOpen, Btn, PH }) {
 
   const [advFloorMax, setAdvFloorMax] = useState('');
 
-  const [advRoiMin, setAdvRoiMin] = useState('');
-
-  const [appliedAdv, setAppliedAdv] = useState(null);
+  const [catSearch, setCatSearch] = useState(emptyCategorySearch);
 
   const [statusFilter, setStatusFilter] = useState('');
 
@@ -207,31 +206,15 @@ export function MapView({ onOpen, Btn, PH }) {
 
 
 
-  const applyAdvSearch = () => setAppliedAdv({
-
-    sido: selSido, gu: selGu, tag: advTag, trade: advTrade, status: advStatus,
-
-    priceMin: advPriceMin, priceMax: advPriceMax,
-
-    landMin: advLandMin, landMax: advLandMax,
-
-    floorMin: advFloorMin, floorMax: advFloorMax,
-
-    roiMin: advRoiMin,
-
-  });
-
   const resetAdvSearch = () => {
 
     setSelSido(''); setSelGu(''); setAdvTag(''); setAdvTrade(''); setAdvStatus('');
 
     setAdvPriceMin(''); setAdvPriceMax(''); setAdvLandMin(''); setAdvLandMax('');
 
-    setAdvFloorMin(''); setAdvFloorMax(''); setAdvRoiMin('');
+    setAdvFloorMin(''); setAdvFloorMax('');
 
-    setAppliedAdv(null);
-
-    setFilterResetKey((k) => k + 1);
+    setCatSearch(emptyCategorySearch());
 
   };
 
@@ -241,51 +224,28 @@ export function MapView({ onOpen, Btn, PH }) {
 
 
 
+  /** 지역·진행상태·거래방식(대분류 미선택 시)은 상단 필터바에 "적용" 버튼이 없어 값이 바뀌는 즉시 반영됨 */
   const visibleP = useMemo(() => P.filter((p) => {
 
     if (statusFilter && p.status !== statusFilter) return false;
 
-    if (appliedAdv) {
+    if (!propertyMatchesCategorySearch(p, catSearch)) return false;
 
-      const a = appliedAdv;
+    if (!sidoMatch(propSearchHaystack(p), selSido)) return false;
 
-      if (!sidoMatch(propSearchHaystack(p), a.sido)) return false;
+    if (selGu && !propSearchHaystack(p).includes(selGu)) return false;
 
-      if (a.gu && !propSearchHaystack(p).includes(a.gu)) return false;
+    if (advTag && p.tag !== advTag) return false;
 
-      if (a.tag && p.tag !== a.tag) return false;
+    if (!selectedMains(catSearch).length && advTrade && p.trade !== advTrade) return false;
 
-      if (a.trade && p.trade !== a.trade) return false;
-
-      if (a.status && p.status !== STATUS_LABEL_TO_CODE[a.status]) return false;
-
-      if ((a.priceMin || a.priceMax) && priceOfForFilter(p) === null) return false;
-
-      if (a.priceMin && priceOfForFilter(p) < Number(a.priceMin)) return false;
-
-      if (a.priceMax && priceOfForFilter(p) > Number(a.priceMax)) return false;
-
-      const landPyVal = p.land > 0 ? py(p.land) : 0;
-
-      if (a.landMin && (!landPyVal || Number(landPyVal) < Number(a.landMin))) return false;
-
-      if (a.landMax && (!landPyVal || Number(landPyVal) > Number(a.landMax))) return false;
-
-      const floorPyVal = p.floor > 0 ? py(p.floor) : 0;
-
-      if (a.floorMin && (!floorPyVal || Number(floorPyVal) < Number(a.floorMin))) return false;
-
-      if (a.floorMax && (!floorPyVal || Number(floorPyVal) > Number(a.floorMax))) return false;
-
-      if (a.roiMin && (parseFloat(p.roi) || 0) < Number(a.roiMin)) return false;
-
-    }
+    if (advStatus && p.status !== STATUS_LABEL_TO_CODE[advStatus]) return false;
 
     if (!propSearch) return true;
 
     return propMatchesSearch(p, propSearch);
 
-  }), [P, statusFilter, appliedAdv, propSearch]);
+  }), [P, statusFilter, catSearch, selSido, selGu, advTag, advTrade, advStatus, propSearch]);
 
 
 
@@ -371,7 +331,7 @@ export function MapView({ onOpen, Btn, PH }) {
   }, [visibleP, viewportBounds, resolvedOnMap]);
 
   /** 검색·필터 활성 시 전체 매물 결과, 아니면 지도 화면 내 매물만 */
-  const hasPropFilter = Boolean(propSearch.trim() || statusFilter || appliedAdv);
+  const hasPropFilter = Boolean(propSearch.trim() || statusFilter || selSido || selGu || advTag || advTrade || advStatus || categorySearchIsActive(catSearch));
   const sidebarListP = hasPropFilter ? visibleP : viewportP;
 
   const hasPropFilterRef = useRef(hasPropFilter);
@@ -521,31 +481,25 @@ export function MapView({ onOpen, Btn, PH }) {
 
     propSearch, setPropSearch,
 
-    advOpen, setAdvOpen,
-
     statusFilter, setStatusFilter,
 
-    selSido, setSelSido, selGu, setSelGu,
-
-    advTag, setAdvTag, advTrade, setAdvTrade, advStatus, setAdvStatus,
-
-    advPriceMin, setAdvPriceMin, advPriceMax, setAdvPriceMax,
-
-    advLandMin, setAdvLandMin, advLandMax, setAdvLandMax,
-
-    advFloorMin, setAdvFloorMin, advFloorMax, setAdvFloorMax,
-
-    advRoiMin, setAdvRoiMin,
-
-    filterResetKey, onApplyAdv: applyAdvSearch, onResetAdv: resetAdvSearch,
     listP: sidebarListP,
     listMode: hasPropFilter ? 'search' : 'viewport',
     visibleCount: visibleP.length,
 
     selectedId, setSelectedId: selectProperty, onOpenDetail: openPropertyDetail,
 
-    loadingCoords, Btn,
+    loadingCoords,
 
+    onPlaceSelect: handlePlaceSelect,
+
+  };
+
+  const topFilterBarProps = {
+    advStatus, setAdvStatus, advTrade, setAdvTrade,
+    catSearch, setCatSearch,
+    onResetAdv: resetAdvSearch,
+    Btn,
   };
 
 
@@ -573,8 +527,6 @@ export function MapView({ onOpen, Btn, PH }) {
         </div>
 
       )}
-
-
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
@@ -630,7 +582,9 @@ export function MapView({ onOpen, Btn, PH }) {
 
           />
 
-          <MapPlaceSearch onSelect={handlePlaceSelect} isMobile={isMobile} />
+          {!isMobile && <MapTopFilterBar {...topFilterBarProps} />}
+
+          {isMobile && <MapPlaceSearch onSelect={handlePlaceSelect} isMobile={isMobile} />}
 
         </div>
 

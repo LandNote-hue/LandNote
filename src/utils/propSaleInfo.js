@@ -3,6 +3,7 @@ import {
   resolveSaleInvestmentMetrics,
 } from './propInvestment.js';
 import { fmtNum, normalizeJDepToMan, m2ToPyung, formatKoreanAmountFromMan } from './formatMoney.js';
+import { fmtRentalNoc } from './propRentList.js';
 
 /** 매매·분양 시 투자분석(보증금·월임대료·관리비·수익률) 입력/표시 여부 */
 export function showsSaleInvestmentFields(trade, sub) {
@@ -200,10 +201,12 @@ export function buildTradePriceInfoItems(prop, TL) {
       { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: '#C8102E' },
       { k: '월세', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
-      ...rentalUnitInfoItems(prop),
-      ...(prop.moveInDate
-        ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
-        : []),
+      { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
+      { k: 'NOC', v: fmtRentalNoc(prop) },
+      { k: '입주가능일', v: prop.moveInDate ? fmtMoveInDate(prop.moveInDate) : '—' },
+      { k: '권리금', v: fmtManwonDisplay(prop.premium) },
+      { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },
+      { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
       ...(prop.maintenanceDetail ? [{ k: '관리비 포함', v: prop.maintenanceDetail, full: true }] : []),
     ];
   }

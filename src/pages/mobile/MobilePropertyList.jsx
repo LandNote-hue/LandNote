@@ -1,5 +1,5 @@
-import { Fragment, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useProperties } from '../../hooks/useProperties.js';
 import { setPropertyFav } from '../../db.js';
 import { propDisplayAddr } from '../../utils/propAddress.js';
@@ -9,7 +9,13 @@ import {
   DEFAULT_FOLDERS,
   DEFAULT_PROP_FOLDERS,
 } from '../../navigation/folderPersist.js';
-import { PROP_LIST_TABS, propertyBelongsToListTab, isRentListTab } from '../../utils/propListKind.js';
+import { PROP_LIST_TABS, propertyBelongsToListTab, isRentListTab, normalizePropListTab } from '../../utils/propListKind.js';
+import { sortRentalListByJibunGroups } from '../../utils/propRentList.js';
+import { emptyCategorySearch, propertyMatchesCategorySearch, selectedMains } from '../../utils/propCategorySearch.js';
+import { PropCategorySearchBar, PropCategorySearchFields } from '../../components/PropCategorySearchBar.jsx';
+import { PropRangeSearchBar } from '../../components/RangeFilterPopover.jsx';
+import { emptyRangeFilters } from '../../utils/rangeFilterConfig.js';
+import { loadPropListState, rememberPropListTab } from '../../navigation/propListPersist.js';
 import {
   MobilePage, M, MobileCloudDataHint, MobileCard,
   useMobileCloudBusy,
@@ -31,10 +37,27 @@ function readFolderSnapshot() {
 
 export function MobilePropertyList() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const properties = useProperties();
   const cloudBusy = useMobileCloudBusy();
-  const [statusTab, setStatusTab] = useState('ALL');
+  const urlTab = searchParams.get('tab');
+  const [statusTab, setStatusTab] = useState(() => normalizePropListTab(urlTab || loadPropListState().statusTab || 'ALL'));
+  useEffect(() => {
+    if (urlTab) setStatusTab(normalizePropListTab(urlTab));
+  }, [urlTab]);
+  const goStatusTab = (id) => {
+    rememberPropListTab(id);
+    setStatusTab(id);
+    if (id === 'ALL') setSearchParams({}, { replace: true });
+    else setSearchParams({ tab: id }, { replace: true });
+  };
+  const openProperty = (p) => {
+    rememberPropListTab(statusTab);
+    navigate(`/properties/${p.id}`);
+  };
   const [search, setSearch] = useState('');
+  const [advOpen, setAdvOpen] = useState(false);
+  const [catSearch, setCatSearch] = useState(emptyCategorySearch);
   const [expandedFolders, setExpandedFolders] = useState({});
   const { folders, propFolders } = useMemo(() => readFolderSnapshot(), [properties]);
 
@@ -46,13 +69,15 @@ export function MobilePropertyList() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return properties
+    const list = properties
       .filter((p) => propertyBelongsToListTab(p, statusTab, {
         inFolder: (propFolders[p.id] || []).length > 0,
       }))
-      .filter((p) => matchesSearch(p, q))
-      .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
-  }, [properties, statusTab, search, propFolders]);
+      .filter((p) => propertyMatchesCategorySearch(p, catSearch))
+      .filter((p) => matchesSearch(p, q));
+    if (isRentListTab(statusTab)) return sortRentalListByJibunGroups(list);
+    return [...list].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+  }, [properties, statusTab, search, propFolders, catSearch]);
 
   const folderSections = useMemo(() => {
     if (statusTab !== 'FOLDER') return [];
@@ -60,11 +85,12 @@ export function MobilePropertyList() {
     return folders.map((f) => {
       const items = properties
         .filter((p) => (propFolders[p.id] || []).includes(f.id))
+        .filter((p) => propertyMatchesCategorySearch(p, catSearch))
         .filter((p) => matchesSearch(p, q))
         .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
       return { folder: f, items };
     });
-  }, [statusTab, folders, propFolders, properties, search]);
+  }, [statusTab, folders, propFolders, properties, search, catSearch]);
 
   const toggleFolder = (fid) => {
     setExpandedFolders((prev) => ({ ...prev, [fid]: !prev[fid] }));
@@ -91,6 +117,39 @@ export function MobilePropertyList() {
               padding: '0 14px', fontSize: 15, marginBottom: 10, boxSizing: 'border-box', fontFamily: 'inherit',
             }}
           />
+          <button
+            type="button"
+            onClick={() => setAdvOpen((v) => !v)}
+            style={{
+              width: '100%', height: 36, marginBottom: advOpen ? 8 : 10, borderRadius: 10,
+              border: `1.5px solid ${advOpen ? M.brand : M.bdr}`,
+              background: advOpen ? '#FBE9EC' : '#fff', color: advOpen ? M.brand : M.txM,
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            {advOpen ? '상세검색 닫기' : '상세검색'}
+          </button>
+          {advOpen && (
+            <div style={{ marginBottom: 10, padding: 12, border: `1px solid ${M.bdr}`, borderRadius: 10, background: '#fff' }}>
+              <PropCategorySearchBar value={catSearch} onChange={setCatSearch} compact />
+              <div style={{ marginTop: 10 }}>
+                <PropRangeSearchBar
+                  ranges={catSearch.ranges || emptyRangeFilters()}
+                  onChange={(ranges) => setCatSearch((c) => ({ ...c, ranges }))}
+                  compact
+                />
+              </div>
+              {selectedMains(catSearch).length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                  <PropCategorySearchFields value={catSearch} onChange={setCatSearch} compact />
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                  <PropCategorySearchFields value={catSearch} onChange={setCatSearch} compact part="global" />
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
             {STATUS_TABS.map((t) => (
               <Fragment key={t.id}>
@@ -99,7 +158,7 @@ export function MobilePropertyList() {
                 )}
                 <button
                   type="button"
-                  onClick={() => setStatusTab(t.id)}
+                  onClick={() => goStatusTab(t.id)}
                   style={{
                     flexShrink: 0, height: 34, padding: '0 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
                     border: `1.5px solid ${statusTab === t.id ? M.brand : M.bdr}`,
@@ -158,7 +217,7 @@ export function MobilePropertyList() {
                         <div style={{ padding: '0 10px 12px', borderTop: `1px solid ${M.bdr}` }}>
                           <PropertyCardList
                             properties={items}
-                            onOpen={(p) => navigate(`/properties/${p.id}`)}
+                            onOpen={openProperty}
                             onToggleFav={(p, e) => { e?.stopPropagation?.(); setPropertyFav(p.id, !p.fav); }}
                             emptyMessage="담긴 매물이 없습니다"
                           />
@@ -173,7 +232,7 @@ export function MobilePropertyList() {
             <PropertyCardList
               properties={visible}
               variant={isRentListTab(statusTab) ? 'rental' : 'sale'}
-              onOpen={(p) => navigate(`/properties/${p.id}`)}
+              onOpen={openProperty}
               onToggleFav={(p, e) => { e?.stopPropagation?.(); setPropertyFav(p.id, !p.fav); }}
               emptyMessage={
                 statusTab === 'FAV'

@@ -77,8 +77,8 @@ export function MobileDashboard() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
         <MobileStatCard label="오늘 일정" value={cloudBusy ? '…' : todayCount} onClick={() => navigate('/calendar')} />
-        <MobileStatCard label="진행중 매물" value={cloudBusy ? '…' : activeCount} onClick={() => navigate('/properties')} />
-        <MobileStatCard label="신규 매물" value={cloudBusy ? '…' : newCount} onClick={() => navigate('/properties')} />
+        <MobileStatCard label="매각중 매물" value={cloudBusy ? '…' : activeCount} onClick={() => navigate('/properties')} />
+        <MobileStatCard label="준비중 매물" value={cloudBusy ? '…' : newCount} onClick={() => navigate('/properties')} />
         <MobileStatCard label="등록 고객" value={cloudBusy ? '…' : customers.length} onClick={() => navigate('/customers')} />
       </div>
 

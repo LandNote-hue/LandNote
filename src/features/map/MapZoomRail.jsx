@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import {
   MAP_CONTROL_RIGHT,
-  MAP_ZOOM_RAIL_TOP,
+  MAP_CONTROL_BOTTOM,
   MAP_ZOOM_RAIL_WIDTH,
   MAP_MOBILE_INSET,
   MAP_MOBILE_ZOOM_TOP,
@@ -76,7 +76,8 @@ export function MapZoomRail({ map, mapReady, onZoom }) {
     <div
       style={{
         position: 'absolute',
-        top: isMobile ? MAP_MOBILE_ZOOM_TOP : MAP_ZOOM_RAIL_TOP,
+        top: isMobile ? MAP_MOBILE_ZOOM_TOP : 'auto',
+        bottom: isMobile ? 'auto' : MAP_CONTROL_BOTTOM,
         right: isMobile ? MAP_MOBILE_INSET : MAP_CONTROL_RIGHT,
         zIndex: 110,
         display: 'flex',

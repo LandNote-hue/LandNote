@@ -3,12 +3,13 @@ import { Routes, Route, Navigate, useNavigate, useLocation, useParams, useSearch
 import { useLiveQuery } from "dexie-react-hooks";
 import { useProperties, usePropertiesQuery } from "./hooks/useProperties.js";
 import { MapView } from "./features/map/MapView.jsx";
-import { loadPropListState, savePropListState, clearPropListState } from "./navigation/propListPersist.js";
+import { loadPropListState, savePropListState, clearPropListState, rememberPropListTab, propertiesListPath } from "./navigation/propListPersist.js";
 import {
   loadPropertyRegisterDraft,
   savePropertyRegisterDraft,
   clearPropertyRegisterDraft,
   hydratePropertyRegisterDraft,
+  isPropertyRegisterPath,
 } from "./navigation/propertyRegisterDraft.js";
 import { loadFolderState, saveFolderState, getDefaultFolderState, DEFAULT_FOLDERS, DEFAULT_PROP_FOLDERS } from "./navigation/folderPersist.js";
 import { MENU_PATHS, pathToMenuId, resolveTitle } from "./navigation/routes.js";
@@ -39,13 +40,14 @@ import { CUSTOMER_TRADE_OPTS, formatPreferredTradesLabel, preferredTradesOf } fr
 import { fmtCustomerBudgetRange, fmtCustomerMoney } from "./utils/customerMoney.js";
 import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/customerStatus.js";
 import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
+import { PROP_STATUS_LABEL, PROP_STATUS_LABEL_TO_CODE, PROP_STATUS_OPTS, PROP_STATUS_FILTER_LABELS, propStatusLabel } from "./utils/propStatus.js";
 import {
   PROP_LIST_TABS, normalizePropListTab, isRentListTab, tradesForListTab, tradeAllowedOnTab,
-  propertyBelongsToListTab, countForListTab, isRentalListProperty, RENT_TRADE_LABELS,
+  propertyBelongsToListTab, countForListTab, RENT_TRADE_LABELS, propListTabLabel,
 } from "./utils/propListKind.js";
 import {
-  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell, rentalAreaParts,
-  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey,
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, rentalNocManPerPy, fmtRentalAreaCell, rentalAreaParts,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, rentalListUsesJibunGroups, sortRentalListByJibunGroups,
 } from "./utils/propRentList.js";
 import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
 import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
@@ -107,6 +109,10 @@ import { useIsMobile } from "./hooks/useIsMobile.js";
 import { useIsMobileDevice } from "./hooks/useIsMobileDevice.js";
 import { getForceDesktop, setForceDesktop } from "./utils/forceDesktop.js";
 import { PropertyCardList } from "./components/PropertyCardList.jsx";
+import { PropCategorySearchBar, PropCategorySearchFields } from "./components/PropCategorySearchBar.jsx";
+import { PropRangeSearchBar } from "./components/RangeFilterPopover.jsx";
+import { emptyCategorySearch, propertyMatchesCategorySearch, selectedMains, FLOOR_BANDS } from "./utils/propCategorySearch.js";
+import { emptyRangeFilters } from "./utils/rangeFilterConfig.js";
 import { isSupabaseConfigured } from "./lib/supabase.js";
 import { MobileShell } from "./layouts/MobileShell.jsx";
 import { MobileDashboard } from "./pages/mobile/MobileDashboard.jsx";
@@ -403,7 +409,11 @@ const customerMatchesTypeTab=(c,tabId)=>{
   if(tabId==='ALL') return true;
   return customerTypesOf(c).includes(tabId);
 };
-const CustStatusBdg=({s})=><StatusBdg s={s||'ACTIVE'}/>;
+const CustStatusBdg=({s})=>{
+  const m={ACTIVE:{l:'진행중',t:'info'},HOLD:{l:'보류',t:'warn'},COMPLETED:{l:'완료',t:'gray'}};
+  const x=m[s]||m.ACTIVE;
+  return (<Bdg label={x.l} type={x.t}/>);
+};
 const fmtCallDate=(iso)=>{
   if(!iso) return '—';
   const [y,m,d]=String(iso).split('-');
@@ -620,8 +630,8 @@ const Bdg=({label,type='def'})=>{
   return (<span style={{fontSize:12,padding:'3px 8px',borderRadius:20,fontWeight:500,background:x.bg,color:x.c,whiteSpace:'nowrap',display:'inline-flex',alignItems:'center'}}>{label}</span>);
 };
 
-const StatusBdg=({s})=>{
-  const m={NEW:{l:'신규',t:'ok'},ACTIVE:{l:'진행중',t:'info'},HOLD:{l:'보류',t:'warn'},COMPLETED:{l:'완료',t:'gray'}};
+const PropStatusBdg=({s})=>{
+  const m={NEW:{l:'준비중',t:'ok'},ACTIVE:{l:'매각중',t:'info'},HOLD:{l:'보류',t:'warn'},COMPLETED:{l:'완료',t:'gray'}};
   const x=m[s]||m.NEW;
   return (<Bdg label={x.l} type={x.t}/>);
 };
@@ -1061,22 +1071,22 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
     }else if(a.kind==='rental') onOpen('pd',a.target.prop);
   };
   const stats=[
-    {id:'ALL',label:'전체 매물',val:P.length,
+    {id:'ALL',label:'전체 매물',val:countForListTab(P,'ALL'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>,
       c:'#6366F1',bg:'#EEF2FF'},
-    {id:'NEW',label:'신규',val:P.filter(x=>x.status==='NEW').length,
+    {id:'NEW',label:'준비중',val:countForListTab(P,'NEW'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
       c:C.ok,bg:C.okBg},
-    {id:'ACTIVE',label:'진행중',val:P.filter(x=>x.status==='ACTIVE').length,
+    {id:'ACTIVE',label:'매각중',val:countForListTab(P,'ACTIVE'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
       c:C.info,bg:C.infoBg},
-    {id:'HOLD',label:'보류',val:P.filter(x=>x.status==='HOLD').length,
+    {id:'HOLD',label:'보류',val:countForListTab(P,'HOLD'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>,
       c:C.warn,bg:C.warnBg},
-    {id:'COMPLETED',label:'계약완료',val:P.filter(x=>x.status==='COMPLETED').length,
+    {id:'COMPLETED',label:'계약완료',val:countForListTab(P,'COMPLETED'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       c:'#64748B',bg:'#F1F5F9'},
-    {id:'RENT',label:'임대',val:P.filter(isRentalListProperty).length,
+    {id:'RENT',label:'임대',val:countForListTab(P,'RENT'),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
       c:'#0D9488',bg:'#CCFBF1'},
   ];
@@ -1186,7 +1196,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
                         {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
                       </td>
                       <td><div className="cell-ellipsis"><span style={{fontSize:12,color:C.txM}}>{TL[p.trade]}</span><span style={{fontWeight:600,color:C.info,marginLeft:6}}>{propPrice(p)}</span></div></td>
-                      <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
+                      <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
                       <td style={{textAlign:'right'}}><div className="cell-ellipsis" style={{color:C.ok,fontWeight:500,fontSize:12}}>{p.roi||'-'}</div></td>
                       {dashPropMetricCells(p)}
                       <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:12}}>{p.created}</div></td>
@@ -1218,7 +1228,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
                         {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
                       </td>
                       <td><div className="cell-ellipsis"><span style={{fontSize:12,color:C.txM}}>{TL[p.trade]}</span><span style={{fontWeight:600,color:C.info,marginLeft:6}}>{propPrice(p)}</span></div></td>
-                      <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
+                      <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
                       <td style={{textAlign:'right'}}><div className="cell-ellipsis" style={{color:C.ok,fontWeight:500,fontSize:12}}>{p.roi||'-'}</div></td>
                       {dashPropMetricCells(p)}
                       <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:12}}>{p.created}</div></td>
@@ -1307,7 +1317,7 @@ const PROP_LIST_TBL_ACTION_CSS=PROP_LIST_SHOW_ROW_ACTIONS
 const PROP_RENT_COL={
   check:32,star:32,status:76,trade:78,tag:86,
   contractArea:108,exclusiveArea:108,unitFloor:72,
-  deposit:100,rent:92,maintenance:80,lastCall:82,moveIn:90,
+  deposit:100,rent:92,noc:96,maintenance:80,lastCall:82,moveIn:90,
 };
 const PROP_RENT_COL_FIXED=Object.values(PROP_RENT_COL).reduce((a,b)=>a+b,0);
 const PROP_RENT_LIST_MIN_W=PROP_RENT_COL_FIXED+PROP_ADDR_MIN;
@@ -1386,7 +1396,7 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
                   <td className="f-col-star" onClick={e=>e.stopPropagation()}>
                     <span onClick={e=>onToggleFav?.(p,e)} style={{color:p.fav?'#F59E0B':C.txP,fontSize:15,cursor:onToggleFav?'pointer':'default',lineHeight:1}}>{p.fav?'★':'☆'}</span>
                   </td>
-                  <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
+                  <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
                   <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
                   <td style={{overflow:'hidden',verticalAlign:'middle',cursor:onAddrClick?'pointer':'default'}}
                     onClick={e=>{if(onAddrClick){e.stopPropagation();onAddrClick(p);}}}>
@@ -1422,7 +1432,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const showOwnerScopeTabs=isBusinessRole(companyRole)&&workspaceId&&!isSoloRole(companyRole);
   const effectivePerms=getEffectivePermissions(companyRole,memberPermissions);
   const canViewTeamProps=canViewTeamProperties(effectivePerms);
-  const [ownerScopeTab,setOwnerScopeTab]=useState('ALL');
+  const isMobile=useIsMobile();
+  const [searchParams,setSearchParams]=useSearchParams();
+  const saved=loadPropListState();
+  const urlTab=searchParams.get('tab');
+  const scrollRef=useRef(null);
+  const ownerScopeMenuRef=useRef(null);
+  const [ownerScopeTab,setOwnerScopeTab]=useState(()=>saved.ownerScopeTab==='MINE'?'MINE':'ALL');
+  const [ownerScopeMenuOpen,setOwnerScopeMenuOpen]=useState(false);
   const getSharedLabel=useCallback((p)=>{
     if(!isSharedRecord(p,user?.id)) return null;
     return formatSharedPropertyLabel(teamNameMap[p.ownerId],teamRoleMap[p.ownerId]);
@@ -1432,11 +1449,6 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     const scoped=(!showOwnerScopeTabs||ownerScopeTab==='ALL')?P:P.filter(p=>matchesOwner(p,user?.id));
     return scoped.map(p=>({...p,lastCall:fmtCallDate(propCallDatesOf(propCallDateMap,p.id).last)}));
   },[P,showOwnerScopeTabs,ownerScopeTab,user?.id,propCallDateMap]);
-  const isMobile=useIsMobile();
-  const [searchParams,setSearchParams]=useSearchParams();
-  const saved=loadPropListState();
-  const urlTab=searchParams.get('tab');
-  const scrollRef=useRef(null);
   const [search,setSearch]=useState(saved.search??'');
   const [filter,setFilter]=useState(saved.filter??false);
   const [selSido,setSelSido]=useState(saved.selSido??'');
@@ -1445,6 +1457,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   useEffect(()=>{
     if(urlTab) setStatusTab(normalizePropListTab(urlTab));
   },[urlTab]);
+  useEffect(()=>{
+    if(!ownerScopeMenuOpen) return undefined;
+    const onDoc=(e)=>{
+      if(ownerScopeMenuRef.current&&!ownerScopeMenuRef.current.contains(e.target)) setOwnerScopeMenuOpen(false);
+    };
+    document.addEventListener('mousedown',onDoc);
+    return ()=>document.removeEventListener('mousedown',onDoc);
+  },[ownerScopeMenuOpen]);
   const [sortKey,setSortKey]=useState(saved.sortKey!==undefined?saved.sortKey:'created');
   const [sortDir,setSortDir]=useState(()=>{
     if(saved.sortDir) return saved.sortDir;
@@ -1463,20 +1483,21 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const [advLandMax,setAdvLandMax]=useState(saved.advLandMax??'');
   const [advFloorMin,setAdvFloorMin]=useState(saved.advFloorMin??'');
   const [advFloorMax,setAdvFloorMax]=useState(saved.advFloorMax??'');
-  const [advRoiMin,setAdvRoiMin]=useState(saved.advRoiMin??'');
   const [appliedAdv,setAppliedAdv]=useState(saved.appliedAdv??null);
-  const STATUS_LABEL_TO_CODE={'신규':'NEW','진행중':'ACTIVE','보류':'HOLD','계약완료':'COMPLETED'};
+  const [catSearch,setCatSearch]=useState(()=>{
+    const s=saved.catSearch&&typeof saved.catSearch==='object'?saved.catSearch:null;
+    if(!s) return emptyCategorySearch();
+    return {...emptyCategorySearch(),...s,ranges:{...emptyRangeFilters(),...(s.ranges&&typeof s.ranges==='object'?s.ranges:{})}};
+  });
+  const STATUS_LABEL_TO_CODE=PROP_STATUS_LABEL_TO_CODE;
   const applyAdvSearch=()=>setAppliedAdv({
     sido:selSido,gu:selGu,tag:advTag,trade:advTrade,status:advStatus,
-    priceMin:advPriceMin,priceMax:advPriceMax,
-    landMin:advLandMin,landMax:advLandMax,
-    floorMin:advFloorMin,floorMax:advFloorMax,
-    roiMin:advRoiMin,
   });
   const resetAdvSearch=()=>{
     setSelSido('');setSelGu('');setAdvTag('');setAdvTrade('');setAdvStatus('');
     setAdvPriceMin('');setAdvPriceMax('');setAdvLandMin('');setAdvLandMax('');
-    setAdvFloorMin('');setAdvFloorMax('');setAdvRoiMin('');
+    setAdvFloorMin('');setAdvFloorMax('');
+    setCatSearch(emptyCategorySearch());
     setAppliedAdv(null);
     setFilterResetKey(k=>k+1);
   };
@@ -1494,14 +1515,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const [visibleCount,setVisibleCount]=useState(saved.visibleCount??20);
   const persistListState=useCallback((scrollTop)=>{
     savePropListState({
-      search, filter, selSido, selGu, statusTab, sortKey, sortDir, colFilter,
+      search, filter, selSido, selGu, statusTab, ownerScopeTab, sortKey, sortDir, colFilter,
       advTag, advTrade, advStatus, advPriceMin, advPriceMax, advLandMin, advLandMax,
-      advFloorMin, advFloorMax, advRoiMin, appliedAdv, visibleCount, expandedFolders,
+      advFloorMin, advFloorMax, appliedAdv, catSearch, visibleCount, expandedFolders,
       scrollTop: scrollTop??scrollRef.current?.scrollTop??0,
     });
-  }, [search, filter, selSido, selGu, statusTab, sortKey, sortDir, colFilter,
+  }, [search, filter, selSido, selGu, statusTab, ownerScopeTab, sortKey, sortDir, colFilter,
     advTag, advTrade, advStatus, advPriceMin, advPriceMax, advLandMin, advLandMax,
-    advFloorMin, advFloorMax, advRoiMin, appliedAdv, visibleCount, expandedFolders]);
+    advFloorMin, advFloorMax, appliedAdv, catSearch, visibleCount, expandedFolders]);
   const togglePropertyFav=useCallback(async(p,e)=>{
     e?.stopPropagation?.();
     await setPropertyFav(p.id,!p.fav);
@@ -1516,7 +1537,10 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount 시 scroll 복원
   }, []);
-  useEffect(()=>()=>clearPropListState(),[]);
+  const persistListStateRef=useRef(persistListState);
+  persistListStateRef.current=persistListState;
+  useEffect(()=>()=>{ persistListStateRef.current(); },[]);
+  useEffect(()=>{ savePropListState({ statusTab }); },[statusTab]);
   const toggleSort=(key)=>{
     if(sortKey!==key){setSortKey(key);setSortDir('asc');}
     else if(sortDir==='asc'){setSortDir('desc');}
@@ -1530,10 +1554,26 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const sanitizeTradeFiltersForTab=(tab)=>{
     setColFilter((f)=>tradeAllowedOnTab(f.trade,tab)?f:{...f,trade:''});
     setAdvTrade((t)=>tradeAllowedOnTab(t,tab)?t:'');
+    setCatSearch((c)=>tradeAllowedOnTab(c.trade,tab)?c:{...c,trade:''});
     setAppliedAdv((a)=>{
       if(!a||tradeAllowedOnTab(a.trade,tab)) return a;
       return {...a,trade:''};
     });
+  };
+  const goStatusTab=(id,{toggleOwnerScope}={})=>{
+    sanitizeTradeFiltersForTab(id);
+    if(toggleOwnerScope){
+      setStatusTab('ALL');
+      setVisibleCount(20);
+      setSearchParams({}, {replace:true});
+      setOwnerScopeMenuOpen((v)=>statusTab==='ALL'?!v:true);
+      return;
+    }
+    setOwnerScopeMenuOpen(false);
+    setStatusTab(id);
+    setVisibleCount(20);
+    if(id==='ALL') setSearchParams({}, {replace:true});
+    else setSearchParams({tab:id},{replace:true});
   };
   useEffect(()=>{
     sanitizeTradeFiltersForTab(statusTab);
@@ -1554,6 +1594,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(colFilter.tag&&p.tag!==colFilter.tag) return false;
     if(colFilter.trade&&p.trade!==colFilter.trade) return false;
     if(colFilter.status&&p.status!==colFilter.status) return false;
+    if(!propertyMatchesCategorySearch(p,catSearch)) return false;
     if(appliedAdv){
       const a=appliedAdv;
       if(!sidoMatch(propSearchHaystack(p),a.sido)) return false;
@@ -1561,16 +1602,6 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
       if(a.tag&&p.tag!==a.tag) return false;
       if(a.trade&&p.trade!==a.trade) return false;
       if(a.status&&p.status!==STATUS_LABEL_TO_CODE[a.status]) return false;
-      if((a.priceMin||a.priceMax)&&priceOfForFilter(p)===null) return false;
-      if(a.priceMin&&priceOfForFilter(p)<Number(a.priceMin)) return false;
-      if(a.priceMax&&priceOfForFilter(p)>Number(a.priceMax)) return false;
-      const landPyVal=p.land>0?py(p.land):0;
-      if(a.landMin&&(!landPyVal||Number(landPyVal)<Number(a.landMin))) return false;
-      if(a.landMax&&(!landPyVal||Number(landPyVal)>Number(a.landMax))) return false;
-      const floorPyVal=p.floor>0?py(p.floor):0;
-      if(a.floorMin&&(!floorPyVal||Number(floorPyVal)<Number(a.floorMin))) return false;
-      if(a.floorMax&&(!floorPyVal||Number(floorPyVal)>Number(a.floorMax))) return false;
-      if(a.roiMin&&(parseFloat(p.roi)||0)<Number(a.roiMin)) return false;
     }
     if(!search) return true;
     return propMatchesSearch(p,search);
@@ -1588,13 +1619,22 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='exclusiveArea') return parseFloat(p.exclusiveArea)||-1;
     if(key==='deposit') return rentalDepositMan(p);
     if(key==='rent') return rentalRentMan(p);
+    if(key==='noc') return rentalNocManPerPy(p)??-1;
     if(key==='maintenance') return rentalMaintMan(p);
     if(key==='moveInDate') return moveInSortKey(p.moveInDate);
+    if(key==='addr') return rentalAddrSortKey(p);
     return '';
   };
-  const sorted=[...rows].sort((a,b)=>{
+  const sorted=rentList&&rentalListUsesJibunGroups(sortKey)
+    ? sortRentalListByJibunGroups(rows,{createdDir:sortKey==='created'?sortDir:'desc'})
+    : [...rows].sort((a,b)=>{
     if(sortKey){
       const av=getSortVal(a,sortKey), bv=getSortVal(b,sortKey);
+      if(typeof av==='string'&&typeof bv==='string'){
+        const c=av.localeCompare(bv,'ko',{numeric:true,sensitivity:'base'});
+        if(c!==0) return sortDir==='asc'?c:-c;
+        return 0;
+      }
       if(av<bv) return sortDir==='asc'?-1:1;
       if(av>bv) return sortDir==='asc'?1:-1;
       return 0;
@@ -1639,12 +1679,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     setStatusBulkOpen(false);
     setChecked({});
   };
-  const PROP_STATUS_BULK_OPTS=[
-    {id:'NEW',label:'신규'},
-    {id:'ACTIVE',label:'진행중'},
-    {id:'HOLD',label:'보류'},
-    {id:'COMPLETED',label:'계약완료'},
-  ];
+  const PROP_STATUS_BULK_OPTS=PROP_STATUS_OPTS;
 
   const openFolderAdd=(fid)=>{
     setFolderAddOpen(prev=>prev===fid?null:fid);
@@ -1721,7 +1756,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
         </div>
       )}
       {!isMobile?(
-      <PH title="매물 관리" sub={`${statusTabList.find(t=>t.id===statusTab)?.label||'전체'} ${rows.length}건`}
+      <PH title="매물 관리" sub={`${propListTabLabel(statusTab)} ${rows.length}건`}
         acts={<>
           <Btn role="page-secondary" ch="폴더 관리" ic="ti-folder" on={()=>onOpen('fm',null)}/>
           <Btn role="page-secondary" ch="지도로 보기" ic="ti-map-2" on={()=>onNav&&onNav('mapview')}/>
@@ -1749,105 +1784,128 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/></svg>
           </button>
         </div>
-        <div style={{fontSize:13,color:C.txM}}>{statusTabList.find(t=>t.id===statusTab)?.label||'전체'} <strong style={{color:C.tx}}>{rows.length}</strong>건</div>
+        <div style={{fontSize:13,color:C.txM}}>{statusTab==='ALL'&&showOwnerScopeTabs&&ownerScopeTab==='MINE'?'내 매물':propListTabLabel(statusTab)} <strong style={{color:C.tx}}>{rows.length}</strong>건</div>
       </div>
       )}
-      {showOwnerScopeTabs&&(
-        <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',flexDirection:'column',flexShrink:0}}>
-          <div style={{display:'flex',gap:0}}>
-            {[{id:'ALL',label:'전체 매물'},{id:'MINE',label:'내 매물'}].map(t=>(
-              <div key={t.id} onClick={()=>{setOwnerScopeTab(t.id);setVisibleCount(20);}}
-                style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:ownerScopeTab===t.id?600:400,color:ownerScopeTab===t.id?C.brand:C.txM,borderBottom:ownerScopeTab===t.id?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1}}>
-                {t.label}
-              </div>
-            ))}
-          </div>
-          {ownerScopeTab==='ALL'&&!canViewTeamProps&&!isCeoRole(companyRole)&&(
-            <div style={{padding:'8px 18px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2}}>
-              동료 매물 보기 권한이 없어 <strong style={{color:C.tx}}>내가 등록한 매물</strong>만 표시됩니다. 권한 변경은 대표에게 문의하세요.
-            </div>
-          )}
-          {ownerScopeTab==='ALL'&&canViewTeamProps&&!isCeoRole(companyRole)&&P.filter(p=>p.ownerId&&p.ownerId!==user?.id).length===0&&(
-            <div style={{padding:'8px 18px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2}}>
-              공유 매물이 아직 없습니다. <strong style={{color:C.tx}}>대시보드 상단「동기화」</strong>를 눌러 주세요. 옆 <strong style={{color:C.tx}}>?</strong> 버튼에서 안내를 볼 수 있습니다.
-            </div>
-          )}
-        </div>
-      )}
-      {/* Status filter tabs */}
-      <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',gap:0,overflowX:isMobile?'auto':'visible',flexShrink:0}}>
-        {statusTabList.map(t=>{
-          const active=statusTab===t.id;
-          return (
-          <React.Fragment key={t.id}>
-          {t.separate&&<div aria-hidden style={{width:1,alignSelf:'stretch',background:C.bdr,margin:'8px 6px',flexShrink:0}}/>}
-          <div onClick={()=>{setStatusTab(t.id);setVisibleCount(20);setSearchParams(t.id==='ALL'?{}:{tab:t.id},{replace:true});}} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:active?600:400,color:active?C.brand:C.txM,borderBottom:active?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s',display:'flex',alignItems:'center',gap:5}}>
-            {t.label}
-            {t.id!=='ALL'&&<span style={{fontSize:12,color:t.id==='FAV'?'#F59E0B':t.id==='RENT'?'#0D9488':C.txP}}>{
-              countForListTab(baseProps,t.id,propFolders)
-            }</span>}
-          </div>
-          </React.Fragment>
-          );
-        })}
-      </div>
       {filter&&(
-        <div key={filterResetKey} style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:'16px 28px'}}>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:12,marginBottom:12}}>
-            <div>
-              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>거래방식</div>
-              <select className="sel" style={{height:34,fontSize:13}} value={advTrade} onChange={e=>setAdvTrade(e.target.value)}>
-                <option value="">전체</option>
-                {listTradeOpts.map((o)=>(<option key={o.id} value={o.id}>{o.label}</option>))}
-              </select>
-            </div>
-            <div>
+        <div key={filterResetKey} style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:'14px 24px'}}>
+          <div style={{marginBottom:10}}>
+            <PropCategorySearchBar value={catSearch} onChange={(next)=>{setCatSearch(next);setVisibleCount(20);}} compact={isMobile}/>
+          </div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:10}}>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>지역(도·시)</div>
               <select className="sel" style={{height:34,fontSize:13}} value={selSido} onChange={e=>{setSelSido(e.target.value);setSelGu('');}}>
                 <option value="">전체</option>
                 {KR_SIDO.map(s=>(<option key={s} value={s}>{s}</option>))}
               </select>
             </div>
-            <div>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>구·군</div>
               <select className="sel" style={{height:34,fontSize:13}} value={selGu} onChange={e=>setSelGu(e.target.value)}>
                 <option value="">전체</option>
                 {(selSido?KR_GU[selSido]||[]:[...new Set(KR_SIDO.flatMap(s=>KR_GU[s]||[]))]).slice().sort((a,b)=>a.localeCompare(b,'ko')).map(g=>(<option key={g} value={g}>{g}</option>))}
               </select>
             </div>
-            <div>
-              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매물 종류</div>
-              <select className="sel" style={{height:34,fontSize:13}} value={advTag} onChange={e=>setAdvTag(e.target.value)}>
-                <option value="">전체</option>{['상가건물','아파트','오피스텔','사무실','빌라','토지','원룸/투룸'].map(t=>(<option key={t}>{t}</option>))}
-              </select>
-            </div>
-            <div>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>진행 상태</div>
               <select className="sel" style={{height:34,fontSize:13}} value={advStatus} onChange={e=>setAdvStatus(e.target.value)}>
-                <option value="">전체</option>{['신규','진행중','보류','계약완료'].map(s=>(<option key={s}>{s}</option>))}
+                <option value="">전체</option>{PROP_STATUS_FILTER_LABELS.map(s=>(<option key={s}>{s}</option>))}
               </select>
             </div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>가격 최소(만)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advPriceMin} onChange={e=>setAdvPriceMin(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>가격 최대(만)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advPriceMax} onChange={e=>setAdvPriceMax(e.target.value)}/></div>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>거래방식</div>
+              {selectedMains(catSearch).length?(
+              <select className="sel" style={{height:34,fontSize:13}} value={catSearch.trade} onChange={e=>setCatSearch((c)=>({...c,trade:e.target.value}))}>
+                <option value="">전체</option>
+                {listTradeOpts.map((o)=>(<option key={o.id} value={o.id}>{o.label}</option>))}
+              </select>
+              ):(
+              <select className="sel" style={{height:34,fontSize:13}} value={advTrade} onChange={e=>setAdvTrade(e.target.value)}>
+                <option value="">전체</option>
+                {listTradeOpts.map((o)=>(<option key={o.id} value={o.id}>{o.label}</option>))}
+              </select>
+              )}
+            </div>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>건물층수</div>
+              <select className="sel" style={{height:34,fontSize:13}} value={catSearch.floorBand} onChange={e=>setCatSearch((c)=>({...c,floorBand:e.target.value}))}>
+                {FLOOR_BANDS.map((b)=>(<option key={b.id||'all'} value={b.id}>{b.id?b.label:'전체'}</option>))}
+              </select>
+            </div>
+            {selectedMains(catSearch).length?(
+              <PropCategorySearchFields value={catSearch} onChange={(next)=>{setCatSearch(next);setVisibleCount(20);}} compact={isMobile} part="rest"/>
+            ):(
+              <PropCategorySearchFields value={catSearch} onChange={(next)=>{setCatSearch(next);setVisibleCount(20);}} compact={isMobile} part="global"/>
+            )}
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:14}}>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>대지면적 최소(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advLandMin} onChange={e=>setAdvLandMin(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>대지면적 최대(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advLandMax} onChange={e=>setAdvLandMax(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>연면적 최소(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="-" value={advFloorMin} onChange={e=>setAdvFloorMin(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>연면적 최대(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="-" value={advFloorMax} onChange={e=>setAdvFloorMax(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>수익률 이상(%)</div>
-              <MoneyInput decimal style={{height:32,fontSize:13}} placeholder="-" value={advRoiMin} onChange={e=>setAdvRoiMin(e.target.value)}/></div>
+          <div style={{marginBottom:10}}>
+            <PropRangeSearchBar
+              ranges={catSearch.ranges||emptyRangeFilters()}
+              onChange={(ranges)=>{setCatSearch((c)=>({...c,ranges}));setVisibleCount(20);}}
+              compact={isMobile}
+            />
           </div>
-          <div style={{display:'flex',gap:8}}>
+          <div style={{display:'flex',gap:8,marginTop:selectedMains(catSearch).length?2:0}}>
             <Btn role="toolbar-primary" ch="검색 적용" ic="ti-search" on={applyAdvSearch}/>
             <Btn role="toolbar-secondary" ch="초기화" ic="ti-refresh" on={resetAdvSearch}/>
           </div>
+        </div>
+      )}
+      {/* 검색 결과 구분: 목록 바로 위 */}
+      <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',gap:0,overflowX:isMobile&&!ownerScopeMenuOpen?'auto':'visible',flexShrink:0,overflowY:'visible'}}>
+        {statusTabList.map(t=>{
+          const isAllScope=t.id==='ALL'&&showOwnerScopeTabs;
+          const allLabel=ownerScopeTab==='MINE'?'내 매물':'전체';
+          const active=statusTab===t.id;
+          return (
+          <React.Fragment key={t.id}>
+          {t.separate&&<div aria-hidden style={{width:1,alignSelf:'stretch',background:C.bdr,margin:'8px 6px',flexShrink:0}}/>}
+          <div ref={isAllScope?ownerScopeMenuRef:undefined} style={{position:'relative',flexShrink:0}}>
+            <div onClick={()=>{
+              if(isAllScope){
+                goStatusTab('ALL',{toggleOwnerScope:true});
+                return;
+              }
+              goStatusTab(t.id);
+            }} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:active?600:400,color:active?C.brand:C.txM,borderBottom:active?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s',display:'flex',alignItems:'center',gap:5,userSelect:'none'}}>
+              {isAllScope?allLabel:t.label}
+              {isAllScope&&<span style={{fontSize:11,opacity:ownerScopeTab==='MINE'?1:.35,lineHeight:1}}>▼</span>}
+              {t.id!=='ALL'&&<span style={{fontSize:12,color:t.id==='FAV'?'#F59E0B':t.id==='RENT'?'#0D9488':C.txP}}>{
+                countForListTab(baseProps,t.id,propFolders)
+              }</span>}
+            </div>
+            {isAllScope&&ownerScopeMenuOpen&&(
+              <div style={{position:'absolute',top:'100%',left:0,zIndex:20,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,boxShadow:'0 8px 24px rgba(15,23,42,.12)',minWidth:112,padding:'4px 0',marginTop:2}}>
+                {[{id:'ALL',label:'전체'},{id:'MINE',label:'내 매물'}].map(opt=>(
+                  <div key={opt.id} onClick={()=>{
+                    setOwnerScopeTab(opt.id);
+                    sanitizeTradeFiltersForTab('ALL');
+                    setStatusTab('ALL');
+                    setVisibleCount(20);
+                    setSearchParams({}, {replace:true});
+                    setOwnerScopeMenuOpen(false);
+                  }} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:ownerScopeTab===opt.id?C.brand:C.tx,fontWeight:ownerScopeTab===opt.id?600:400,whiteSpace:'nowrap'}}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.surf2}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    {opt.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          </React.Fragment>
+          );
+        })}
+      </div>
+      {showOwnerScopeTabs&&ownerScopeTab==='ALL'&&!canViewTeamProps&&!isCeoRole(companyRole)&&(
+        <div style={{padding:isMobile?'8px 12px 10px':'8px 28px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2,borderBottom:`1px solid ${C.bdr}`}}>
+          동료 매물 보기 권한이 없어 <strong style={{color:C.tx}}>내가 등록한 매물</strong>만 표시됩니다. 권한 변경은 대표에게 문의하세요.
+        </div>
+      )}
+      {showOwnerScopeTabs&&ownerScopeTab==='ALL'&&canViewTeamProps&&!isCeoRole(companyRole)&&P.filter(p=>p.ownerId&&p.ownerId!==user?.id).length===0&&(
+        <div style={{padding:isMobile?'8px 12px 10px':'8px 28px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2,borderBottom:`1px solid ${C.bdr}`}}>
+          공유 매물이 아직 없습니다. <strong style={{color:C.tx}}>대시보드 상단「동기화」</strong>를 눌러 주세요. 옆 <strong style={{color:C.tx}}>?</strong> 버튼에서 안내를 볼 수 있습니다.
         </div>
       )}
       <div ref={scrollRef} style={{flex:1,overflow:'auto',padding:isMobile?'12px 16px 16px':'16px 28px'}} onScroll={handleScroll}>
@@ -1948,6 +2006,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                   <col style={{width:PROP_RENT_COL.unitFloor}}/>
                   <col style={{width:PROP_RENT_COL.deposit}}/>
                   <col style={{width:PROP_RENT_COL.rent}}/>
+                  <col style={{width:PROP_RENT_COL.noc}}/>
                   <col style={{width:PROP_RENT_COL.maintenance}}/>
                   <col style={{width:PROP_RENT_COL.lastCall}}/>
                   <col style={{width:PROP_RENT_COL.moveIn}}/>
@@ -1982,9 +2041,9 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:120,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,status:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.status?C.brand:C.tx,fontWeight:!colFilter.status?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {[['NEW','신규'],['ACTIVE','진행중'],['HOLD','보류'],['COMPLETED','계약완료']].map(([k,v])=>(
-                        <div key={k} onClick={()=>{setColFilter(f=>({...f,status:k}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.status===k?C.brand:C.tx,fontWeight:colFilter.status===k?600:400}}
-                          onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{v}</div>
+                      {PROP_STATUS_OPTS.map(({id,label})=>(
+                        <div key={id} onClick={()=>{setColFilter(f=>({...f,status:id}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.status===id?C.brand:C.tx,fontWeight:colFilter.status===id?600:400}}
+                          onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{label}</div>
                       ))}
                     </div>
                   )}
@@ -2010,14 +2069,18 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:140,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,tag:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.tag?C.brand:C.tx,fontWeight:!colFilter.tag?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {[...new Set(baseProps.filter((p)=>!rentList||isRentalListProperty(p)).map(p=>p.tag).filter(Boolean))].map(t=>(
+                      {[...new Set(baseProps.filter((p)=>propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0})).map(p=>p.tag).filter(Boolean))].map(t=>(
                         <div key={t} onClick={()=>{setColFilter(f=>({...f,tag:t}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.tag===t?C.brand:C.tx,fontWeight:colFilter.tag===t?600:400}}
                           onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{t}</div>
                       ))}
                     </div>
                   )}
                 </th>
-                <th className="prop-col-addr">주소 / 건물명</th>
+                {rentList?(
+                  <th className="prop-col-addr" style={{cursor:'pointer'}} onClick={()=>toggleSort('addr')}>주소 / 건물명 {sortMark('addr')}</th>
+                ):(
+                  <th className="prop-col-addr">주소 / 건물명</th>
+                )}
                 {rentList?(
                   <>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('contractArea')}>계약면적 {sortMark('contractArea')}</th>
@@ -2025,52 +2088,37 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <th className="prop-col-metrics" style={{textAlign:'center'}}>해당층</th>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('deposit')}>보증금 {sortMark('deposit')}</th>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('rent')}>임대료 {sortMark('rent')}</th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('noc')}>NOC {sortMark('noc')}</th>
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('maintenance')}>관리비 {sortMark('maintenance')}</th>
                     <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>최종통화일 {sortMark('lastCall')}</th>
                     <th className="prop-col-date prop-col-movein prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('moveInDate')}>입주가능일 {sortMark('moveInDate')}</th>
                   </>
                 ):(
                   <>
-                <th onClick={()=>toggleSort('price')} className="prop-col-price prop-col-metrics" style={{cursor:'pointer'}}>
-                  가격 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='price'?1:.28}}>
-                    {sortKey==='price'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('roi')}>
-                  수익률 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='roi'?1:.28}}>
-                    {sortKey==='roi'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landArea')}>
-                  대지면적 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='landArea'?1:.28}}>
-                    {sortKey==='landArea'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('floorArea')}>
-                  연면적 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='floorArea'?1:.28}}>
-                    {sortKey==='floorArea'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-zone prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('zoning')}>
-                  용도지역 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='zoning'?1:.28}}>
-                    {sortKey==='zoning'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landPy')}>
-                  대지 평단가 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='landPy'?1:.28}}>
-                    {sortKey==='landPy'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>
-                  최종통화일 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='lastCall'?1:.28}}>
-                    {sortKey==='lastCall'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-date prop-col-created prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('created')}>
-                  등록일 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='created'?1:.28}}>
-                    {sortKey==='created'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
+                    <th onClick={()=>toggleSort('price')} className="prop-col-price prop-col-metrics" style={{cursor:'pointer'}}>
+                      가격 {sortMark('price')}
+                    </th>
+                    <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('roi')}>
+                      수익률 {sortMark('roi')}
+                    </th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landArea')}>
+                      대지면적 {sortMark('landArea')}
+                    </th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('floorArea')}>
+                      연면적 {sortMark('floorArea')}
+                    </th>
+                    <th className="prop-col-zone prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('zoning')}>
+                      용도지역 {sortMark('zoning')}
+                    </th>
+                    <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landPy')}>
+                      대지 평단가 {sortMark('landPy')}
+                    </th>
+                    <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>
+                      최종통화일 {sortMark('lastCall')}
+                    </th>
+                    <th className="prop-col-date prop-col-created prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('created')}>
+                      등록일 {sortMark('created')}
+                    </th>
                   </>
                 )}
                 {PROP_LIST_SHOW_ROW_ACTIONS&&<th className="prop-col-action"/>}
@@ -2141,45 +2189,6 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     </div>
   );
 };
-const RentalAreaCell=({m2})=>{
-  const a=rentalAreaParts(m2);
-  return (
-    <td className="prop-col-num prop-col-metrics prop-col-area" style={{color:m2>0?C.tx:C.txP}} title={fmtRentalAreaCell(m2)}>
-      {a?<>{a.m2Label}{a.pyLabel&&<div style={{fontSize:11,color:C.txM}}>{a.pyLabel}</div>}</>:'—'}
-    </td>
-  );
-};
-const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})=>(
-  <tr onClick={()=>onOpenDetail(p)}>
-    <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
-      <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${checked[p.id]?C.brand:C.bdrSt}`,background:checked[p.id]?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
-        {checked[p.id]&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-      </div>
-    </td>
-    <td onClick={e=>e.stopPropagation()} style={{cursor:'default',textAlign:'center'}}>
-      <span style={{fontSize:18,color:p.fav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}}
-        onClick={e=>onToggleFav(p,e)}>
-        {p.fav?'★':'☆'}
-      </span>
-    </td>
-    <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
-    <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{rentalTradeLabel(p.trade)}</span></td>
-    <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
-    <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
-      <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
-      {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
-      {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
-    </td>
-    <RentalAreaCell m2={p.contractArea}/>
-    <RentalAreaCell m2={p.exclusiveArea}/>
-    <td className="prop-col-metrics" style={{textAlign:'center',fontSize:12,color:p.unitFloor?C.tx:C.txP,whiteSpace:'nowrap'}}>{p.unitFloor||'—'}</td>
-    <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalDepositMan(p))}</td>
-    <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalRentMan(p))}</td>
-    <td className="prop-col-num prop-col-metrics" style={{color:rentalMaintMan(p)>0?C.tx:C.txP}}>{fmtRentalMan(rentalMaintMan(p))}</td>
-    <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
-    <td className="prop-col-date prop-col-movein prop-col-metrics" style={{color:p.moveInDate?C.tx:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{fmtListDotDate(p.moveInDate)}</td>
-  </tr>
-);
 const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,sharedLabel,canEditProperty=true})=>(
   <tr onClick={()=>onOpenDetail(p)}>
     <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
@@ -2193,7 +2202,7 @@ const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,s
         {p.fav?'★':'☆'}
       </span>
     </td>
-    <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
+    <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
     <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{TL[p.trade]}</span></td>
     <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
     <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
@@ -2217,6 +2226,46 @@ const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,s
         </div>
       </td>
     )}
+  </tr>
+);
+const RentalAreaCell=({m2})=>{
+  const a=rentalAreaParts(m2);
+  return (
+    <td className="prop-col-num prop-col-metrics prop-col-area" style={{color:m2>0?C.tx:C.txP}} title={fmtRentalAreaCell(m2)}>
+      {a?<>{a.m2Label}{a.pyLabel&&<div style={{fontSize:11,color:C.txM}}>{a.pyLabel}</div>}</>:'—'}
+    </td>
+  );
+};
+const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})=>(
+  <tr onClick={()=>onOpenDetail(p)}>
+    <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
+      <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${checked[p.id]?C.brand:C.bdrSt}`,background:checked[p.id]?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
+        {checked[p.id]&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+      </div>
+    </td>
+    <td onClick={e=>e.stopPropagation()} style={{cursor:'default',textAlign:'center'}}>
+      <span style={{fontSize:18,color:p.fav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}}
+        onClick={e=>onToggleFav(p,e)}>
+        {p.fav?'★':'☆'}
+      </span>
+    </td>
+    <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
+    <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{rentalTradeLabel(p.trade)}</span></td>
+    <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
+    <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
+      <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
+      {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
+      {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
+    </td>
+    <RentalAreaCell m2={p.contractArea}/>
+    <RentalAreaCell m2={p.exclusiveArea}/>
+    <td className="prop-col-metrics" style={{textAlign:'center',fontSize:12,color:p.unitFloor?C.tx:C.txP,whiteSpace:'nowrap'}}>{p.unitFloor||'—'}</td>
+    <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalDepositMan(p))}</td>
+    <td className="prop-col-num prop-col-metrics" style={{fontWeight:600,color:C.info}}>{fmtRentalMan(rentalRentMan(p))}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:rentalNocManPerPy(p)!=null?C.tx:C.txP,whiteSpace:'nowrap'}}>{fmtRentalNoc(p)}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:rentalMaintMan(p)>0?C.tx:C.txP}}>{fmtRentalMan(rentalMaintMan(p))}</td>
+    <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
+    <td className="prop-col-date prop-col-movein prop-col-metrics" style={{color:p.moveInDate?C.tx:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{fmtListDotDate(p.moveInDate)}</td>
   </tr>
 );
 
@@ -2528,6 +2577,7 @@ const PropRegister=({onNav})=>{
     restoreAddressLookupDraft,
   }=usePropertyAddressLookup({ mode:'register' });
 
+  const persistDraftRef=useRef(true);
   useEffect(()=>{
     if(draftRestoredRef.current||!registerDraft) return;
     draftRestoredRef.current=true;
@@ -2538,6 +2588,7 @@ const PropRegister=({onNav})=>{
   useEffect(()=>{
     if(!draftReady) return;
     const timer=window.setTimeout(()=>{
+      if(!persistDraftRef.current) return;
       savePropertyRegisterDraft({
         trade, mainType, subType, status, pub,
         priceForm, roadSearch, detailForm, photoSlots,
@@ -2573,6 +2624,8 @@ const PropRegister=({onNav})=>{
     :lookup.status==='address_confirmed'?'코드대기':'API';
 
   const handleSave=async()=>{
+    persistDraftRef.current=false;
+    try{
     const addressFields=buildPropertyAddressFields(locationForm, roadSearch);
     const mapCoordFields=await resolveMapCoordFieldsForSave(null, {
       ...addressFields,
@@ -2600,6 +2653,10 @@ const PropRegister=({onNav})=>{
     clearPropertyRegisterDraft();
     showNotification('저장하였습니다.','success');
     onNav('properties');
+    }catch(err){
+      persistDraftRef.current=true;
+      throw err;
+    }
   };
 
   return(
@@ -2609,6 +2666,7 @@ const PropRegister=({onNav})=>{
         onClose={()=>setAddressModalOpen(false)}
         onSelect={onAddressSelected}
         initialKeyword={roadSearch}
+        autoSearchOnOpen={false}
       />
       <PH title="매물 등록" sub="필드에 * 표시는 필수 입력항목입니다"
         acts={<Btn role="page-secondary" ch="일괄 등록" ic="ti-upload" on={()=>onNav&&onNav('registerBulk')}/>}
@@ -2632,7 +2690,7 @@ const PropRegister=({onNav})=>{
             </div>
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>진행 상태 <span style={{color:C.brand}}>*</span></div>
-              <select className="sel" value={status} onChange={e=>setStatus(e.target.value)}><option value="NEW">신규</option><option value="ACTIVE">진행중</option><option value="HOLD">보류</option><option value="COMPLETED">계약완료</option></select>
+              <select className="sel" value={status} onChange={e=>setStatus(e.target.value)}>{PROP_STATUS_OPTS.map(({id,label})=>(<option key={id} value={id}>{label}</option>))}</select>
             </div>
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>공개 여부 <span style={{color:C.brand}}>*</span></div>
@@ -2655,11 +2713,6 @@ const PropRegister=({onNav})=>{
               <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={onAddressSearch}/>
               <Btn role="page-secondary" ch="재조회" ic="ti-refresh" on={refetchPublicData}/>
             </div>
-            {addressKeys.pnu&&(
-              <div style={{fontSize:11,color:C.txP,fontFamily:'monospace',letterSpacing:'.04em'}}>
-                PNU {addressKeys.pnu} · 시군구 {addressKeys.sigunguCd} · 법정동 {addressKeys.bjdongCd} · 본번 {addressKeys.bun} · 부번 {addressKeys.ji}
-              </div>
-            )}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
               <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>지번주소</div>
                 <input className="inp" value={locationForm.jibunAddr} readOnly style={{background:C.surf2}}/></div>
@@ -4920,7 +4973,10 @@ const PropInfoGrid=({items})=>{
         >
           {pair.map((item,ci)=>(
             <React.Fragment key={ci}>
-              <span style={propDetailLabelCell}>{item.k}</span>
+              <span style={{
+                ...propDetailLabelCell,
+                ...(item.wrapLabel?{whiteSpace:'normal',lineHeight:1.35}:{}),
+              }}>{item.k}</span>
               <span style={{
                 ...propDetailValueCell,
                 color:item.c||C.tx,
@@ -5178,7 +5234,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
       </span>
       <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
         <Bdg label={TL[propData.trade]||'—'} type="brand"/>
-        <Bdg label={{NEW:'신규',ACTIVE:'진행중',HOLD:'보류',COMPLETED:'완료'}[propData.status]||'신규'} type={{NEW:'gray',ACTIVE:'info',HOLD:'warn',COMPLETED:'gray'}[propData.status]||'gray'}/>
+        <Bdg label={propStatusLabel(propData.status)} type={{NEW:'gray',ACTIVE:'info',HOLD:'warn',COMPLETED:'gray'}[propData.status]||'gray'}/>
         <Bdg label={propData.pub?'공개':'비공개'} type={propData.pub?'gray':'warn'}/>
         {sharedLabel&&<span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span>}
         <span onClick={()=>setPropertyFav(prop.id,!isFav)} style={{fontSize:18,color:isFav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}} title={isFav?'즐겨찾기 해제':'즐겨찾기'}>{isFav?'★':'☆'}</span>
@@ -6490,8 +6546,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                   </select></div>
                 <div><FL label="진행 상태" req/>
                   <select className="sel" value={status} onChange={e=>setStatus(e.target.value)}>
-                    <option value="NEW">신규</option><option value="ACTIVE">진행중</option>
-                    <option value="HOLD">보류</option><option value="COMPLETED">계약완료</option>
+                    {PROP_STATUS_OPTS.map(({id,label})=>(<option key={id} value={id}>{label}</option>))}
                   </select></div>
                 <div><FL label="공개 여부" req/>
                   <select className="sel" value={pub} onChange={e=>setPub(e.target.value)}>
@@ -6515,11 +6570,6 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                   <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={onAddressSearch}/>
                   <Btn role="page-secondary" ch="재조회" ic="ti-refresh" on={refetchPublicData}/>
                 </div>
-                {addressKeys.pnu&&(
-                  <div style={{fontSize:11,color:C.txP,fontFamily:'monospace',letterSpacing:'.04em'}}>
-                    PNU {addressKeys.pnu} · 시군구 {addressKeys.sigunguCd} · 법정동 {addressKeys.bjdongCd} · 본번 {addressKeys.bun} · 부번 {addressKeys.ji}
-                  </div>
-                )}
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
                   <div><FL label="지번주소"/>
                     <input className="inp" value={locationForm.jibunAddr||prop.jibunAddr||prop.addr||''} readOnly style={{background:C.surf2}}/></div>
@@ -6535,7 +6585,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
               {/* 3. 거래방식 · 가격 */}
               <SecLabel ch="거래방식 · 가격"/>
               <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bdr}`}}>
-                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType} collectMoveInDate={Boolean(prop.moveInDate)}/>
+                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType} collectMoveInDate/>
               </div>
 
               {/* 3-1. 임대차관리 (매매·분양) */}
@@ -6637,7 +6687,7 @@ const PropDetailRedirect=({onOpen})=>{
     if(props===undefined) return;
     const prop=findPropertyByRouteId(props,id);
     if(prop) onOpen('pd',prop);
-    navigate('/properties',{replace:true});
+    navigate(propertiesListPath(),{replace:true});
   },[props,id,navigate,onOpen]);
   if(props===undefined&&(sessionCloudSyncStatus==='idle'||sessionCloudSyncStatus==='syncing')){
     return <RouteLoading label="매물 상세 여는 중…"/>;
@@ -6678,20 +6728,17 @@ const PropEditRoute=({softDelete,onOpen})=>{
     return null;
   }
   const prop=findPropertyByRouteId(props,id);
-  if(!prop) return <Navigate to="/properties" replace />;
+  if(!prop) return <Navigate to={propertiesListPath()} replace />;
   if(!canWriteRecord(prop,user?.id,companyRole,memberPermissions,'properties')){
-    return <Navigate to="/properties" replace />;
+    return <Navigate to={propertiesListPath()} replace />;
   }
-  const goDetail=()=>{
-    navigate('/properties');
-    onOpen('pd',prop);
-  };
+  const goList=()=>navigate(propertiesListPath());
   return (
     <PropEdit
       prop={prop}
-      onClose={goDetail}
-      onSaved={goDetail}
-      onDelete={(item)=>softDelete('props',item,propDisplayAddr(item)||item.bldg,()=>navigate('/properties'))}
+      onClose={goList}
+      onSaved={goList}
+      onDelete={(item)=>softDelete('props',item,propDisplayAddr(item)||item.bldg,goList)}
     />
   );
 };
@@ -6789,6 +6836,11 @@ function AppShell(){
   const navigate=useNavigate();
   const location=useLocation();
 
+  useEffect(() => {
+    if (isPropertyRegisterPath(location.pathname)) return;
+    clearPropertyRegisterDraft();
+  }, [location.pathname]);
+
   // 앱 사용 중 경로를 계속 기록 — 새로고침 후 같은 페이지 유지
   useEffect(() => {
     if (!user?.id && !legacyUnlocked) return;
@@ -6798,6 +6850,7 @@ function AppShell(){
 
   const properties=useProperties();
   const [wins,setWins]=useState([]);
+  const [registerFormKey,setRegisterFormKey]=useState(0);
   const [showSet,setShowSet]=useState(false);
   const [sidebarExpanded,setSidebarExpanded]=useState(false);
   const [folders,setFolders]=useState(()=>loadFolderState()?.folders??FOLDERS);
@@ -6845,7 +6898,14 @@ function AppShell(){
 
   const menuId=pathToMenuId(location.pathname);
   const titleLabel=resolveTitle(location.pathname, {}, properties);
-  const navTo=(id)=>navigate(MENU_PATHS[id]||'/dashboard');
+  const navTo=(id)=>{
+    const path=MENU_PATHS[id]||'/dashboard';
+    if(path==='/register'){
+      clearPropertyRegisterDraft();
+      setRegisterFormKey((k)=>k+1);
+    }
+    navigate(path);
+  };
 
   const softDelete=(type,item,label,afterFn)=>setGlobalConfirm({
     msg:'휴지통으로 이동하시겠습니까?',
@@ -6881,6 +6941,8 @@ function AppShell(){
       return;
     }
     if(type==='pe'){
+      const tab=new URLSearchParams(window.location.search).get('tab');
+      rememberPropListTab(tab||loadPropListState().statusTab||'ALL');
       navigate(`/properties/${data.id}/edit`);
       return;
     }
@@ -6976,7 +7038,7 @@ function AppShell(){
         <Route path="/properties/:id" element={<PropDetailRedirect onOpen={openWin}/>} />
         <Route path="/mapview" element={<MapView onOpen={openWin} Btn={Btn} PH={PH}/>} />
         <Route path="/register/bulk" element={<PropertyBulkUploadPage onNav={navTo}/>} />
-        <Route path="/register" element={<PropRegister onNav={navTo}/>} />
+        <Route path="/register" element={<PropRegister key={registerFormKey} onNav={navTo}/>} />
         <Route path="/customers/bulk" element={<CustomerBulkUploadPage onNav={navTo}/>} />
         <Route path="/customers" element={<CustList onOpen={openWin} onNav={navTo} onDeleteCustomer={(c,after)=>softDelete('custs',c,c.name,()=>{if(after)after();closeCustomerWins(c.id);})} onCustomersDeleted={(ids)=>ids.forEach((id)=>closeCustomerWins(id))}/>} />
         <Route path="/calls" element={<CallLogs onOpen={openWin} onDelete={(item)=>softDelete('calls',item,item.content?.slice(0,20)||'통화기록',()=>{})}/>} />
@@ -7040,7 +7102,7 @@ function AppShell(){
           if(w.type==='sf') return (<SchedForm key={w.wid} schedData={w.data} onClose={close} onSaved={()=>{}} onDelete={(item)=>softDelete('scheds',item,item?.title||'일정',close)}/>);
           if(w.type==='pd') return (
             <PropDetail key={w.wid} prop={w.data} onClose={close}
-              onEdit={(p)=>{ close(); navigate(`/properties/${p.id}/edit`); }}
+              onEdit={(p)=>{ close(); rememberPropListTab(new URLSearchParams(window.location.search).get('tab')); navigate(`/properties/${p.id}/edit`); }}
               onOpen={openWin}
               onDelete={(item)=>softDelete('props',item,propDisplayAddr(item)||item.bldg,close)}
               onDeleteCall={(item)=>softDelete('calls',item,item.content?.slice(0,20)||'통화기록',()=>{})}

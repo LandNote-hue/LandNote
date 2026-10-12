@@ -1,7 +1,8 @@
 import { propDisplayAddr } from '../utils/propAddress.js';
+import { PROP_STATUS_LABEL } from '../utils/propStatus.js';
 import { fmtPropPrice as propPrice } from '../utils/formatMoney.js';
 import {
-  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalAreaCell,
+  rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, fmtRentalAreaCell,
   fmtListDotDate, rentalTradeLabel,
 } from '../utils/propRentList.js';
 
@@ -9,9 +10,9 @@ const BRAND = '#C8102E';
 const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '분양' };
 
 const STATUS = {
-  NEW: { label: '신규', bg: '#ECFDF5', color: '#047857' },
-  ACTIVE: { label: '진행중', bg: '#EFF6FF', color: '#2563EB' },
-  HOLD: { label: '보류', bg: '#FFFBEB', color: '#D97706' },
+  NEW: { label: PROP_STATUS_LABEL.NEW, bg: '#ECFDF5', color: '#047857' },
+  ACTIVE: { label: PROP_STATUS_LABEL.ACTIVE, bg: '#EFF6FF', color: '#2563EB' },
+  HOLD: { label: PROP_STATUS_LABEL.HOLD, bg: '#FFFBEB', color: '#D97706' },
   COMPLETED: { label: '완료', bg: '#F1F5F9', color: '#475569' },
 };
 
@@ -128,6 +129,7 @@ export function PropertyCardList({
               <div>해당층 <strong style={{ color: '#0F172A' }}>{p.unitFloor || '—'}</strong></div>
               <div>보증금 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalDepositMan(p))}</strong></div>
               <div>임대료 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalRentMan(p))}</strong></div>
+              <div>NOC <strong style={{ color: '#0F172A' }}>{fmtRentalNoc(p)}</strong></div>
               <div>관리비 <strong style={{ color: '#0F172A' }}>{fmtRentalMan(rentalMaintMan(p))}</strong></div>
               <div>최종통화일 {p.lastCall || '—'}</div>
               <div>입주가능일 {fmtListDotDate(p.moveInDate)}</div>
