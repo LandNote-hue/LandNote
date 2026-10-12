@@ -22,7 +22,8 @@ export const API_PROXY_ROUTES = {
 
 export function getSearchKey(env) {
   return (
-    env.VITE_JUSO_SEARCH_KEY
+    env.JUSO_SEARCH_KEY
+    || env.VITE_JUSO_SEARCH_KEY
     || env.VITE_JUSO_CONFIRM_KEY
     || ''
   ).trim();

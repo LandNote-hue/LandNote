@@ -4,16 +4,22 @@ import { propDisplayAddr, propJibunAddr } from './propAddress.js';
  * 디스코 상세 URL 정규화
  * @param {unknown} value
  */
-export function normalizeDiscoUrl(value) {
+/** http(s) 외부 링크. 프로토콜이 없으면 https:// 를 붙인다. */
+export function normalizeHttpUrl(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
+  const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw) ? raw : `https://${raw}`;
   try {
-    const u = new URL(raw);
+    const u = new URL(withProto);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
     return u.toString();
   } catch {
     return '';
   }
+}
+
+export function normalizeDiscoUrl(value) {
+  return normalizeHttpUrl(value);
 }
 
 /**

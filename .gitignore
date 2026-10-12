@@ -27,3 +27,10 @@ dist-ssr
 # Accidental nested empty repo / local screenshots
 /LandNote/
 *.png
+
+# Extracted PPTX / scratch (Vite file watch can EBUSY on these)
+.tmp-pptx/
+.tmp-origin-src/
+.tmp-patch-listback.py
+Claude outputs/
+backup/

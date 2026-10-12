@@ -1,18 +1,24 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  loadKakaoMaps,
+  loadNaverMaps,
   geocodeAddressVariants,
   fitMapToPoints,
-  getKakaoMapJsKey,
-  expandAddressVariants,
+  getNaverMapClientId,
   runPool,
-} from '../services/kakao/kakaoMaps.js';
+  createNaverMap,
+  latLng,
+  getMapBoundsBox,
+} from '../services/naver/naverMaps.js';
+import { addMapListener, removeMapListener } from '../features/map/mapEvents.js';
+import { placeClusteredMarkers } from '../features/map/mapCluster.js';
+import { clearMapOverlayLayers } from '../features/map/mapLayers.js';
 import { MapSiteToolbar } from '../features/map/MapSiteToolbar.jsx';
 import { MapZoomRail } from '../features/map/MapZoomRail.jsx';
 import { createMapRoadviewController } from '../features/map/mapRoadview.js';
 import {
   attachScreenMarkerPositionSync,
   clearPropertyLayer,
+  mountOverlayHost,
   placePropertyLayer,
   propertyLayerMatchesResolved,
   refreshScreenMarkerPositions,
@@ -72,24 +78,6 @@ function markerKey(id) {
   return id == null ? '' : String(id);
 }
 
-function collectAddressQueries(item, singleFallback) {
-  /** @type {string[]} */
-  const queries = [];
-  const seen = new Set();
-  const add = (s) => {
-    for (const v of expandAddressVariants(s)) {
-      if (!v || seen.has(v)) continue;
-      seen.add(v);
-      queries.push(v);
-    }
-  };
-  add(item.address);
-  if (item.fallbackAddress) add(item.fallbackAddress);
-  if (item.fallbackAddresses?.length) item.fallbackAddresses.forEach(add);
-  if (singleFallback && item.id === 'single') add(singleFallback);
-  return queries;
-}
-
 function clearMarkers(clustererRef, markerMapRef) {
   clustererRef.current?.clear();
   clustererRef.current = null;
@@ -104,27 +92,14 @@ function clearMarkers(clustererRef, markerMapRef) {
   markerMapRef.current.clear();
 }
 
-function destroyMapInstance(mapRef, kakaoRef, container, zoomHandlerRef) {
+function destroyMapInstance(mapRef, mapsNsRef, container, zoomListenerRef) {
   const map = mapRef.current;
-  const kakao = kakaoRef.current;
-
-  if (map && kakao?.maps?.event && zoomHandlerRef.current) {
-    try {
-      kakao.maps.event.removeListener(map, 'zoom_changed', zoomHandlerRef.current);
-    } catch { /* ignore */ }
-    zoomHandlerRef.current = null;
-  }
-
-  if (map && kakao?.maps?.MapTypeId) {
-    const { MapTypeId } = kakao.maps;
-    [MapTypeId.ROADVIEW, MapTypeId.TRAFFIC, MapTypeId.TERRAIN, MapTypeId.BICYCLE, MapTypeId.USE_DISTRICT]
-      .filter(Boolean)
-      .forEach((typeId) => {
-        try { map.removeOverlayMapTypeId(typeId); } catch { /* ignore */ }
-      });
-  }
-
+  removeMapListener(zoomListenerRef.current);
+  zoomListenerRef.current = null;
+  clearMapOverlayLayers(map);
+  try { map?.destroy?.(); } catch { /* ignore */ }
   mapRef.current = null;
+  mapsNsRef.current = null;
 
   if (container) {
     try {
@@ -140,39 +115,33 @@ function destroyMapInstance(mapRef, kakaoRef, container, zoomHandlerRef) {
   }
 }
 
-function placeMarkersOnMap(kakao, map, resolved, cluster, clustererRef, markerMapRef, onMarkerClick, showMarkerCards, selectedId) {
-  if (!map) return;
+function placeMarkersOnMap(naver, map, resolved, cluster, clustererRef, markerMapRef, onMarkerClick, showMarkerCards, selectedId) {
+  if (!map || !naver) return;
   clearMarkers(clustererRef, markerMapRef);
 
-  const kakaoMarkers = resolved.map((item) => {
+  if (cluster && !showMarkerCards && resolved.length > 1) {
+    clustererRef.current = placeClusteredMarkers(naver, map, resolved, {
+      onClick: onMarkerClick,
+      selectedId,
+      minLevel: 5,
+      markerMapRef,
+    });
+    return;
+  }
+
+  resolved.forEach((item) => {
     const isSelected = markerKey(selectedId) === markerKey(item.id);
-    const marker = new kakao.maps.Marker({
-      position: new kakao.maps.LatLng(item.lat, item.lng),
+    const marker = new naver.maps.Marker({
+      position: latLng(item.lat, item.lng),
       title: item.title || '',
       zIndex: showMarkerCards ? (isSelected ? 28 : 24) : (isSelected ? 20 : 10),
     });
+    marker.setMap(map);
     if (onMarkerClick) {
-      kakao.maps.event.addListener(marker, 'click', () => onMarkerClick(item));
+      addMapListener(marker, 'click', () => onMarkerClick(item));
     }
     if (item.id != null) markerMapRef.current.set(markerKey(item.id), { marker, item });
-    return marker;
   });
-
-  if (cluster && !showMarkerCards && kakaoMarkers.length > 1 && typeof kakao.maps.MarkerClusterer === 'function') {
-    try {
-      clustererRef.current = new kakao.maps.MarkerClusterer({
-        map,
-        markers: kakaoMarkers,
-        gridSize: 64,
-        averageCenter: true,
-        minLevel: 5,
-      });
-      return;
-    } catch {
-      /* clusterer 실패 시 개별 마커로 폴백 */
-    }
-  }
-  kakaoMarkers.forEach((m) => m.setMap(map));
 }
 
 /**
@@ -185,7 +154,7 @@ function placeMarkersOnMap(kakao, map, resolved, cluster, clustererRef, markerMa
  *   cluster?: boolean,
  *   selectedId?: string|number|null,
  *   onMarkerClick?: (item: MapMarkerInput & { lat: number, lng: number }) => void,
- *   onMapReady?: (map: unknown, kakao: typeof window.kakao) => void,
+ *   onMapReady?: (map: unknown, naver: typeof window.naver) => void,
  *   onMarkersResolved?: (resolved: (MapMarkerInput & { lat: number, lng: number })[], total: number) => void,
  *   showMarkerCards?: boolean,
  *   renderMarkerCard?: (item: MapMarkerInput & { lat: number, lng: number }, selected: boolean, mode: string) => React.ReactNode,
@@ -207,7 +176,7 @@ function placeMarkersOnMap(kakao, map, resolved, cluster, clustererRef, markerMa
  *   className?: string,
  * }} props
  */
-export function KakaoMap({
+export function SiteMap({
   address,
   fallbackAddress,
   markers,
@@ -234,18 +203,21 @@ export function KakaoMap({
   showZoomControl = false,
   interactive = true,
   showWhenEmpty = false,
+  areaUnit = 'py',
   style,
   className,
 }) {
   const containerRef = useRef(null);
   const [containerNode, setContainerNode] = useState(null);
   const mapRef = useRef(null);
-  const kakaoRef = useRef(null);
+  const mapsNsRef = useRef(null);
   const markerMapRef = useRef(new Map());
   const clustererRef = useRef(null);
   const placeMarkerRef = useRef(null);
   const propertyRefs = useRef([]);
   const screenLayerRef = useRef(null);
+  const overlayHostRef = useRef(null);
+  const overlayUnmountRef = useRef(null);
   const screenSyncCleanupRef = useRef(null);
   const roadviewContainerRef = useRef(null);
   const roadviewControllerRef = useRef(null);
@@ -254,7 +226,7 @@ export function KakaoMap({
   const fittedSignatureRef = useRef('');
   const selectedIdRef = useRef(selectedId);
   const lastPannedSelectedIdRef = useRef(null);
-  const zoomHandlerRef = useRef(null);
+  const zoomListenerRef = useRef(null);
   const geocodeRunRef = useRef(0);
   const aliveRef = useRef(true);
   const containerNodeRef = useRef(null);
@@ -277,6 +249,9 @@ export function KakaoMap({
   const [errorMsg, setErrorMsg] = useState('');
   const [mapReady, setMapReady] = useState(false);
 
+  const screenLayerEl = () => overlayHostRef.current || screenLayerRef.current;
+  const screenClipEl = () => containerRef.current;
+
   const syncMapLevel = (nextLevel) => {
     onZoomLevelChangeRef.current?.(nextLevel);
   };
@@ -286,20 +261,19 @@ export function KakaoMap({
     if (!mapReady || !map) return;
 
     if (roadviewActive) {
-      const kakao = kakaoRef.current;
+      const naver = mapsNsRef.current;
       roadviewControllerRef.current?.disable();
       setRoadviewActive(false);
-      if (kakao) {
-        refreshScreenMarkerPositions(kakao, map, propertyRefs, screenLayerRef.current?.parentElement ?? containerRef.current);
+      if (naver) {
+        refreshScreenMarkerPositions(naver, map, propertyRefs, screenClipEl());
       }
       return;
     }
 
     setRoadviewActive(true);
     try {
-      // 초기 지도는 services만 로드 — 로드뷰 켤 때 라이브러리 추가
-      const kakao = await loadKakaoMaps(['services', 'roadview']);
-      kakaoRef.current = kakao;
+      const naver = await loadNaverMaps({ panorama: true });
+      mapsNsRef.current = naver;
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
       if (!roadviewContainerRef.current) {
         setRoadviewActive(false);
@@ -307,25 +281,25 @@ export function KakaoMap({
       }
       if (!roadviewControllerRef.current) {
         roadviewControllerRef.current = createMapRoadviewController(
-          kakao,
+          naver,
           map,
           roadviewContainerRef.current,
           {
             onLayout: () => refreshScreenMarkerPositions(
-              kakao,
+              naver,
               map,
               propertyRefs,
-              screenLayerRef.current?.parentElement ?? containerRef.current,
+              screenClipEl(),
             ),
           },
         );
       }
       await roadviewControllerRef.current.enable();
-      refreshScreenMarkerPositions(kakao, map, propertyRefs, screenLayerRef.current?.parentElement ?? containerRef.current);
+      refreshScreenMarkerPositions(naver, map, propertyRefs, screenClipEl());
     } catch (err) {
       roadviewControllerRef.current?.disable();
       setRoadviewActive(false);
-      window.alert(err instanceof Error ? err.message : '로드뷰를 불러오지 못했습니다.');
+      window.alert(err instanceof Error ? err.message : '거리뷰를 불러오지 못했습니다.');
     }
   }, [mapReady, roadviewActive]);
 
@@ -348,9 +322,9 @@ export function KakaoMap({
 
   const panToSelectedIfNeeded = (force = false) => {
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
+    const naver = mapsNsRef.current;
     const sid = selectedIdRef.current;
-    if (!map || !kakao || sid == null) return;
+    if (!map || !naver || sid == null) return;
     if (!force && lastPannedSelectedIdRef.current === sid) return;
 
     const entry = markerMapRef.current.get(markerKey(sid));
@@ -358,17 +332,17 @@ export function KakaoMap({
     if (!item || !Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return;
 
     lastPannedSelectedIdRef.current = sid;
-    map.setCenter(new kakao.maps.LatLng(item.lat, item.lng));
+    map.setCenter(latLng(item.lat, item.lng));
     map.setLevel(detailZoomLevelRef.current);
     syncMapLevel(detailZoomLevelRef.current);
-    refreshScreenMarkerPositions(kakao, map, propertyRefs, screenLayerRef.current?.parentElement ?? containerRef.current);
+    refreshScreenMarkerPositions(naver, map, propertyRefs, screenClipEl());
   };
 
   const applyResolvedMarkers = (resolved, { fit }) => {
     if (!aliveRef.current) return;
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
-    if (!map || !kakao || resolved.length === 0) return;
+    const naver = mapsNsRef.current;
+    if (!map || !naver || resolved.length === 0) return;
 
     const showCards = showMarkerCardsRef.current && renderMarkerCardRef.current;
 
@@ -377,7 +351,7 @@ export function KakaoMap({
     if (showCards) {
       clearPropertyLayer(propertyRefs);
       placePropertyLayer(
-        kakao,
+        naver,
         map,
         resolved,
         renderMarkerCardRef.current,
@@ -386,12 +360,12 @@ export function KakaoMap({
         propertyRefs,
         markerMapRef,
         (item) => onMarkerClickRef.current?.(item),
-        screenLayerRef.current,
+        screenLayerEl(),
       );
     } else {
       clearPropertyLayer(propertyRefs);
       placeMarkersOnMap(
-        kakao,
+        naver,
         map,
         resolved,
         clusterRef.current,
@@ -404,7 +378,6 @@ export function KakaoMap({
     }
     if (fit && autoFitMarkersRef.current) {
       fitMapToPoints(
-        kakao,
         map,
         resolved.map((r) => ({ lat: r.lat, lng: r.lng })),
         resolved.length === 1 ? 0 : 56,
@@ -428,14 +401,12 @@ export function KakaoMap({
   ), [markers, address, fallbackAddress]);
 
   const markerSignature = useMemo(
-    // 좌표(lat/lng)는 시그니처에서 제외 — DB 저장 후 Dexie 반영으로 불필요 재지오코딩 방지
     () => markerInputs.map((m) => `${m.id}:${m.address}:${m.fallbackAddress ?? ''}:${(m.fallbackAddresses || []).join('+')}`).join('|'),
     [markerInputs],
   );
 
-  /* 지도 초기화 (1회) */
   useEffect(() => {
-    if (!getKakaoMapJsKey()) {
+    if (!getNaverMapClientId()) {
       setStatus('no-key');
       setMapReady(false);
       return;
@@ -454,31 +425,29 @@ export function KakaoMap({
 
     (async () => {
       try {
-        // services만 먼저 로드(빠른 초기화). roadview는 툴바에서 켤 때 지연 로드
-        const kakao = await loadKakaoMaps(['services']);
+        const naver = await loadNaverMaps();
         if (cancelled || !containerNode) return;
 
-        kakaoRef.current = kakao;
+        mapsNsRef.current = naver;
         const initCenter = initialCenterRef.current;
-        const map = new kakao.maps.Map(containerNode, {
-          center: new kakao.maps.LatLng(
-            initCenter?.lat ?? 37.5665,
-            initCenter?.lng ?? 126.978,
-          ),
+        const map = createNaverMap(containerNode, {
+          lat: initCenter?.lat,
+          lng: initCenter?.lng,
           level: initialLevelRef.current,
-          draggable: interactive,
-          scrollwheel: interactive,
-          disableDoubleClick: !interactive,
-          disableDoubleClickZoom: !interactive,
+          interactive,
         });
         mapRef.current = map;
         if (!aliveRef.current || cancelled) return;
+        overlayUnmountRef.current?.();
+        const overlay = mountOverlayHost(naver, map);
+        overlayHostRef.current = overlay?.host ?? null;
+        overlayUnmountRef.current = overlay?.unmount ?? null;
         setMapReady(true);
         setStatus('ready');
-        onMapReadyRef.current?.(map, kakao);
+        onMapReadyRef.current?.(map, naver);
         screenSyncCleanupRef.current?.();
         screenSyncCleanupRef.current = attachScreenMarkerPositionSync(
-          kakao,
+          naver,
           map,
           propertyRefs,
           containerNode,
@@ -491,8 +460,7 @@ export function KakaoMap({
           if (!aliveRef.current) return;
           syncMapLevel(map.getLevel());
         };
-        zoomHandlerRef.current = onZoom;
-        kakao.maps.event.addListener(map, 'zoom_changed', onZoom);
+        zoomListenerRef.current = addMapListener(map, 'zoom_changed', onZoom);
       } catch (err) {
         if (!cancelled && aliveRef.current) {
           setStatus('error');
@@ -506,24 +474,25 @@ export function KakaoMap({
       cancelled = true;
       screenSyncCleanupRef.current?.();
       screenSyncCleanupRef.current = null;
+      overlayUnmountRef.current?.();
+      overlayUnmountRef.current = null;
+      overlayHostRef.current = null;
       roadviewControllerRef.current?.destroy();
       roadviewControllerRef.current = null;
       setRoadviewActive(false);
       clearMarkers(clustererRef, markerMapRef);
       clearPropertyLayer(propertyRefs);
-      destroyMapInstance(mapRef, kakaoRef, containerNode, zoomHandlerRef);
-      kakaoRef.current = null;
+      destroyMapInstance(mapRef, mapsNsRef, containerNode, zoomListenerRef);
       resolvedRef.current = [];
       fittedSignatureRef.current = '';
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- containerNode/level/interactive/showWhenEmpty only for init
   }, [containerNode, level, interactive, showWhenEmpty]);
 
-  /* 마커 갱신 */
   useEffect(() => {
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
-    if (!mapReady || !map || !kakao) return;
+    const naver = mapsNsRef.current;
+    if (!mapReady || !map || !naver) return;
 
     if (markerInputs.length === 0) {
       clearMarkers(clustererRef, markerMapRef);
@@ -549,7 +518,6 @@ export function KakaoMap({
         }
       }
 
-      // 1) 저장된 좌표 즉시 표시 — 전체 지오코딩을 기다리지 않음
       /** @type {(MapMarkerInput & { lat: number, lng: number })[]} */
       let resolved = [...known];
       resolvedRef.current = resolved;
@@ -598,7 +566,6 @@ export function KakaoMap({
         requestAnimationFrame(flushProgress);
       };
 
-      // 2) 나머지 주소 → 병렬 지오코딩 (동시 4건, 변형 최대 3개)
       /** @type {(MapMarkerInput & { lat: number, lng: number })[]} */
       const geocoded = [];
       await runPool(needGeocode, 4, async (item) => {
@@ -607,7 +574,7 @@ export function KakaoMap({
           item.fallbackAddress,
           ...(item.fallbackAddresses || []),
         ].filter(Boolean);
-        const point = await geocodeAddressVariants(kakao, item.address, extras, { maxVariants: 3 });
+        const point = await geocodeAddressVariants(item.address, extras, { maxVariants: 3 });
         if (geocodeRunRef.current !== runId || !aliveRef.current) return null;
         if (point) {
           const row = { ...item, ...point };
@@ -631,7 +598,7 @@ export function KakaoMap({
         if (!showWhenEmpty) {
           if (aliveRef.current) {
             setStatus('error');
-            setErrorMsg('주소를 지도에서 찾을 수 없습니다.\n주소 형식을 확인하거나 카카오맵 JavaScript SDK 도메인 설정을 확인하세요.');
+            setErrorMsg('주소를 지도에서 찾을 수 없습니다.\n주소 형식을 확인하거나 네이버 지도 Client ID·Web 서비스 URL 설정을 확인하세요.');
           }
         } else if (aliveRef.current) {
           setStatus('ready');
@@ -654,16 +621,15 @@ export function KakaoMap({
     };
   }, [markerSignature, fallbackAddress, mapReady, showWhenEmpty]);
 
-  /* 줌·표시 모드 변경 시 오버레이 내용만 갱신 (핀 Marker 좌표는 카카오가 유지) */
   useEffect(() => {
     if (!mapReady || resolvedRef.current.length === 0) return;
     const resolved = resolvedRef.current;
-    const kakao = kakaoRef.current;
+    const naver = mapsNsRef.current;
     const map = mapRef.current;
     const useOverlays = showMarkerCardsRef.current && renderMarkerCardRef.current;
     if (useOverlays && propertyLayerMatchesResolved(propertyRefs, resolved)) {
       const updated = updatePropertyLayerInPlace(
-        kakao,
+        naver,
         map,
         propertyRefs,
         renderMarkerCardRef.current,
@@ -673,35 +639,27 @@ export function KakaoMap({
       if (updated) return;
     }
     applyResolvedMarkers(resolved, { fit: false });
-  }, [cluster, showMarkerCards, cardDisplayMode, mapReady, selectedId]);
+  }, [cluster, showMarkerCards, cardDisplayMode, mapReady, selectedId, areaUnit]);
 
-  /* 지도 화면(bounds) 변경 시 목록 연동 */
   useEffect(() => {
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
-    if (!mapReady || !map || !kakao?.maps?.event) return;
+    const naver = mapsNsRef.current;
+    if (!mapReady || !map || !naver?.maps?.Event) return;
 
     const reportBounds = () => {
       try {
-        const bounds = map.getBounds();
-        if (!bounds) return;
-        const sw = bounds.getSouthWest();
-        const ne = bounds.getNorthEast();
-        onBoundsChangeRef.current?.({
-          south: sw.getLat(),
-          west: sw.getLng(),
-          north: ne.getLat(),
-          east: ne.getLng(),
-        }, resolvedRef.current);
-        refreshScreenMarkerPositions(kakao, map, propertyRefs, screenLayerRef.current?.parentElement ?? containerRef.current);
+        const box = getMapBoundsBox(map);
+        if (!box) return;
+        onBoundsChangeRef.current?.(box, resolvedRef.current);
+        refreshScreenMarkerPositions(naver, map, propertyRefs, screenClipEl());
       } catch {
         /* 지도 초기화 직후 bounds 미준비 */
       }
     };
 
-    kakao.maps.event.addListener(map, 'idle', reportBounds);
+    const idleListener = addMapListener(map, 'idle', reportBounds);
     reportBounds();
-    return () => kakao.maps.event.removeListener(map, 'idle', reportBounds);
+    return () => removeMapListener(idleListener);
   }, [mapReady, markerSignature]);
 
   useEffect(() => {
@@ -713,56 +671,55 @@ export function KakaoMap({
     aliveRef.current = false;
     screenSyncCleanupRef.current?.();
     screenSyncCleanupRef.current = null;
+    overlayUnmountRef.current?.();
+    overlayUnmountRef.current = null;
+    overlayHostRef.current = null;
     roadviewControllerRef.current?.destroy();
     roadviewControllerRef.current = null;
     clearMarkers(clustererRef, markerMapRef);
     clearPropertyLayer(propertyRefs);
-    destroyMapInstance(mapRef, kakaoRef, containerNodeRef.current, zoomHandlerRef);
-    kakaoRef.current = null;
+    destroyMapInstance(mapRef, mapsNsRef, containerNodeRef.current, zoomListenerRef);
   }, []);
 
-  /* 지도 검색 결과로 이동 */
   useEffect(() => {
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
-    if (!mapReady || !map || !kakao || !viewTarget) return;
-    map.setCenter(new kakao.maps.LatLng(viewTarget.lat, viewTarget.lng));
+    const naver = mapsNsRef.current;
+    if (!mapReady || !map || !naver || !viewTarget) return;
+    map.setCenter(latLng(viewTarget.lat, viewTarget.lng));
     if (viewTarget.level != null) map.setLevel(viewTarget.level);
     syncMapLevel(map.getLevel());
-    refreshScreenMarkerPositions(kakao, map, propertyRefs, screenLayerRef.current?.parentElement ?? containerRef.current);
+    refreshScreenMarkerPositions(naver, map, propertyRefs, screenClipEl());
   }, [viewTarget, mapReady]);
 
-  /* 매물 검색 결과 영역으로 이동 (결과 있을 때만) */
   useEffect(() => {
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
-    if (!mapReady || !map || !kakao || !searchFitTarget?.points?.length) return;
+    const naver = mapsNsRef.current;
+    if (!mapReady || !map || !naver || !searchFitTarget?.points?.length) return;
 
     const points = searchFitTarget.points.filter(
       (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng),
     );
     if (!points.length) return;
 
-    fitMapToPoints(kakao, map, points, 56);
+    fitMapToPoints(map, points, 56);
     if (points.length === 1 && searchFitTarget.level != null) {
       map.setLevel(searchFitTarget.level);
     }
     syncMapLevel(map.getLevel());
-    refreshScreenMarkerPositions(kakao, map, propertyRefs, screenLayerRef.current?.parentElement ?? containerRef.current);
+    refreshScreenMarkerPositions(naver, map, propertyRefs, screenClipEl());
   }, [searchFitTarget, mapReady]);
 
-  /* 지도검색 핀 (매물 마커와 구분) */
   useEffect(() => {
     const map = mapRef.current;
-    const kakao = kakaoRef.current;
-    if (!mapReady || !map || !kakao) return;
+    const naver = mapsNsRef.current;
+    if (!mapReady || !map || !naver) return;
     if (placeMarkerRef.current) {
       placeMarkerRef.current.setMap(null);
       placeMarkerRef.current = null;
     }
     if (!placePin) return;
-    const marker = new kakao.maps.Marker({
-      position: new kakao.maps.LatLng(placePin.lat, placePin.lng),
+    const marker = new naver.maps.Marker({
+      position: latLng(placePin.lat, placePin.lng),
       map,
       title: placePin.title || '',
       zIndex: 50,
@@ -774,7 +731,6 @@ export function KakaoMap({
     };
   }, [placePin, mapReady]);
 
-  /* 목록·마커 선택 → 해당 매물로 이동 (검색 필터 변경 시에는 이동하지 않음) */
   useEffect(() => {
     if (selectedId == null) {
       lastPannedSelectedIdRef.current = null;
@@ -787,8 +743,8 @@ export function KakaoMap({
     return (
       <MapPlaceholder
         height={height}
-        message="카카오맵 API 키 미설정"
-        sub=".env.local에 VITE_KAKAO_MAP_JS_KEY(JavaScript 키)를 설정하세요."
+        message="네이버 지도 API 키 미설정"
+        sub=".env.local에 VITE_NAVER_MAP_CLIENT_ID(ncpKeyId / Client ID)를 설정하세요."
       />
     );
   }
@@ -887,7 +843,7 @@ export function KakaoMap({
         <>
           <MapSiteToolbar
             map={mapRef.current}
-            kakao={kakaoRef.current}
+            mapsNs={mapsNsRef.current}
             mapReady={mapReady}
             roadviewActive={roadviewActive}
             onRoadviewToggle={handleRoadviewToggle}
@@ -899,8 +855,8 @@ export function KakaoMap({
   );
 }
 
-/** @param {{ address?: string, fallbackAddress?: string, markers?: import('./KakaoMap.jsx').MapMarkerInput[], onClose: () => void, title?: string }} props */
-export function KakaoMapExpandWin({ address, fallbackAddress, markers, onClose, title = '지도 보기' }) {
+/** @param {{ address?: string, fallbackAddress?: string, markers?: MapMarkerInput[], onClose: () => void, title?: string }} props */
+export function SiteMapExpandWin({ address, fallbackAddress, markers, onClose, title = '지도 보기' }) {
   return (
     <div
       style={{
@@ -960,7 +916,7 @@ export function KakaoMapExpandWin({ address, fallbackAddress, markers, onClose, 
           </button>
         </div>
         <div style={{ flex: 1, minHeight: 0, padding: 12 }}>
-          <KakaoMap
+          <SiteMap
             markers={markers}
             address={address}
             fallbackAddress={fallbackAddress}
@@ -975,4 +931,4 @@ export function KakaoMapExpandWin({ address, fallbackAddress, markers, onClose, 
   );
 }
 
-export { geocodeAddresses, geocodeAddressVariants as geocodeAddress, loadKakaoMaps } from '../services/kakao/kakaoMaps.js';
+export { geocodeAddresses, geocodeAddressVariants as geocodeAddress, loadNaverMaps } from '../services/naver/naverMaps.js';

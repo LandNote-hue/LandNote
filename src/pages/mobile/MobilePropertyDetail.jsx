@@ -1,19 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { propertiesListPath } from '../../navigation/propListPersist.js';
+import { useDealMode } from '../../contexts/DealModeContext.jsx';
+import { dealModeFromProperty } from '../../utils/dealModeMatch.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { propDisplayAddr, propJibunAddr } from '../../utils/propAddress.js';
+import { extraParcelCount, formatJibunWithExtraParcels } from '../../utils/propertyParcels.js';
 import { fmtPropPrice as propPrice, fmtWithUnit, m2ToPyung, fmtNum } from '../../utils/formatMoney.js';
 import { PropertyDetailMap } from '../../components/PropertyDetailMap.jsx';
+import { propStatusStyle, propStatusChipStyle } from '../../utils/propStatus.js';
+import { propKindDisplayLabel } from '../../data/propertyTypes.js';
+import { isRentalListProperty } from '../../utils/propListKind.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileInfoRow, MobileEmptyState, M } from './mobileUi.jsx';
 
-const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '분양' };
-const STATUS = {
-  NEW: { label: '신규', bg: '#ECFDF5', color: '#047857' },
-  ACTIVE: { label: '진행중', bg: '#EFF6FF', color: '#2563EB' },
-  HOLD: { label: '보류', bg: '#FFFBEB', color: '#D97706' },
-  COMPLETED: { label: '완료', bg: '#F1F5F9', color: '#475569' },
-};
+const TL = { SALE: '매매', JEONSE: '전세', MONTHLY: '월세', SHORT_TERM: '단기', PRESALE: '매매' };
 
 function areaLabel(m2) {
   if (m2 == null || m2 === '' || Number(m2) <= 0) return null;
@@ -23,8 +23,13 @@ function areaLabel(m2) {
 
 export function MobilePropertyDetail() {
   const { id } = useParams();
+  const { setDealMode } = useDealMode();
   const properties = useProperties();
   const prop = properties.find((p) => String(p.id) === String(id));
+  useEffect(() => {
+    const next = dealModeFromProperty(prop);
+    if (next) setDealMode(next);
+  }, [prop?.id, prop?.trade, setDealMode]);
   const [photoIdx, setPhotoIdx] = useState(0);
 
   if (!prop) {
@@ -36,8 +41,9 @@ export function MobilePropertyDetail() {
     );
   }
 
+  const rent = isRentalListProperty(prop);
   const photos = Array.isArray(prop.photos) ? prop.photos.filter(Boolean) : [];
-  const status = STATUS[prop.status] || STATUS.NEW;
+  const status = propStatusStyle(prop.status, { rent });
   const telDigits = String(prop.ownerTel || '').replace(/[^0-9+]/g, '');
 
   return (
@@ -75,12 +81,12 @@ export function MobilePropertyDetail() {
 
         <MobileCard>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: status.bg, color: status.color }}>
+            <span style={propStatusChipStyle(prop.status, { compact: true, rent })}>
               {status.label}
             </span>
             {prop.tag && (
               <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 4, background: '#F1F5F9', color: '#475569' }}>
-                {prop.tag}
+                {propKindDisplayLabel(prop) || prop.tag}
               </span>
             )}
             {prop.trade && <span style={{ fontSize: 12, color: M.txM }}>{TL[prop.trade] || prop.trade}</span>}
@@ -94,7 +100,7 @@ export function MobilePropertyDetail() {
 
         <MobileSectionTitle>자산 개요</MobileSectionTitle>
         <MobileCard>
-          <MobileInfoRow label="지번 주소" value={propJibunAddr(prop) || null} />
+          <MobileInfoRow label="지번 주소" value={formatJibunWithExtraParcels(propJibunAddr(prop) || propDisplayAddr(prop), extraParcelCount(prop)) || null} />
           <MobileInfoRow label="용도지역" value={prop.zoning} />
           <MobileInfoRow label="지목" value={prop.landCategory} />
           <MobileInfoRow label="대지면적" value={areaLabel(prop.land)} />

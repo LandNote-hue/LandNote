@@ -3,12 +3,13 @@
  * (ownerId, remoteLocalId) → Dexie id 매핑을 유지합니다.
  */
 
-/** @type {{ properties: Map<string, number>, customers: Map<string, number>, schedules: Map<string, number>, call_logs: Map<string, number> }} */
+/** @type {{ properties: Map<string, number>, customers: Map<string, number>, schedules: Map<string, number>, call_logs: Map<string, number>, rentals: Map<string, number> }} */
 const ID_MAPS = {
   properties: new Map(),
   customers: new Map(),
   schedules: new Map(),
   call_logs: new Map(),
+  rentals: new Map(),
 };
 
 export function resetCloudLocalIdMaps() {
@@ -257,5 +258,31 @@ export async function remapSharedForeignKeys(tables) {
       if (schedId !== c.schedId) patch.schedId = schedId;
     }
     if (Object.keys(patch).length) await tables.call_logs.update(c.id, patch);
+  }
+
+  if (tables.rentals) {
+    const propByCloud = new Map();
+    if (tables.properties) {
+      const props = await tables.properties.toArray();
+      for (const p of props) {
+        if (p.cloudId != null) propByCloud.set(String(p.cloudId), p.id);
+      }
+    }
+    const rentals = await tables.rentals.toArray();
+    for (const r of rentals) {
+      const ownerId = r.ownerId;
+      if (!ownerId) continue;
+      const remotePid = r.cloudPidLocal ?? null;
+      /** @type {Record<string, unknown>} */
+      const patch = {};
+      if (r.cloudPid != null && r.cloudPid !== '') {
+        const mapped = propByCloud.get(String(r.cloudPid));
+        if (mapped != null && mapped !== r.pid) patch.pid = mapped;
+      } else if (remotePid != null) {
+        const pid = remapFk('properties', ownerId, remotePid);
+        if (pid !== r.pid) patch.pid = pid;
+      }
+      if (Object.keys(patch).length) await tables.rentals.update(r.id, patch);
+    }
   }
 }

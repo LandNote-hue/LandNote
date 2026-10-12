@@ -1,6 +1,8 @@
 import { customerBudgetInMan } from './customerMoney.js';
+import { leaseConditionsFromCustomer, serializeLeaseConditions } from './customerLeaseConditions.js';
 import { custStatusOf } from './customerStatus.js';
 import { formatPreferredTradesLabel, preferredTradesOf } from './customerTradePreference.js';
+import { buyTypesOf, formatBuyTypesLabel } from './customerBuyTypes.js';
 import { phoneMatches } from './formatPhone.js';
 
 /** @type {readonly string[]} */
@@ -16,19 +18,30 @@ export const CUSTOMER_ADV_PROP_KIND_OPTS = [
 
 /** @type {Record<string, string>} */
 export const CUST_ADV_STATUS_LABEL_TO_CODE = {
-  진행중: 'ACTIVE',
+  긴급: 'URGENT',
+  보통: 'NORMAL',
   보류: 'HOLD',
-  완료: 'COMPLETED',
-  계약완료: 'COMPLETED',
+  관리: 'MANAGE',
+  진행중: 'NORMAL',
+  완료: 'MANAGE',
+  계약완료: 'MANAGE',
 };
 
 /** @param {Record<string, unknown>|null|undefined} c */
 export function customerSearchHaystack(c) {
+  const leases = serializeLeaseConditions(leaseConditionsFromCustomer(c));
   return [
     c?.region,
     formatPreferredTradesLabel(preferredTradesOf(c)),
+    formatBuyTypesLabel(buyTypesOf(c)),
+    c?.buyTiming,
     c?.addr,
     c?.memo,
+    ...leases.flatMap((row) => [
+      row.region, row.moveTiming,
+      row.exclusiveAreaPyMin, row.exclusiveAreaPyMax,
+      row.budgetManMin, row.budgetManMax,
+    ]),
   ].filter(Boolean).join(' ');
 }
 
@@ -40,6 +53,7 @@ export function customerMatchesBasicSearch(c, query) {
   if (String(c?.co || '').includes(q)) return true;
   if (String(c?.region || '').includes(q)) return true;
   if (phoneMatches(String(c?.phone || ''), q)) return true;
+  if (customerSearchHaystack(c).includes(q)) return true;
   return false;
 }
 
@@ -81,7 +95,8 @@ export function customerBudgetMatchesFilter(c, filterMin, filterMax) {
 /** @param {Record<string, unknown>|null|undefined} c @param {string} tradeCode */
 export function customerPreferredTradeMatches(c, tradeCode) {
   if (!tradeCode) return true;
-  return preferredTradesOf(c).includes(tradeCode);
+  if (preferredTradesOf(c).includes(tradeCode)) return true;
+  return buyTypesOf(c).includes(tradeCode);
 }
 
 /**

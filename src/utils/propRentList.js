@@ -179,9 +179,39 @@ export function sortRentalListByJibunGroups(items, opts = {}) {
 }
 
 export const RENT_LIST_SORT_KEYS = new Set([
-  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'noc', 'maintenance', 'lastCall', 'moveInDate', 'created',
+  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'noc', 'maintenance', 'lastCall', 'moveInDate', 'created', 'agentName',
 ]);
 
 export const SALE_LIST_SORT_KEYS = new Set([
-  'price', 'roi', 'landArea', 'floorArea', 'zoning', 'landPy', 'lastCall', 'created',
+  'price', 'roi', 'landArea', 'floorArea', 'zoning', 'landPy', 'floorPy', 'agentName', 'updatedAt',
 ]);
+
+/** 등록일(YYYY.MM.DD) → ms. 시각이 없으면 해당 일 0시. */
+export function parsePropCreatedMs(created) {
+  const s = String(created || '').trim();
+  if (!s) return 0;
+  if (/^\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}/.test(s)) {
+    const [y, m, d] = s.split(/[.\-/]/).map((x) => Number(x));
+    const t = new Date(y, (m || 1) - 1, d || 1).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** 사용자 수정·등록 시각. 클라우드 동기화 시각은 쓰지 않음(일괄 pull이 순서를 덮어씀). */
+export function propListActivityMs(p) {
+  const updated = Date.parse(String(p?.updatedAt || ''));
+  if (Number.isFinite(updated) && updated > 0) return updated;
+  const created = parsePropCreatedMs(p?.created);
+  if (created > 0) return created;
+  const cloud = Date.parse(String(p?.cloudUpdatedAt || ''));
+  return Number.isFinite(cloud) && cloud > 0 ? cloud : 0;
+}
+
+/** 최근 활동 내림차순. 동시면 id 큰 쪽이 위. */
+export function comparePropListActivityDesc(a, b) {
+  const d = propListActivityMs(b) - propListActivityMs(a);
+  if (d) return d;
+  return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+}

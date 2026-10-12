@@ -54,6 +54,7 @@ export function fmtMoveInDate(v) {
 export function emptyPriceForm() {
   return {
     price: '',
+    inPrice: '',
     loan: '',
     mDep: '',
     mRent: '',
@@ -79,6 +80,7 @@ export function priceFormFromProperty(prop) {
   if (!prop) return emptyPriceForm();
   return {
     price: fmtFormInt(prop.price),
+    inPrice: fmtFormInt(prop.inPrice),
     loan: fmtFormInt(prop.loan),
     mDep: fmtFormInt(prop.mDep),
     mRent: fmtFormInt(prop.mRent),
@@ -104,11 +106,11 @@ export function buildPriceFields(trade, pf) {
   const n = parseFormNum;
   const common = {
     price: 0,
+    inPrice: 0,
     jDep: 0,
     mDep: 0,
     mRent: 0,
     loan: 0,
-    premium: 0,
     leaseEnd: '',
     jLeaseEnd: '',
     maintenance: 0,
@@ -120,14 +122,12 @@ export function buildPriceFields(trade, pf) {
     priceNegotiable: Boolean(pf.priceNegotiable),
     moveInDate: '',
     roi: pf.roi?.trim() || '—',
-    realInvest: pf.realInvest?.trim() || '',
   };
 
   const unitFields = {
     unitFloor: String(pf.unitFloor ?? '').trim(),
     exclusiveArea: n(pf.exclusiveArea),
     contractArea: n(pf.contractArea),
-    premium: n(pf.premium),
     moveInDate: pf.moveInDate || '',
   };
 
@@ -137,14 +137,13 @@ export function buildPriceFields(trade, pf) {
     return {
       ...common,
       price,
+      inPrice: n(pf.inPrice),
       loan: n(pf.loan),
       mDep: 0,
       mRent: 0,
       maintenance: maint,
-      premium: n(pf.premium),
       leaseEnd: '',
       roi: '—',
-      realInvest: '',
     };
   }
   if (trade === 'JEONSE') {
@@ -262,5 +261,6 @@ export function detailFormFromProperty(prop, defaults) {
     promo: prop?.promo || '',
     memo: prop?.memo || '',
     discoUrl: (prop?.discoUrl || prop?.disco_url || '').toString().trim(),
+    folderUrl: (prop?.folderUrl || '').toString().trim(),
   };
 }

@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate, useLocation, useParams, useSearch
 import { useLiveQuery } from "dexie-react-hooks";
 import { useProperties, usePropertiesQuery } from "./hooks/useProperties.js";
 import { MapView } from "./features/map/MapView.jsx";
-import { loadPropListState, savePropListState, clearPropListState, rememberPropListTab, propertiesListPath } from "./navigation/propListPersist.js";
+import { loadPropListState, savePropListState, clearPropListState, rememberPropListTab, propertiesListPath, PROP_LIST_LATEST_EVENT } from "./navigation/propListPersist.js";
 import {
   loadPropertyRegisterDraft,
   savePropertyRegisterDraft,
@@ -12,7 +12,7 @@ import {
   isPropertyRegisterPath,
 } from "./navigation/propertyRegisterDraft.js";
 import { loadFolderState, saveFolderState, getDefaultFolderState, DEFAULT_FOLDERS, DEFAULT_PROP_FOLDERS } from "./navigation/folderPersist.js";
-import { MENU_PATHS, pathToMenuId, resolveTitle } from "./navigation/routes.js";
+import { MENU_PATHS, pathToMenuId } from "./navigation/routes.js";
 import {
   db, seedDatabase, isActive, formatCreatedDate,
   softDeleteProperty, softDeleteCustomer, softDeleteCallLog, softDeleteSchedule,
@@ -27,31 +27,54 @@ import {
   isBackupOwnRecordsOnlyExport,
 } from "./db.js";
 import { usePropertyAddressLookup } from "./hooks/usePropertyAddressLookup.js";
+import { validatePropertyForSave, lookupBlocksPropertySave, propertySaveBlockedTitle } from "./utils/propertySaveValidate.js";
+import { propertySaveToastMessage } from "./utils/recordSyncState.js";
 import { AddressSearchModal } from "./components/AddressSearchModal.jsx";
 import { PropertyPhotoPicker } from "./components/PropertyPhotoPicker.jsx";
 import { PropertyDetailMap } from "./components/PropertyDetailMap.jsx";
 import { PropertyDetailNewWin } from "./components/PropertyDetailNewWin.jsx";
+import { PropertySaleBrochure } from "./components/PropertySaleBrochure.jsx";
+import { PropJibunPhotoPreview } from "./components/PropJibunPhotoPreview.jsx";
+import { PropSyncHint } from "./components/PropSyncHint.jsx";
+import { printPdfBrochure, brochurePdfFileName } from "./utils/printPdfBrochure.js";
 import { normalizePhotoSlots, photoSlotsToSave } from "./utils/readImageFile.js";
-import { fmtNum, fmtLandPyUnit, fmtPropPrice as propPrice, fmtWon, calcPyUnitPriceMan, priceInManForFilter, fmtInputNum, formatKoreanAmountFromMan, parseMoneyMan } from "./utils/formatMoney.js";
+import { fmtNum, fmtLandPyUnit, fmtPropPrice as propPrice, fmtWon, calcPyUnitPriceMan, priceInManForFilter, fmtInputNum, formatKoreanAmountFromMan, parseMoneyMan, m2ToPyung } from "./utils/formatMoney.js";
 import { buildSaleInvestmentMetrics } from "./utils/propInvestment.js";
 import { formatPhone, normalizePhone, phoneMatches, digitsOnly, freePhoneOptionFromSearch } from "./utils/formatPhone.js";
 import { formatCustomerTypesLabel, normalizeCustomerTypesField } from "./utils/customerTypes.js";
-import { CUSTOMER_TRADE_OPTS, formatPreferredTradesLabel, preferredTradesOf } from "./utils/customerTradePreference.js";
+import { buyTypesOf, customerBuyTypeLabelOf, CUSTOMER_BUY_TYPE_OPTS } from "./utils/customerBuyTypes.js";
 import { fmtCustomerBudgetRange, fmtCustomerMoney } from "./utils/customerMoney.js";
-import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf } from "./utils/customerStatus.js";
-import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
 import {
-  PROP_LIST_TABS, normalizePropListTab, isRentListTab, tradesForListTab, tradeAllowedOnTab,
+  emptyLeaseCondition, leaseConditionsFromCustomer, serializeLeaseConditions,
+  leaseConditionListSummary, fmtLeaseAreaRange, fmtLeaseBudgetRange,
+} from "./utils/customerLeaseConditions.js";
+import { CUST_STATUS_OPTS, normalizeCustStatus, custStatusOf, custGradeRank } from "./utils/customerStatus.js";
+import { CUSTOMER_ADV_PROP_KIND_OPTS, customerMatchesAdvSearch, customerMatchesBasicSearch } from "./utils/customerSearch.js";
+import { PROP_STATUS_LABEL_TO_CODE, PROP_STATUS_FILTER_LABELS, propStatusOpts, propStatusFilterLabels, propStatusLabel, propStatusStyle, propStatusChipStyle } from "./utils/propStatus.js";
+import {
+  PROP_LIST_TABS, normalizePropListTab, isLegacyRentListTab, isPropStatusListTab,
   propertyBelongsToListTab, countForListTab, RENT_TRADE_LABELS, propListTabLabel,
+  isSaleTrade, isRentalListProperty, normalizePropTrade,
 } from "./utils/propListKind.js";
+import { useDealMode } from "./contexts/DealModeContext.jsx";
+import { DealModeToggle, DealModeAppFrame } from "./components/DealModeToggle.jsx";
+import { DEAL_MODE_RENT, DEAL_MODE_SALE, BRAND_CSS } from "./theme/dealModeTheme.js";
+import {
+  tradesForDealMode, tradeMatchesDealMode,
+  propertyMatchesDealMode, customerMatchesDealMode, callMatchesDealMode,
+  scheduleMatchesDealMode, dealModeFromProperty, linkedPidMatchesDealMode,
+  inferCustomerDealMode,
+} from "./utils/dealModeMatch.js";
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, rentalNocManPerPy, fmtRentalAreaCell, rentalAreaParts,
-  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, rentalListUsesJibunGroups, sortRentalListByJibunGroups,
+  fmtListDotDate, rentalTradeLabel, RENT_LIST_SORT_KEYS, SALE_LIST_SORT_KEYS, moveInSortKey, rentalAddrSortKey, rentalListUsesJibunGroups, sortRentalListByJibunGroups, comparePropListActivityDesc, propListActivityMs,
 } from "./utils/propRentList.js";
-import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
-import { handleDiscoLink, normalizeDiscoUrl } from "./utils/externalPropertyLinks.js";
+import { buildPropertyAddressFields, propDisplayAddr, propDetailWinTitle, propCallIdentLabel, propRoadAddr, propJibunAddr, propMatchesSearch, propSearchHaystack } from "./utils/propAddress.js";
+import { handleDiscoLink, normalizeDiscoUrl, normalizeHttpUrl } from "./utils/externalPropertyLinks.js";
 import { zoningTextColor } from "./utils/zoningColor.js";
-import { resolveMapCoordFieldsForSave } from "./services/kakao/propertyGeocode.js";
+import { uniquePropAgentNames, propertyMatchesAgentFilter, propAgentLabel, PROP_AGENT_NONE } from "./utils/propAgent.js";
+import { fmtPropUpdatedAt, isLockedCallLog, LOCKED_CALL_LOG_MSG } from "./utils/propertyAuditLog.js";
+import { resolveMapCoordFieldsForSave } from "./services/naver/propertyGeocode.js";
 import { importIcsSchedules, importGoogleCalendarFromLink, syncLinkedGoogleCalendars, repairIcsScheduleIntegrity } from "./utils/icsImport.js";
 import {
   listGoogleCalendarLinks,
@@ -73,6 +96,7 @@ import {
   scheduleOriginHint,
 } from "./utils/scheduleColors.js";
 import { PhoneInput } from "./components/PhoneInput.jsx";
+import { PropAgentFields } from "./components/PropAgentFields.jsx";
 import { MoneyInput } from "./components/MoneyInput.jsx";
 import { parseFormNum } from "./utils/propertyForm.js";
 import { useAuth } from "./contexts/AuthContext.jsx";
@@ -90,9 +114,9 @@ import {
   scheduleCoversDay, dateEndForSave, fmtSchedulePeriodKo, fmtSchedulePeriodDot,
 } from "./utils/schedulePeriod.js";
 import { isBusinessRole, isCeoRole, isSoloRole, companyRoleLabel, usesTeamCloudSync } from "./data/companyRoles.js";
-import { PROP_MAIN, PROP_SUB } from "./data/propertyTypes.js";
+import { visiblePropMainEntries, visiblePropSubEntries, visibleAllPropSubEntries, findPropMainForSub, SALE_PROP_KIND_OPTS, normalizeSalePropKind, propertyMatchesSaleKind, saleKindFromProp, typeCodesForSave, propKindDisplayLabel } from "./data/propertyTypes.js";
 import { matchesOwner } from "./services/sync/ownerScope.js";
-import { canWriteRecord, isSharedRecord, displayPhone, PERMISSION_DENIED_TOOLTIP, getEffectivePermissions, canReadSharedResource, formatSharedPropertyLabel, canViewTeamProperties } from "./utils/permissions.js";
+import { canWriteRecord, isSharedRecord, displayPhone, PERMISSION_DENIED_TOOLTIP, CALL_LOG_MANAGE_DENIED_TOOLTIP, canManageCallLogs, getEffectivePermissions, canReadSharedResource, formatSharedPropertyLabel, canViewTeamProperties } from "./utils/permissions.js";
 import TeamManagementPage from "./pages/TeamManagementPage.jsx";
 import { upgradeSoloToBusiness } from "./services/companyService.js";
 import { PageHeader as PH } from "./components/PageHeader.jsx";
@@ -108,6 +132,8 @@ import { useIsMobile } from "./hooks/useIsMobile.js";
 import { useIsMobileDevice } from "./hooks/useIsMobileDevice.js";
 import { getForceDesktop, setForceDesktop } from "./utils/forceDesktop.js";
 import { PropertyCardList } from "./components/PropertyCardList.jsx";
+import { emptyCategorySearch } from "./utils/propCategorySearch.js";
+import { emptyRangeFilters } from "./utils/rangeFilterConfig.js";
 import { isSupabaseConfigured } from "./lib/supabase.js";
 import { MobileShell } from "./layouts/MobileShell.jsx";
 import { MobileDashboard } from "./pages/mobile/MobileDashboard.jsx";
@@ -134,11 +160,24 @@ import {
 } from "./hooks/useOwnerScopedData.js";
 import {
   emptyPriceForm, priceFormFromProperty, buildPriceFields,
-  landFromProperty, buildingFromProperty, landToPropertyFields, buildingToPropertyFields,
+  buildingFromProperty, buildingToPropertyFields,
   detailFormFromProperty, MOVE_IN_IMMEDIATE, isMoveInImmediate,
 } from "./utils/propertyForm.js";
+import { emptyBuildingForm, emptyLandForm } from "./services/publicData/mapToPropertyForm.js";
 import {
-  showsSaleInvestmentFields, showsPremiumField, showsRentalUnitFields,
+  aggregateLandForm,
+  extraParcelCount,
+  formatJibunWithExtraParcels,
+  landFieldsForPropertySave,
+  landFromPropertyPrimary,
+} from "./utils/propertyParcels.js";
+import {
+  applyLookupToLandEditState,
+  buildEditSaveLandPayload,
+  hydrateEditLandFromProperty,
+} from "./utils/propEditAddressState.js";
+import {
+  showsSaleInvestmentFields, showsRentalUnitFields,
   buildPropSaleInfoRows, buildTradePriceInfoItems,
 } from "./utils/propSaleInfo.js";
 
@@ -147,6 +186,13 @@ function findPropertyByRouteId(properties, idParam) {
   if (!properties?.length || idParam == null || idParam === '') return null;
   const n = Number(idParam);
   return properties.find(p => p.id === n || String(p.id) === String(idParam)) ?? null;
+}
+
+function findPropertyByPid(properties, pid) {
+  const byId = findPropertyByRouteId(properties, pid);
+  if (byId) return byId;
+  if (!properties?.length || pid == null || pid === '') return null;
+  return properties.find((p) => p.cloudId != null && String(p.cloudId) === String(pid)) ?? null;
 }
 
 const RouteLoading=({label='불러오는 중…', detail=null})=>(
@@ -210,7 +256,8 @@ class RouteErrorBoundary extends React.Component {
 const useRentals = (pid) => useLiveQuery(
   () => {
     const id = normalizePropertyLocalId(pid);
-    return id ? db.rentals.where("pid").equals(id).toArray() : db.rentals.toArray();
+    const q = id ? db.rentals.where("pid").equals(id).toArray() : db.rentals.toArray();
+    return q.then((rows) => rows.filter(isActive));
   },
   [pid]
 ) ?? [];
@@ -223,7 +270,7 @@ const useRentals = (pid) => useLiveQuery(
 
 /* ═══ TOKENS ═══ */
 const C={
-  brand:'#C8102E',brandD:'#A00E25',brandL:'#FBE9EC',
+  brand:BRAND_CSS.brand,brandD:BRAND_CSS.brandD,brandL:BRAND_CSS.brandL,
   sidebar:'#1A2332',sBar:'#243352',
   bg:'#F5F6FA',surf:'#FFFFFF',surf2:'#F8F9FB',surf3:'#F1F5F9',
   bdr:'#E8EAED',bdrSt:'#D1D5DB',
@@ -307,7 +354,7 @@ const SIDO_SHORT={
   '경상남도':'경남','제주특별자치도':'제주',
 };
 const sidoMatch=(addr,sido)=>!sido||addr.includes(SIDO_SHORT[sido]||sido);
-const TL={SALE:'매매',JEONSE:'전세',MONTHLY:'월세',SHORT_TERM:'단기',PRESALE:'분양'};
+const TL={SALE:'매매',JEONSE:'전세',MONTHLY:'월세',SHORT_TERM:'단기',PRESALE:'매매'};
 /** 일정 우선순위 선택 (등록·수정) */
 const PriorityPicker=({value,onChange})=>{
   const cur=value&&PRI_C[value]?value:'NORMAL';
@@ -394,17 +441,26 @@ const dashSchedPrefix=(diff)=>{
 const DASH_ALERT_MAX_DAYS=7;
 const CT={BUYER:'매수인',SELLER:'매도인',TENANT:'임차인',LANDLORD:'임대인',OTHER:'기타'};
 const CUST_TYPE_OPTS=[{id:'BUYER',label:'매수인'},{id:'SELLER',label:'매도인'},{id:'TENANT',label:'임차인'},{id:'LANDLORD',label:'임대인'},{id:'OTHER',label:'기타'}];
+const custTypeOptsForMode=(mode)=>CUST_TYPE_OPTS.filter((o)=>(
+  mode===DEAL_MODE_RENT
+    ? o.id==='TENANT'||o.id==='LANDLORD'||o.id==='OTHER'
+    : o.id==='BUYER'||o.id==='SELLER'||o.id==='OTHER'
+));
 const customerTypesOf=(c)=>{
   if(Array.isArray(c?.customer_types)&&c.customer_types.length) return c.customer_types;
   return c?.type?[c.type]:[];
 };
 const customerTypeLabelOf=(c)=>formatCustomerTypesLabel(customerTypesOf(c))||CT[c?.type]||'—';
-const customerTradeLabelOf=(c)=>formatPreferredTradesLabel(preferredTradesOf(c))||'—';
+const customerBuyLabelOf=(c)=>customerBuyTypeLabelOf(c);
 const customerMatchesTypeTab=(c,tabId)=>{
   if(tabId==='ALL') return true;
   return customerTypesOf(c).includes(tabId);
 };
-const CustStatusBdg=({s})=><StatusBdg s={s||'ACTIVE'}/>;
+const CustStatusBdg=({s})=>{
+  const m={URGENT:{l:'긴급',t:'err'},NORMAL:{l:'보통',t:'info'},HOLD:{l:'보류',t:'warn'},MANAGE:{l:'관리',t:'gray'}};
+  const x=m[normalizeCustStatus(s)]||m.NORMAL;
+  return (<Bdg label={x.l} type={x.t}/>);
+};
 const fmtCallDate=(iso)=>{
   if(!iso) return '—';
   const [y,m,d]=String(iso).split('-');
@@ -457,38 +513,38 @@ const Logo=({sz=20})=>{
       <g transform="translate(34,34) scale(1.2) translate(-34,-34)">
         {/* 왼쪽 빌딩 */}
         <rect x="7"  y={base-22} width="13" height="22" rx="2" fill="#fff"/>
-        <rect x="9.5"  y={base-19} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="14.5" y={base-19} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="9.5"  y={base-13} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="14.5" y={base-13} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="9.5"  y={base-7}  width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="14.5" y={base-7}  width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
+        <rect x="9.5"  y={base-19} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="14.5" y={base-19} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="9.5"  y={base-13} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="14.5" y={base-13} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="9.5"  y={base-7}  width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="14.5" y={base-7}  width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
         {/* 가운데 고층 빌딩 */}
         <rect x="24" y={base-36} width="20" height="36" rx="2" fill="#fff"/>
         {/* 안테나 */}
         <rect x="33" y={base-43} width="2.5" height="9" rx="1.2" fill="#fff"/>
         <rect x="32" y={base-44} width="4.5" height="3" rx="1" fill="#fff"/>
         {/* 창문 4행×2열 */}
-        <rect x="27"   y={base-33} width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="35.5" y={base-33} width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="27"   y={base-25} width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="35.5" y={base-25} width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="27"   y={base-17} width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="35.5" y={base-17} width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="27"   y={base-9}  width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
-        <rect x="35.5" y={base-9}  width="5" height="5" rx="0.8" fill="#C8102E" opacity=".9"/>
+        <rect x="27"   y={base-33} width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="35.5" y={base-33} width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="27"   y={base-25} width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="35.5" y={base-25} width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="27"   y={base-17} width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="35.5" y={base-17} width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="27"   y={base-9}  width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="35.5" y={base-9}  width="5" height="5" rx="0.8" fill="var(--ln-brand)" opacity=".9"/>
         {/* 오른쪽 빌딩 */}
         <rect x="47" y={base-28} width="14" height="28" rx="2" fill="#fff"/>
-        <rect x="49.5" y={base-25} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="55"   y={base-25} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="49.5" y={base-18} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="55"   y={base-18} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="49.5" y={base-11} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
-        <rect x="55"   y={base-11} width="3.5" height="3.5" rx="0.6" fill="#C8102E" opacity=".9"/>
+        <rect x="49.5" y={base-25} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="55"   y={base-25} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="49.5" y={base-18} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="55"   y={base-18} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="49.5" y={base-11} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
+        <rect x="55"   y={base-11} width="3.5" height="3.5" rx="0.6" fill="var(--ln-brand)" opacity=".9"/>
         {/* 지면선 */}
         <line x1="5" y1={base}   x2="63" y2={base}   stroke="rgba(255,255,255,0.4)" strokeWidth="2"   strokeLinecap="round"/>
         {/* 빨간 강조선 */}
-        <line x1="5" y1={base+4} x2="63" y2={base+4} stroke="#C8102E"              strokeWidth="2.5" strokeLinecap="round"/>
+        <line x1="5" y1={base+4} x2="63" y2={base+4} stroke="var(--ln-brand)"              strokeWidth="2.5" strokeLinecap="round"/>
       </g>
     </svg>
   );
@@ -505,12 +561,15 @@ const BTN_ICONS={
   'ti-folder-plus':  (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>),
   'ti-device-floppy':(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>),
   'ti-map-2':        (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>),
+  'ti-list':         (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>),
   'ti-table':        (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>),
   'ti-arrow-right':  (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>),
   'ti-user':         (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>),
   'ti-upload':       (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>),
   'ti-settings':     (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>),
   'ti-rotate':       (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.12"/></svg>),
+  'ti-printer':      (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>),
+  'ti-file':         (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>),
   'ti-building':     (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>),
   'ti-x':            (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>),
   'ti-adjustments-horizontal':(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg>),
@@ -621,10 +680,9 @@ const Bdg=({label,type='def'})=>{
   return (<span style={{fontSize:12,padding:'3px 8px',borderRadius:20,fontWeight:500,background:x.bg,color:x.c,whiteSpace:'nowrap',display:'inline-flex',alignItems:'center'}}>{label}</span>);
 };
 
-const StatusBdg=({s})=>{
-  const m={NEW:{l:'신규',t:'ok'},ACTIVE:{l:'진행중',t:'info'},HOLD:{l:'보류',t:'warn'},COMPLETED:{l:'완료',t:'gray'}};
-  const x=m[s]||m.NEW;
-  return (<Bdg label={x.l} type={x.t}/>);
+const PropStatusBdg=({s,compact,rent})=>{
+  const st=propStatusStyle(s,{rent});
+  return (<span style={propStatusChipStyle(s,{compact,rent})}>{st.label}</span>);
 };
 
 /** 연결 매물 드롭다운 — 지번 · 유형 · 거래방식 */
@@ -632,7 +690,7 @@ const PropDropListItem=({p})=>(
   <div>
     <div className="cell-wrap" style={{fontWeight:500,color:C.tx,fontSize:13}}>{propDisplayAddr(p)}</div>
     <div style={{fontSize:12,color:C.txM,marginTop:4,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
-      {p.tag&&<Bdg label={p.tag} type="gray"/>}
+      {p.tag&&<Bdg label={propKindDisplayLabel(p)||p.tag} type="gray"/>}
       <span>{TL[p.trade]||'—'}</span>
     </div>
   </div>
@@ -641,15 +699,16 @@ const PropDropListItem=({p})=>(
 
 const PROP_DETAIL_SEC_TITLE_H=Math.round(36*1.1); /* 매물상세 섹션 타이틀 — 기준 36px의 110% */
 
-const SecLabel=({ch,badge,sx,plain,propTitle,ic})=>(
-  <div style={{height:propTitle?PROP_DETAIL_SEC_TITLE_H:36,background:propTitle?C.surf:C.secBg,borderBottom:`1px solid ${C.bdr}`,display:'flex',alignItems:'center',padding:'0 18px',gap:8,flexShrink:0,...(sx||{})}}>
+const SecLabel=({ch,badge,sx,plain,propTitle,ic,formSection,end})=>(
+  <div className={formSection?'prop-form-sec':undefined} style={{height:propTitle?PROP_DETAIL_SEC_TITLE_H:(formSection?46:36),background:propTitle?C.surf:(formSection?'#E8EEF5':C.secBg),borderBottom:formSection?`1.5px solid ${C.bdrSt}`:`1px solid ${C.bdr}`,display:'flex',alignItems:'center',padding:'0 18px',gap:8,flexShrink:0,...(sx||{})}}>
     {propTitle&&ic&&PROP_DETAIL_SEC_ICONS[ic]&&(
       <span style={{width:22,height:22,borderRadius:6,background:PROP_DETAIL_IC.bg,color:PROP_DETAIL_IC.fg,display:'inline-flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
         <span style={{width:14,height:14,display:'flex',alignItems:'center',justifyContent:'center'}}>{PROP_DETAIL_SEC_ICONS[ic]}</span>
       </span>
     )}
-    <span style={{fontSize:13,fontWeight:propTitle?800:700,color:C.tx,textTransform:plain?'none':'uppercase',letterSpacing:plain?'-.01em':'.06em'}}>{ch}</span>
+    <span style={{fontSize:propTitle?13:(formSection?15:13),fontWeight:propTitle||formSection?800:700,color:C.tx,textTransform:(plain||formSection)?'none':'uppercase',letterSpacing:(plain||formSection)?'-.01em':'.06em',flexShrink:0}}>{ch}</span>
     {badge&&<span style={{fontSize:12,background:C.infoBg,color:C.info,padding:'1px 6px',borderRadius:3,fontWeight:600}}>{badge}</span>}
+    {end?<div style={{marginLeft:'auto',display:'flex',alignItems:'center',flexShrink:0,minWidth:0}}>{end}</div>:null}
   </div>
 );
 
@@ -729,7 +788,7 @@ const ActionBar=({
   deleteDisabled,deleteDisabledTitle,
   copyDisabled,copyDisabledTitle,copyLabel,
 })=>(
-  <div style={{flexShrink:0,background:C.surf,borderTop:`2px solid ${C.bdr}`,
+  <div className="no-print" style={{flexShrink:0,background:C.surf,borderTop:`2px solid ${C.bdr}`,
     padding:'12px 24px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
     <div style={{display:'flex',alignItems:'center',gap:10}}>
       {onDelete&&(
@@ -747,7 +806,7 @@ const ActionBar=({
 );
 
 /* ═══ TITLE BAR ═══ */
-const TitleBar=({screen,onSignOut,onHome})=>(
+const TitleBar=({onSignOut,onHome})=>(
   <div style={{height:50,background:C.sidebar,display:'flex',alignItems:'center',padding:0,flexShrink:0,userSelect:'none'}}>
     <button type="button" onClick={onHome} aria-label="대시보드로 이동"
       style={{display:'flex',alignItems:'center',gap:0,border:'none',background:'transparent',cursor:'pointer',padding:0,fontFamily:'inherit',flexShrink:0}}
@@ -760,8 +819,7 @@ const TitleBar=({screen,onSignOut,onHome})=>(
       </div>
       <span translate="no" lang="en" style={{fontSize:19.5,fontWeight:700,color:'rgba(255,255,255,.7)',letterSpacing:'-.01em'}}>LandNote</span>
     </button>
-    {screen&&screen!=='LandNote'&&<><span style={{fontSize:12,color:'rgba(255,255,255,.2)',margin:'0 6px'}}>›</span>
-    <span style={{fontSize:13,color:'rgba(255,255,255,.55)'}}>{screen}</span></>}
+    <div style={{marginLeft:16,flexShrink:0}}><DealModeToggle/></div>
     {onSignOut&&(
       <button type="button" onClick={onSignOut}
         style={{marginLeft:'auto',marginRight:16,height:btnPx(32),padding:`0 ${btnPx(12)}px`,borderRadius:btnPx(8),border:'none',background:'transparent',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'rgba(255,255,255,.55)',fontSize:btnPx(13),fontWeight:600,fontFamily:'inherit'}}
@@ -778,7 +836,6 @@ const MENU_ICONS={
   dashboard:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>),
   properties:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 11h0M14 11h0M9 15h0M14 15h0"/></svg>),
   mapview:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>),
-  register:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>),
   customers:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>),
   calls:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.58 2.34.7A2 2 0 0 1 22 16.92z"/></svg>),
   calendar:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>),
@@ -789,11 +846,9 @@ const MENUS=[
   {id:'dashboard',icon:'ti-layout-dashboard',label:'대시보드'},
   {id:'properties',icon:'ti-building-estate',label:'매물 관리'},
   {id:'mapview',icon:'ti-map-2',label:'지도 보기'},
-  {id:'register',icon:'ti-circle-plus',label:'매물 등록'},
   {id:'customers',icon:'ti-users',label:'고객 관리'},
   {id:'calls',icon:'ti-phone',label:'통화 내역'},
   {id:'calendar',icon:'ti-calendar',label:'일정 관리'},
-  {id:'backup',icon:'ti-cloud-upload',label:'백업·복원'},
   {id:'trash',icon:'ti-trash',label:'휴지통'},
 ];
 const Sidebar=({screen,onNav,onSettings,trash=0,expanded,onToggle,overlay})=>{
@@ -809,9 +864,9 @@ const Sidebar=({screen,onNav,onSettings,trash=0,expanded,onToggle,overlay})=>{
     ...(overlay?{position:'absolute',left:0,top:0,zIndex:200,boxShadow:'4px 0 24px rgba(0,0,0,.25)'}:{})}}>
     {/* ═══ 사용자 영역 (최상단) ═══ */}
     <div style={{padding:expanded?'14px 14px 12px':'14px 10px 12px',borderBottom:'1px solid rgba(255,255,255,.07)',display:'flex',alignItems:'center',gap:expanded?10:0,flexShrink:0,justifyContent:expanded?'flex-start':'center'}}>
-      <div onClick={onToggle} style={{width:34,height:34,background:'rgba(200,16,46,.25)',borderRadius:9,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}}
-        onMouseEnter={e=>e.currentTarget.style.background='rgba(200,16,46,.4)'}
-        onMouseLeave={e=>e.currentTarget.style.background='rgba(200,16,46,.25)'}>
+      <div onClick={onToggle} style={{width:34,height:34,background:'rgba(var(--ln-brand-rgb),.25)',borderRadius:9,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,cursor:'pointer'}}
+        onMouseEnter={e=>e.currentTarget.style.background='rgba(var(--ln-brand-rgb),.4)'}
+        onMouseLeave={e=>e.currentTarget.style.background='rgba(var(--ln-brand-rgb),.25)'}>
         {expanded?(
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
         ):(
@@ -842,7 +897,7 @@ const Sidebar=({screen,onNav,onSettings,trash=0,expanded,onToggle,overlay})=>{
             onMouseEnter={()=>{
               setHoverId(m.id);
               if(m.id==='mapview'){
-                import('./services/kakao/kakaoMaps.js').then((mod)=>mod.loadKakaoMaps(['services'])).catch(()=>{});
+                import('./services/naver/naverMaps.js').then((mod)=>mod.loadNaverMaps()).catch(()=>{});
               }
             }} onMouseLeave={()=>setHoverId(null)}
             className={`nav-item${act?' active':''}`}
@@ -884,7 +939,7 @@ const Sidebar=({screen,onNav,onSettings,trash=0,expanded,onToggle,overlay})=>{
 
 /* ═══ WIN OVERLAY ═══ */
 const WinBar=({title,ic,onClose,acts})=>(
-  <div style={{height:50,background:'#FFFFFF',borderBottom:`1.5px solid ${C.bdr}`,display:'flex',alignItems:'center',padding:'0 12px 0 20px',gap:12,flexShrink:0}}>
+  <div className="no-print" style={{minHeight:50,height:'auto',background:'#FFFFFF',borderBottom:`1.5px solid ${C.bdr}`,display:'flex',alignItems:'center',padding:'8px 12px 8px 20px',gap:12,flexShrink:0}}>
     {ic&&<div style={{width:28,height:28,borderRadius:6,background:C.brandL,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:C.brand}}>
       {BTN_ICONS[ic]?React.cloneElement(BTN_ICONS[ic],{width:14,height:14}):<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"/>}
     </div>}
@@ -907,8 +962,8 @@ const WinBar=({title,ic,onClose,acts})=>(
   </div>
 );
 const PROP_DETAIL_WIN_W=1440;
-const Win=({title,ic,onClose,ch,acts,w=1020,fullWidth=false})=>(
-  <div style={{
+const Win=({title,ic,onClose,ch,acts,w=1020,fullWidth=false,shellClass})=>(
+  <div className={shellClass} style={{
     position:'fixed',inset:0,background:'rgba(0,0,0,.42)',zIndex:520,
     display:'flex',flexDirection:'column',
     padding:fullWidth?0:WIN_OUTER_PAD,
@@ -929,14 +984,14 @@ const LockScreen=({onLogin})=>{
   return(
     <div style={{width:'100%',maxWidth:1440,height:'100vh',margin:'0 auto',background:'linear-gradient(135deg,#0B111C 0%,#141E2E 50%,#0E1927 100%)',display:'flex',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden'}}>
       {/* 배경 글로우 */}
-      <div style={{position:'absolute',top:'8%',right:'12%',width:500,height:500,background:'rgba(200,16,46,.07)',borderRadius:'50%',filter:'blur(100px)',pointerEvents:'none'}}/>
+      <div style={{position:'absolute',top:'8%',right:'12%',width:500,height:500,background:'rgba(var(--ln-brand-rgb),.07)',borderRadius:'50%',filter:'blur(100px)',pointerEvents:'none'}}/>
       <div style={{position:'absolute',bottom:'8%',left:'10%',width:380,height:380,background:'rgba(37,99,235,.06)',borderRadius:'50%',filter:'blur(80px)',pointerEvents:'none'}}/>
-      <div style={{position:'absolute',top:'40%',left:'35%',width:300,height:300,background:'rgba(200,16,46,.04)',borderRadius:'50%',filter:'blur(60px)',pointerEvents:'none'}}/>
+      <div style={{position:'absolute',top:'40%',left:'35%',width:300,height:300,background:'rgba(var(--ln-brand-rgb),.04)',borderRadius:'50%',filter:'blur(60px)',pointerEvents:'none'}}/>
 
       <div style={{display:'flex',flexDirection:'column',alignItems:'center',zIndex:1,width:420}}>
         {/* 로고 + 브랜드 */}
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',marginBottom:48}}>
-          <div style={{width:68,height:68,background:`linear-gradient(145deg,${C.brand},#A00E25)`,borderRadius:20,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 8px 32px rgba(200,16,46,.45)',marginBottom:20}}>
+          <div style={{width:68,height:68,background:`linear-gradient(145deg,${C.brand},#A00E25)`,borderRadius:20,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 8px 32px rgba(var(--ln-brand-rgb),.45)',marginBottom:20}}>
             <Logo sz={38}/>
           </div>
           <div translate="no" lang="en" style={{fontSize:32,fontWeight:800,color:'#fff',letterSpacing:'-.02em',marginBottom:6}}>LandNote</div>
@@ -949,11 +1004,11 @@ const LockScreen=({onLogin})=>{
             <label style={{fontSize:16,color:'rgba(255,255,255,.55)',fontWeight:600,display:'block',marginBottom:8,letterSpacing:'.06em',textTransform:'uppercase'}}>비밀번호</label>
             <input type="password" placeholder="비밀번호를 입력하세요" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter'&&onLogin()}
               style={{width:'100%',height:46,background:'rgba(255,255,255,.07)',border:'1.5px solid rgba(255,255,255,.12)',borderRadius:10,padding:'0 16px',color:'#fff',fontSize:15,letterSpacing:'.1em',fontFamily:'inherit',outline:'none',transition:'border-color .15s'}}
-              onFocus={e=>e.target.style.borderColor='rgba(200,16,46,.7)'}
+              onFocus={e=>e.target.style.borderColor='rgba(var(--ln-brand-rgb),.7)'}
               onBlur={e=>e.target.style.borderColor='rgba(255,255,255,.12)'}/>
           </div>
           <button onClick={onLogin}
-            style={{width:'100%',height:46,background:`linear-gradient(135deg,${C.brand},#A00E25)`,border:'none',borderRadius:10,color:'#fff',fontSize:15,fontWeight:700,cursor:'pointer',boxShadow:'0 4px 20px rgba(200,16,46,.4)',fontFamily:'inherit',letterSpacing:'.02em',transition:'opacity .15s',display:'flex',alignItems:'center',justifyContent:'center'}}
+            style={{width:'100%',height:46,background:`linear-gradient(135deg,${C.brand},#A00E25)`,border:'none',borderRadius:10,color:'#fff',fontSize:15,fontWeight:700,cursor:'pointer',boxShadow:'0 4px 20px rgba(var(--ln-brand-rgb),.4)',fontFamily:'inherit',letterSpacing:'.02em',transition:'opacity .15s',display:'flex',alignItems:'center',justifyContent:'center'}}
             onMouseEnter={e=>e.currentTarget.style.opacity='.88'}
             onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
             로그인
@@ -975,10 +1030,15 @@ const LockScreen=({onLogin})=>{
 /* ═══ DASHBOARD ═══ */
 const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
   const { user }=useAuth();
-  const P=useProperties();
-  const SCHEDS=useOwnerSchedules();
-  const CALLS=useOwnerCallLogs();
-  const RENTALS=useRentals();
+  const { mode, isRent }=useDealMode();
+  const PAll=useProperties();
+  const P=useMemo(()=>PAll.filter((p)=>propertyMatchesDealMode(p,mode)),[PAll,mode]);
+  const SCHEDSAll=useOwnerSchedules();
+  const CALLSAll=useOwnerCallLogs();
+  const SCHEDS=useMemo(()=>SCHEDSAll.filter((s)=>scheduleMatchesDealMode(s,PAll,mode)),[SCHEDSAll,PAll,mode]);
+  const CALLS=useMemo(()=>CALLSAll.filter((c)=>callMatchesDealMode(c,PAll,mode)),[CALLSAll,PAll,mode]);
+  const RENTALSAll=useRentals();
+  const RENTALS=useMemo(()=>isRent?RENTALSAll.filter((r)=>linkedPidMatchesDealMode(r.pid,PAll,mode)):[],[RENTALSAll,PAll,mode,isRent]);
   const today=useMemo(()=>{const d=new Date();d.setHours(0,0,0,0);return d;},[]);
   const todayLabel=fmtTodayKorean();
   const gcalOwnerId=user?.id&&user.id!=='dev-local'?user.id:undefined;
@@ -1062,24 +1122,21 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
     }else if(a.kind==='rental') onOpen('pd',a.target.prop);
   };
   const stats=[
-    {id:'ALL',label:'전체 매물',val:countForListTab(P,'ALL'),
+    {id:'ALL',label:'전체 매물',val:countForListTab(P,'ALL',undefined,mode),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>,
       c:'#6366F1',bg:'#EEF2FF'},
-    {id:'NEW',label:'신규',val:countForListTab(P,'NEW'),
+    {id:'NEW',label:'준비중',val:countForListTab(P,'NEW',undefined,mode),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
       c:C.ok,bg:C.okBg},
-    {id:'ACTIVE',label:'진행중',val:countForListTab(P,'ACTIVE'),
+    {id:'ACTIVE',label:'매각중',val:countForListTab(P,'ACTIVE',undefined,mode),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
       c:C.info,bg:C.infoBg},
-    {id:'HOLD',label:'보류',val:countForListTab(P,'HOLD'),
+    {id:'HOLD',label:'보류',val:countForListTab(P,'HOLD',undefined,mode),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></svg>,
       c:C.warn,bg:C.warnBg},
-    {id:'COMPLETED',label:'계약완료',val:countForListTab(P,'COMPLETED'),
+    {id:'COMPLETED',label:'계약완료',val:countForListTab(P,'COMPLETED',undefined,mode),
       icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       c:'#64748B',bg:'#F1F5F9'},
-    {id:'RENT',label:'임대',val:countForListTab(P,'RENT'),
-      icon:<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-      c:'#0D9488',bg:'#CCFBF1'},
   ];
   const propFavSortKey=(p)=>{
     if(p.favAt) return new Date(p.favAt).getTime();
@@ -1093,26 +1150,58 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
   const favAll=P.filter(x=>x.fav);
   const favs=[...favAll].sort((a,b)=>propFavSortKey(b)-propFavSortKey(a)||b.id-a.id).slice(0,5);
   const recent=[...P].sort((a,b)=>propCreatedSortKey(b)-propCreatedSortKey(a)||b.id-a.id).slice(0,5);
-  /* 종류·거래·상태 % · 면적·용도지역 px — 차액은 주소 열 */
-  const dashColTag='8%';
-  const dashColTrade='12%';
+  const dashPriceCell=(p)=>(
+    <div className="cell-ellipsis" style={{fontWeight:600,color:C.info,fontSize:12}}>{propPrice(p)}</div>
+  );
+  const dashAddrCell=(p)=>(
+    <td>
+      <div className="cell-wrap" style={{fontWeight:500}}>{propDisplayAddr(p)}</div>
+      {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
+    </td>
+  );
+  const dashKindCell=(p)=>(
+    <td style={{whiteSpace:'nowrap'}}><Bdg label={propKindDisplayLabel(p)||p.tag} type="gray"/></td>
+  );
+  const dashStatusCell=(p)=>(
+    <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
+  );
+  /* 매물관리와 동일 순: 상태·종류·주소·매도호가… (체크·별·거래방식 제외) */
   const dashColStatus='7%';
+  const dashColTag='8%';
+  const dashColPrice='12%';
   const dashColRoi='6%';
   const dashColLandPy='8%';
-  const dashColCreated='9%';
-  const DASH_TBL_MIN_W=1020;
-  const DashColgroup=()=>(
+  const dashColDate='8%';
+  const DASH_TBL_MIN_W=isRent?1180:1120;
+  const DashColgroup=()=>isRent?(
     <colgroup>
+      <col style={{width:'7%'}}/>
+      <col style={{width:'7%'}}/>
+      <col style={{width:'8%'}}/>
+      <col />
+      <col style={{width:88}}/>
+      <col style={{width:88}}/>
+      <col style={{width:64}}/>
+      <col style={{width:88}}/>
+      <col style={{width:80}}/>
+      <col style={{width:72}}/>
+      <col style={{width:72}}/>
+      <col style={{width:82}}/>
+      <col style={{width:82}}/>
+    </colgroup>
+  ):(
+    <colgroup>
+      <col style={{width:dashColStatus}}/>
       <col style={{width:dashColTag}}/>
       <col />
-      <col style={{width:dashColTrade}}/>
-      <col style={{width:dashColStatus}}/>
+      <col style={{width:dashColPrice}}/>
       <col style={{width:dashColRoi}}/>
       <col style={{width:80}}/>
       <col style={{width:80}}/>
       <col style={{width:110}}/>
       <col style={{width:dashColLandPy}}/>
-      <col style={{width:dashColCreated}}/>
+      <col style={{width:dashColDate}}/>
+      <col style={{width:dashColDate}}/>
     </colgroup>
   );
   const dashPropMetricCells=(p)=>(
@@ -1125,15 +1214,57 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
       <td style={{textAlign:'right',fontSize:12,color:p.land>0&&p.price>0?C.tx:C.txP,whiteSpace:'nowrap'}}>{fmtLandPyUnit(p.price,p.land)}</td>
     </>
   );
-  const dashTblHead=(
+  const dashTblHead=isRent?(
     <tr>
-      <th>종류</th><th>주소</th><th>거래·가격</th><th>상태</th>
+      <th>상태</th><th>거래방식</th><th>종류</th><th>주소 / 건물명</th>
+      <th style={{textAlign:'right'}}>계약면적</th>
+      <th style={{textAlign:'right'}}>전용면적</th>
+      <th style={{textAlign:'center'}}>해당층</th>
+      <th style={{textAlign:'right'}}>보증금</th>
+      <th style={{textAlign:'right'}}>임대료</th>
+      <th style={{textAlign:'right'}}>NOC</th>
+      <th style={{textAlign:'right'}}>관리비</th>
+      <th>최종통화일</th>
+      <th>입주가능일</th>
+    </tr>
+  ):(
+    <tr>
+      <th>상태</th><th>종류</th><th>주소 / 건물명</th><th>매도호가</th>
       <th style={{textAlign:'right'}}>수익률</th>
       <th style={{textAlign:'right'}}>대지면적</th>
       <th style={{textAlign:'right'}}>연면적</th>
       <th style={{textAlign:'center'}}>용도지역</th>
-      <th style={{textAlign:'right'}}>대지 평단가</th>
+      <th style={{textAlign:'right'}}>대지단가</th>
+      <th>최종통화일</th>
       <th>등록일</th>
+    </tr>
+  );
+  const dashPropRow=(p)=>isRent?(
+    <tr key={p.id} onClick={()=>onOpen('pd',p)}>
+      {dashStatusCell(p)}
+      <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{rentalTradeLabel(p.trade)||TL[p.trade]}</span></td>
+      {dashKindCell(p)}
+      {dashAddrCell(p)}
+      <td style={{textAlign:'right',fontSize:12,whiteSpace:'nowrap'}}>{fmtRentalAreaCell(p.contractArea)}</td>
+      <td style={{textAlign:'right',fontSize:12,whiteSpace:'nowrap'}}>{fmtRentalAreaCell(p.exclusiveArea)}</td>
+      <td style={{textAlign:'center',fontSize:12,color:p.unitFloor?C.tx:C.txP,whiteSpace:'nowrap'}}>{p.unitFloor||'—'}</td>
+      <td style={{textAlign:'right',fontWeight:600,color:C.info,fontSize:12,whiteSpace:'nowrap'}}>{fmtRentalMan(rentalDepositMan(p))}</td>
+      <td style={{textAlign:'right',fontWeight:600,color:C.info,fontSize:12,whiteSpace:'nowrap'}}>{fmtRentalMan(rentalRentMan(p))}</td>
+      <td style={{textAlign:'right',fontSize:12,whiteSpace:'nowrap'}}>{fmtRentalNoc(p)}</td>
+      <td style={{textAlign:'right',fontSize:12,whiteSpace:'nowrap'}}>{fmtRentalMan(rentalMaintMan(p))}</td>
+      <td><div className="cell-ellipsis" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12}}>{p.lastCall}</div></td>
+      <td><div className="cell-ellipsis" style={{color:p.moveInDate?C.tx:C.txP,fontSize:12}}>{fmtListDotDate(p.moveInDate)}</div></td>
+    </tr>
+  ):(
+    <tr key={p.id} onClick={()=>onOpen('pd',p)}>
+      {dashStatusCell(p)}
+      {dashKindCell(p)}
+      {dashAddrCell(p)}
+      <td>{dashPriceCell(p)}</td>
+      <td style={{textAlign:'right'}}><div className="cell-ellipsis" style={{color:C.ok,fontWeight:500,fontSize:12}}>{p.roi||'-'}</div></td>
+      {dashPropMetricCells(p)}
+      <td><div className="cell-ellipsis" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12}}>{p.lastCall}</div></td>
+      <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:12}}>{p.created}</div></td>
     </tr>
   );
   const DASH_STAT_PAD_Y=11;
@@ -1179,20 +1310,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
                 <DashColgroup/>
                 <thead>{dashTblHead}</thead>
                 <tbody>
-                  {favs.map(p=>(
-                    <tr key={p.id} onClick={()=>onOpen('pd',p)}>
-                      <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
-                      <td>
-                        <div className="cell-wrap" style={{fontWeight:500}}>{propDisplayAddr(p)}</div>
-                        {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
-                      </td>
-                      <td><div className="cell-ellipsis"><span style={{fontSize:12,color:C.txM}}>{TL[p.trade]}</span><span style={{fontWeight:600,color:C.info,marginLeft:6}}>{propPrice(p)}</span></div></td>
-                      <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
-                      <td style={{textAlign:'right'}}><div className="cell-ellipsis" style={{color:C.ok,fontWeight:500,fontSize:12}}>{p.roi||'-'}</div></td>
-                      {dashPropMetricCells(p)}
-                      <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:12}}>{p.created}</div></td>
-                    </tr>
-                  ))}
+                  {favs.map(p=>dashPropRow(p))}
                 </tbody>
               </table>
               </div>
@@ -1211,20 +1329,7 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
                 <DashColgroup/>
                 <thead>{dashTblHead}</thead>
                 <tbody>
-                  {recent.map(p=>(
-                    <tr key={p.id} onClick={()=>onOpen('pd',p)}>
-                      <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
-                      <td>
-                        <div className="cell-wrap" style={{fontWeight:500}}>{propDisplayAddr(p)}</div>
-                        {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
-                      </td>
-                      <td><div className="cell-ellipsis"><span style={{fontSize:12,color:C.txM}}>{TL[p.trade]}</span><span style={{fontWeight:600,color:C.info,marginLeft:6}}>{propPrice(p)}</span></div></td>
-                      <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
-                      <td style={{textAlign:'right'}}><div className="cell-ellipsis" style={{color:C.ok,fontWeight:500,fontSize:12}}>{p.roi||'-'}</div></td>
-                      {dashPropMetricCells(p)}
-                      <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:12}}>{p.created}</div></td>
-                    </tr>
-                  ))}
+                  {recent.map(p=>dashPropRow(p))}
                 </tbody>
               </table>
               </div>
@@ -1273,34 +1378,33 @@ const Dashboard=({onOpen,onNav,onNavWithTab,onNotify})=>{
     </div>
   );
 };
-/* ═══ PROPERTY LIST — 가격 70%, 종류·대지평단가 120%, 거래방식(기준55px) 110%, 상태 90%, 부족분은 주소/건물명에서 차감 */
+/* ═══ PROPERTY LIST — 가격 70%, 종류·대지평단가 120%, 상태 90%, 부족분은 주소/건물명에서 차감 */
 /** 매물관리 리스트 행 — 수정/삭제 버튼 노출 (false: 미노출, 상세·일괄 작업으로만 편집) */
 const PROP_LIST_PAD_X=20;
 const PROP_LIST_SHOW_ROW_ACTIONS=false;
 const PROP_ROW_ACTION_COL_W=136;
-const PROP_TRADE_BASE=55;
 const PROP_PRICE=122;
 const PROP_ADDR_NOM=248;
 const PROP_COL={
-  check:32,star:32,status:76,trade:Math.round(PROP_TRADE_BASE*1.1),tag:86,
-  roi:64,landArea:88,floorArea:88,zoning:118,landPy:94,lastCall:82,created:80,
+  check:32,star:32,status:76,tag:86,
+  roi:64,landArea:88,floorArea:88,zoning:118,landPy:94,floorPy:108,updatedAt:92,agent:76,
   ...(PROP_LIST_SHOW_ROW_ACTIONS?{action:PROP_ROW_ACTION_COL_W}:{}),
 };
 const PROP_COL_FIXED=Object.values(PROP_COL).reduce((a,b)=>a+b,0);
 const PROP_ADDR_MIN=96;
 const PROP_COL_ADDR_REMAINDER=PROP_COL_FIXED+PROP_PRICE;
 const PROP_LIST_MIN_W=PROP_COL_ADDR_REMAINDER+PROP_ADDR_MIN;
-/** 주소 열은 상한을 두고, 남는 가로 폭은 가격~등록일 열 쪽으로 배분 */
+/** 주소 열은 상한을 두고, 남는 가로 폭은 가격~최종수정일 열 쪽으로 배분 */
 const propAddrColWidth=PROP_LIST_SHOW_ROW_ACTIONS
   ? `min(${PROP_ADDR_NOM}px, max(${PROP_ADDR_MIN}px, calc((100% - ${PROP_COL_ADDR_REMAINDER}px) * 0.8)))`
   : `min(${PROP_ADDR_NOM}px, max(${PROP_ADDR_MIN}px, calc(100% - ${PROP_COL_ADDR_REMAINDER}px)))`;
 const PROP_LIST_TBL_ADDR_CSS=`.prop-list-tbl .prop-col-addr{max-width:${PROP_ADDR_NOM}px!important;overflow:hidden}`;
 const PROP_LIST_TBL_METRICS_CSS=`.prop-list-tbl .prop-col-metrics{padding-left:10px!important;padding-right:10px!important}`;
-const PROP_LIST_TBL_DATE_CSS=`.prop-list-tbl .prop-col-date{text-align:center!important;white-space:nowrap!important;font-size:12px;min-width:${PROP_COL.created}px;overflow:visible!important}.prop-list-tbl th.prop-col-date{text-align:center!important}`;
-/** sticky 우측 열 — box-shadow 금지 (인접 열·최종통화일 옆 세로선 회귀 방지) */
+const PROP_LIST_TBL_DATE_CSS=`.prop-list-tbl .prop-col-date{text-align:center!important;white-space:nowrap!important;font-size:12px;min-width:${PROP_COL.updatedAt}px;overflow:visible!important}.prop-list-tbl th.prop-col-date{text-align:center!important}`;
+/** sticky 우측 열 — box-shadow 금지 (인접 열 세로선 회귀 방지) */
 const PROP_LIST_STICKY_COL=`position:sticky!important;right:0;background:${C.surf}!important`;
 const PROP_LIST_TBL_CREATED_STICKY_CSS=!PROP_LIST_SHOW_ROW_ACTIONS
-  ? `.prop-list-tbl .prop-col-created{${PROP_LIST_STICKY_COL};z-index:2;min-width:${PROP_COL.created}px}.prop-list-tbl thead .prop-col-created{z-index:4;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-created{background:#FAFBFF!important}`
+  ? `.prop-list-tbl .prop-col-agent{${PROP_LIST_STICKY_COL};z-index:2;min-width:${PROP_COL.agent}px}.prop-list-tbl thead .prop-col-agent{z-index:4;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-agent{background:#FAFBFF!important}`
   : '';
 const PROP_LIST_TBL_ACTION_CSS=PROP_LIST_SHOW_ROW_ACTIONS
   ? `.prop-list-tbl .prop-col-action{${PROP_LIST_STICKY_COL};z-index:3;overflow:visible!important;min-width:${PROP_ROW_ACTION_COL_W}px}.prop-list-tbl thead .prop-col-action{z-index:5;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-action{background:#FAFBFF!important}`
@@ -1308,14 +1412,16 @@ const PROP_LIST_TBL_ACTION_CSS=PROP_LIST_SHOW_ROW_ACTIONS
 const PROP_RENT_COL={
   check:32,star:32,status:76,trade:78,tag:86,
   contractArea:108,exclusiveArea:108,unitFloor:72,
-  deposit:100,rent:92,noc:96,maintenance:80,lastCall:82,moveIn:90,
+  deposit:100,rent:92,noc:96,maintenance:80,lastCall:82,moveIn:90,agent:76,
 };
 const PROP_RENT_COL_FIXED=Object.values(PROP_RENT_COL).reduce((a,b)=>a+b,0);
 const PROP_RENT_LIST_MIN_W=PROP_RENT_COL_FIXED+PROP_ADDR_MIN;
 const propRentAddrColWidth=`min(${PROP_ADDR_NOM}px, max(${PROP_ADDR_MIN}px, calc(100% - ${PROP_RENT_COL_FIXED}px)))`;
-const PROP_RENT_TBL_MOVEIN_CSS=`.prop-list-tbl .prop-col-movein{${PROP_LIST_STICKY_COL};z-index:2;min-width:${PROP_RENT_COL.moveIn}px}.prop-list-tbl thead .prop-col-movein{z-index:4;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-movein{background:#FAFBFF!important}`;
+const PROP_RENT_TBL_AGENT_CSS=!PROP_LIST_SHOW_ROW_ACTIONS
+  ? `.prop-list-tbl .prop-col-agent{${PROP_LIST_STICKY_COL};z-index:2;min-width:${PROP_RENT_COL.agent}px}.prop-list-tbl thead .prop-col-agent{z-index:4;background:#F8F9FB!important}.prop-list-tbl tbody tr:hover .prop-col-agent{background:#FAFBFF!important}`
+  : '';
 const PROP_RENT_TBL_AREA_CSS=`.prop-list-tbl td.prop-col-area{white-space:normal!important;line-height:1.3;height:auto}.prop-list-tbl tbody td{height:auto}`;
-const FOLDER_LIST_MIN_W=1150;
+const FOLDER_LIST_MIN_W=1336;
 const FOLDER_TBL_STYLE=`.folder-prop-tbl th,.folder-prop-tbl td{padding:10px 8px!important;vertical-align:middle;letter-spacing:-0.01em}.folder-prop-tbl .f-col-star{text-align:center}.folder-prop-tbl .f-col-num{text-align:right!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-num{text-align:right!important}.folder-prop-tbl .f-col-zone{text-align:center!important;white-space:nowrap;font-size:12px;overflow:hidden;text-overflow:ellipsis}.folder-prop-tbl th.f-col-zone{text-align:center!important}.folder-prop-tbl .f-col-date{text-align:center!important;white-space:nowrap;font-size:12px}.folder-prop-tbl th.f-col-date{text-align:center!important}`;
 
 const FolderPickCheckbox=({checked,inFolder})=>(
@@ -1325,7 +1431,7 @@ const FolderPickCheckbox=({checked,inFolder})=>(
 );
 
 const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,onRowClick,renderTrailing,getRowOpacity,maxHeight,wrapStyle})=>{
-  const colSpan=pick?14:13;
+  const colSpan=pick?15:14;
   return(
     <>
       <style dangerouslySetInnerHTML={{__html:FOLDER_TBL_STYLE}}/>
@@ -1343,8 +1449,9 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
             <col style={{width:PROP_COL.floorArea}}/>
             <col style={{width:PROP_COL.zoning}}/>
             <col style={{width:PROP_COL.landPy}}/>
-            <col style={{width:PROP_COL.lastCall}}/>
-            <col style={{width:PROP_COL.created}}/>
+            <col style={{width:PROP_COL.floorPy}}/>
+            <col style={{width:PROP_COL.updatedAt}}/>
+            <col style={{width:PROP_COL.agent}}/>
             <col style={{width:pick?48:PROP_ROW_ACTION_COL_W}}/>
           </colgroup>
           <thead>
@@ -1359,9 +1466,10 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
               <th className="f-col-num">대지면적</th>
               <th className="f-col-num">연면적</th>
               <th className="f-col-zone">용도지역</th>
-              <th className="f-col-num">대지 평단가</th>
-              <th className="f-col-date">최종통화일</th>
-              <th className="f-col-date">등록일</th>
+              <th className="f-col-num">대지단가</th>
+              <th className="f-col-num">연면적단가</th>
+              <th className="f-col-date">최종수정일</th>
+              <th className="f-col-date">담당자</th>
               <th/>
             </tr>
           </thead>
@@ -1387,8 +1495,8 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
                   <td className="f-col-star" onClick={e=>e.stopPropagation()}>
                     <span onClick={e=>onToggleFav?.(p,e)} style={{color:p.fav?'#F59E0B':C.txP,fontSize:15,cursor:onToggleFav?'pointer':'default',lineHeight:1}}>{p.fav?'★':'☆'}</span>
                   </td>
-                  <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
-                  <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
+                  <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
+                  <td style={{whiteSpace:'nowrap'}}><Bdg label={propKindDisplayLabel(p)||p.tag} type="gray"/></td>
                   <td style={{overflow:'hidden',verticalAlign:'middle',cursor:onAddrClick?'pointer':'default'}}
                     onClick={e=>{if(onAddrClick){e.stopPropagation();onAddrClick(p);}}}>
                     <div className="cell-wrap" style={{fontWeight:500,fontSize:13,color:C.tx}}>{propDisplayAddr(p)}</div>
@@ -1400,8 +1508,9 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
                   <td className="f-col-num" style={{color:p.floor>0?C.tx:C.txP}}>{propFloorPyungLabel(p)}</td>
                   <PropZoningCell p={p} className="f-col-zone"/>
                   <td className="f-col-num" style={{color:p.land>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.land)}</td>
-                  <td className="f-col-date" style={{color:p.lastCall!=='—'?C.txS:C.txP}}>{p.lastCall}</td>
-                  <td className="f-col-date" style={{color:C.txM}}>{p.created}</td>
+                  <td className="f-col-num" style={{color:p.floor>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.floor)}</td>
+                  <td className="f-col-date" style={{color:C.txM}}>{fmtPropUpdatedAt(p)}</td>
+                  <td className="f-col-date" style={{color:C.txM}}>{propAgentLabel(p)}</td>
                   <td style={{textAlign:'center',whiteSpace:'nowrap'}} onClick={e=>e.stopPropagation()}>
                     {renderTrailing?.(p,ps)}
                   </td>
@@ -1416,6 +1525,7 @@ const FolderPropTable=({pick,rows,emptyMsg,getPickState,onToggleFav,onAddrClick,
 };
 
 const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeleteProperty})=>{
+  const { mode, isRent, setDealMode }=useDealMode();
   const P=useProperties();
   const CALLS=useOwnerCallLogs();
   const { user, company, profile, companyRole, teamNameMap, teamRoleMap, memberPermissions }=useAuth();
@@ -1423,7 +1533,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const showOwnerScopeTabs=isBusinessRole(companyRole)&&workspaceId&&!isSoloRole(companyRole);
   const effectivePerms=getEffectivePermissions(companyRole,memberPermissions);
   const canViewTeamProps=canViewTeamProperties(effectivePerms);
-  const [ownerScopeTab,setOwnerScopeTab]=useState('ALL');
+  const isMobile=useIsMobile();
+  const [searchParams,setSearchParams]=useSearchParams();
+  const saved=loadPropListState();
+  const urlTab=searchParams.get('tab');
+  const scrollRef=useRef(null);
+  const ownerScopeMenuRef=useRef(null);
+  const [ownerScopeTab,setOwnerScopeTab]=useState(()=>saved.ownerScopeTab==='MINE'?'MINE':'ALL');
+  const [ownerScopeMenuOpen,setOwnerScopeMenuOpen]=useState(false);
   const getSharedLabel=useCallback((p)=>{
     if(!isSharedRecord(p,user?.id)) return null;
     return formatSharedPropertyLabel(teamNameMap[p.ownerId],teamRoleMap[p.ownerId]);
@@ -1433,30 +1550,55 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     const scoped=(!showOwnerScopeTabs||ownerScopeTab==='ALL')?P:P.filter(p=>matchesOwner(p,user?.id));
     return scoped.map(p=>({...p,lastCall:fmtCallDate(propCallDatesOf(propCallDateMap,p.id).last)}));
   },[P,showOwnerScopeTabs,ownerScopeTab,user?.id,propCallDateMap]);
-  const isMobile=useIsMobile();
-  const [searchParams,setSearchParams]=useSearchParams();
-  const saved=loadPropListState();
-  const urlTab=searchParams.get('tab');
-  const scrollRef=useRef(null);
   const [search,setSearch]=useState(saved.search??'');
   const [filter,setFilter]=useState(saved.filter??false);
   const [selSido,setSelSido]=useState(saved.selSido??'');
   const [selGu,setSelGu]=useState(saved.selGu??'');
   const [statusTab,setStatusTab]=useState(()=>normalizePropListTab(urlTab||saved.statusTab||'ALL'));
   useEffect(()=>{
+    if(isLegacyRentListTab(urlTab)){
+      setDealMode(DEAL_MODE_RENT);
+      setStatusTab('ALL');
+      setSearchParams({}, {replace:true});
+      return;
+    }
+    if(isPropStatusListTab(urlTab)){
+      setStatusTab('ALL');
+      setColFilter((f)=>({...f,status:urlTab}));
+      return;
+    }
     if(urlTab) setStatusTab(normalizePropListTab(urlTab));
   },[urlTab]);
-  const [sortKey,setSortKey]=useState(saved.sortKey!==undefined?saved.sortKey:'created');
+  useEffect(()=>{
+    if(!ownerScopeMenuOpen) return undefined;
+    const onDoc=(e)=>{
+      if(ownerScopeMenuRef.current&&!ownerScopeMenuRef.current.contains(e.target)) setOwnerScopeMenuOpen(false);
+    };
+    document.addEventListener('mousedown',onDoc);
+    return ()=>document.removeEventListener('mousedown',onDoc);
+  },[ownerScopeMenuOpen]);
+  const [sortKey,setSortKey]=useState(()=>{
+    if(isRent) return saved.sortKey!==undefined?saved.sortKey:'created';
+    return 'updatedAt';
+  });
   const [sortDir,setSortDir]=useState(()=>{
-    if(saved.sortDir) return saved.sortDir;
-    if(saved.sortKey!==undefined) return 'asc';
+    if(isRent){
+      if(saved.sortDir) return saved.sortDir;
+      if(saved.sortKey!==undefined) return 'asc';
+      return 'desc';
+    }
     return 'desc';
   });
-  const [colFilter,setColFilter]=useState(saved.colFilter??{tag:'',trade:'',status:''});
+  const [colFilter,setColFilter]=useState(()=>{
+    const f=saved.colFilter??{tag:'',trade:'',status:'',agent:''};
+    if(isPropStatusListTab(urlTab)) return {...f,status:urlTab};
+    return f;
+  });
   const [openColFilter,setOpenColFilter]=useState(null);
   const [filterResetKey,setFilterResetKey]=useState(0);
   const [advTag,setAdvTag]=useState(saved.advTag??'');
   const [advTrade,setAdvTrade]=useState(saved.advTrade??'');
+  const [advAgent,setAdvAgent]=useState(saved.advAgent??'');
   const [advStatus,setAdvStatus]=useState(saved.advStatus??'');
   const [advPriceMin,setAdvPriceMin]=useState(saved.advPriceMin??'');
   const [advPriceMax,setAdvPriceMax]=useState(saved.advPriceMax??'');
@@ -1464,20 +1606,31 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const [advLandMax,setAdvLandMax]=useState(saved.advLandMax??'');
   const [advFloorMin,setAdvFloorMin]=useState(saved.advFloorMin??'');
   const [advFloorMax,setAdvFloorMax]=useState(saved.advFloorMax??'');
+  const [advMain,setAdvMain]=useState(normalizeSalePropKind(saved.advKind||saved.advMain||''));
   const [advRoiMin,setAdvRoiMin]=useState(saved.advRoiMin??'');
-  const [appliedAdv,setAppliedAdv]=useState(saved.appliedAdv??null);
-  const STATUS_LABEL_TO_CODE={'신규':'NEW','진행중':'ACTIVE','보류':'HOLD','계약완료':'COMPLETED'};
+  const [appliedAdv,setAppliedAdv]=useState(()=>{
+    const a=saved.appliedAdv;
+    if(!a||typeof a!=='object') return null;
+    const kind=normalizeSalePropKind(a.kind||a.main||'');
+    return {...a,kind,main:kind||undefined};
+  });
+  const [catSearch,setCatSearch]=useState(()=>{
+    const s=saved.catSearch&&typeof saved.catSearch==='object'?saved.catSearch:null;
+    if(!s) return emptyCategorySearch();
+    return {...emptyCategorySearch(),...s,ranges:{...emptyRangeFilters(),...(s.ranges&&typeof s.ranges==='object'?s.ranges:{})}};
+  });
+  const STATUS_LABEL_TO_CODE=PROP_STATUS_LABEL_TO_CODE;
   const applyAdvSearch=()=>setAppliedAdv({
-    sido:selSido,gu:selGu,tag:advTag,trade:advTrade,status:advStatus,
-    priceMin:advPriceMin,priceMax:advPriceMax,
-    landMin:advLandMin,landMax:advLandMax,
-    floorMin:advFloorMin,floorMax:advFloorMax,
-    roiMin:advRoiMin,
+    sido:selSido,gu:selGu,tag:advTag,kind:advMain,trade:'',agent:advAgent,status:advStatus,
+    priceMin:advPriceMin,priceMax:advPriceMax,landMin:advLandMin,landMax:advLandMax,
+    floorMin:advFloorMin,floorMax:advFloorMax,roiMin:advRoiMin,
   });
   const resetAdvSearch=()=>{
-    setSelSido('');setSelGu('');setAdvTag('');setAdvTrade('');setAdvStatus('');
+    setSelSido('');setSelGu('');setAdvTag('');setAdvMain('');setAdvTrade('');setAdvAgent('');setAdvStatus('');
     setAdvPriceMin('');setAdvPriceMax('');setAdvLandMin('');setAdvLandMax('');
     setAdvFloorMin('');setAdvFloorMax('');setAdvRoiMin('');
+    setCatSearch(emptyCategorySearch());
+    setColFilter((f)=>({...f,agent:''}));
     setAppliedAdv(null);
     setFilterResetKey(k=>k+1);
   };
@@ -1495,14 +1648,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const [visibleCount,setVisibleCount]=useState(saved.visibleCount??20);
   const persistListState=useCallback((scrollTop)=>{
     savePropListState({
-      search, filter, selSido, selGu, statusTab, sortKey, sortDir, colFilter,
-      advTag, advTrade, advStatus, advPriceMin, advPriceMax, advLandMin, advLandMax,
-      advFloorMin, advFloorMax, advRoiMin, appliedAdv, visibleCount, expandedFolders,
+      search, filter, selSido, selGu, statusTab, ownerScopeTab, sortKey, sortDir, colFilter,
+      advTag, advKind:advMain, advMain, advTrade, advAgent, advStatus, advPriceMin, advPriceMax, advLandMin, advLandMax,
+      advFloorMin, advFloorMax, advRoiMin, appliedAdv, catSearch, visibleCount, expandedFolders,
       scrollTop: scrollTop??scrollRef.current?.scrollTop??0,
     });
-  }, [search, filter, selSido, selGu, statusTab, sortKey, sortDir, colFilter,
-    advTag, advTrade, advStatus, advPriceMin, advPriceMax, advLandMin, advLandMax,
-    advFloorMin, advFloorMax, advRoiMin, appliedAdv, visibleCount, expandedFolders]);
+  }, [search, filter, selSido, selGu, statusTab, ownerScopeTab, sortKey, sortDir, colFilter,
+    advTag, advMain, advTrade, advAgent, advStatus, advPriceMin, advPriceMax, advLandMin, advLandMax,
+    advFloorMin, advFloorMax, advRoiMin, appliedAdv, catSearch, visibleCount, expandedFolders]);
   const togglePropertyFav=useCallback(async(p,e)=>{
     e?.stopPropagation?.();
     await setPropertyFav(p.id,!p.fav);
@@ -1517,36 +1670,62 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- mount 시 scroll 복원
   }, []);
+  useEffect(()=>{
+    const onLatest=()=>{
+      if(!isRent){setSortKey('updatedAt');setSortDir('desc');}
+      if(scrollRef.current) scrollRef.current.scrollTop=0;
+    };
+    window.addEventListener(PROP_LIST_LATEST_EVENT,onLatest);
+    return ()=>window.removeEventListener(PROP_LIST_LATEST_EVENT,onLatest);
+  },[isRent]);
   const persistListStateRef=useRef(persistListState);
   persistListStateRef.current=persistListState;
   useEffect(()=>()=>{ persistListStateRef.current(); },[]);
   useEffect(()=>{ savePropListState({ statusTab }); },[statusTab]);
   const toggleSort=(key)=>{
-    if(sortKey!==key){setSortKey(key);setSortDir('asc');}
-    else if(sortDir==='asc'){setSortDir('desc');}
-    else{setSortKey(null);setSortDir('asc');}
+    if(sortKey!==key){setSortKey(key);setSortDir(key==='updatedAt'?'desc':'asc');return;}
+    if(sortDir==='asc'){setSortDir('desc');return;}
+    if(!rentList){setSortKey('updatedAt');setSortDir(key==='updatedAt'?'asc':'desc');return;}
+    setSortKey(null);setSortDir('asc');
   };
   const handleScroll=(e)=>{
     const el=e.currentTarget;
     if(el.scrollHeight-el.scrollTop-el.clientHeight<80)setVisibleCount(v=>v+20);
     savePropListState({ scrollTop: el.scrollTop });
   };
-  const sanitizeTradeFiltersForTab=(tab)=>{
-    setColFilter((f)=>tradeAllowedOnTab(f.trade,tab)?f:{...f,trade:''});
-    setAdvTrade((t)=>tradeAllowedOnTab(t,tab)?t:'');
+  const sanitizeTradeFiltersForTab=()=>{
+    setColFilter((f)=>tradeMatchesDealMode(f.trade,mode)?f:{...f,trade:''});
+    setAdvTrade((t)=>tradeMatchesDealMode(t,mode)?t:'');
+    setCatSearch((c)=>tradeMatchesDealMode(c.trade,mode)?c:{...c,trade:''});
     setAppliedAdv((a)=>{
-      if(!a||tradeAllowedOnTab(a.trade,tab)) return a;
+      if(!a||tradeMatchesDealMode(a.trade,mode)) return a;
       return {...a,trade:''};
     });
   };
+  const goStatusTab=(id,{toggleOwnerScope}={})=>{
+    sanitizeTradeFiltersForTab();
+    if(toggleOwnerScope){
+      setStatusTab('ALL');
+      setVisibleCount(20);
+      setSearchParams({}, {replace:true});
+      setOwnerScopeMenuOpen((v)=>statusTab==='ALL'?!v:true);
+      return;
+    }
+    setOwnerScopeMenuOpen(false);
+    setStatusTab(id);
+    setVisibleCount(20);
+    if(id==='ALL') setSearchParams({}, {replace:true});
+    else setSearchParams({tab:id},{replace:true});
+  };
   useEffect(()=>{
-    sanitizeTradeFiltersForTab(statusTab);
-    const sortSet=isRentListTab(statusTab)?RENT_LIST_SORT_KEYS:SALE_LIST_SORT_KEYS;
-    if(sortKey&&!sortSet.has(sortKey)){setSortKey('created');setSortDir('desc');}
-  }, [statusTab]);
+    sanitizeTradeFiltersForTab();
+    const sortSet=isRent?RENT_LIST_SORT_KEYS:SALE_LIST_SORT_KEYS;
+    if(sortKey&&!sortSet.has(sortKey)){setSortKey(isRent?'created':'updatedAt');setSortDir('desc');}
+  }, [statusTab, mode]);
   const statusTabList=PROP_LIST_TABS;
-  const rentList=isRentListTab(statusTab);
-  const listTradeOpts=tradesForListTab(statusTab).map((k)=>({id:k,label:rentList?(RENT_TRADE_LABELS[k]||TL[k]):(TL[k]||k)}));
+  const rentList=isRent;
+  const listTradeOpts=tradesForDealMode(mode).map((k)=>({id:k,label:rentList?(RENT_TRADE_LABELS[k]||TL[k]):(TL[k]||k)}));
+  const agentNameOpts=useMemo(()=>uniquePropAgentNames(baseProps),[baseProps]);
   const sortMark=(key)=>(
     <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey===key?1:.28}}>
       {sortKey===key&&sortDir==='asc'?'▲':'▼'}
@@ -1554,27 +1733,38 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   );
   const priceOfForFilter=(p)=>priceInManForFilter(p);
   const rows=baseProps.filter(p=>{
-    if(!propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0})) return false;
+    if(!propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0,dealMode:mode})) return false;
     if(colFilter.tag&&p.tag!==colFilter.tag) return false;
     if(colFilter.trade&&p.trade!==colFilter.trade) return false;
     if(colFilter.status&&p.status!==colFilter.status) return false;
+    if(rentList&&colFilter.agent&&!propertyMatchesAgentFilter(p,colFilter.agent)) return false;
     if(appliedAdv){
       const a=appliedAdv;
+      const num=(v)=>{const n=parseFloat(String(v??'').replace(/,/g,''));return Number.isFinite(n)?n:null;};
       if(!sidoMatch(propSearchHaystack(p),a.sido)) return false;
       if(a.gu&&!propSearchHaystack(p).includes(a.gu)) return false;
       if(a.tag&&p.tag!==a.tag) return false;
-      if(a.trade&&p.trade!==a.trade) return false;
+      if(a.kind&&!propertyMatchesSaleKind(p,a.kind)) return false;
+      if(!a.kind&&a.main&&p.main!==a.main) return false;
+      if(!propertyMatchesAgentFilter(p,a.agent)) return false;
       if(a.status&&p.status!==STATUS_LABEL_TO_CODE[a.status]) return false;
-      if((a.priceMin||a.priceMax)&&priceOfForFilter(p)===null) return false;
-      if(a.priceMin&&priceOfForFilter(p)<Number(a.priceMin)) return false;
-      if(a.priceMax&&priceOfForFilter(p)>Number(a.priceMax)) return false;
-      const landPyVal=p.land>0?py(p.land):0;
-      if(a.landMin&&(!landPyVal||Number(landPyVal)<Number(a.landMin))) return false;
-      if(a.landMax&&(!landPyVal||Number(landPyVal)>Number(a.landMax))) return false;
-      const floorPyVal=p.floor>0?py(p.floor):0;
-      if(a.floorMin&&(!floorPyVal||Number(floorPyVal)<Number(a.floorMin))) return false;
-      if(a.floorMax&&(!floorPyVal||Number(floorPyVal)>Number(a.floorMax))) return false;
-      if(a.roiMin&&(parseFloat(p.roi)||0)<Number(a.roiMin)) return false;
+      const price=priceOfForFilter(p);
+      const pmin=num(a.priceMin), pmax=num(a.priceMax);
+      if(pmin!=null&&(price==null||price<pmin)) return false;
+      if(pmax!=null&&(price==null||price>pmax)) return false;
+      const landPy=p.land>0?Number(m2ToPyung(p.land)):0;
+      const lmin=num(a.landMin), lmax=num(a.landMax);
+      if(lmin!=null&&landPy<lmin) return false;
+      if(lmax!=null&&landPy>lmax) return false;
+      const floorPy=p.floor>0?Number(m2ToPyung(p.floor)):0;
+      const fmin=num(a.floorMin), fmax=num(a.floorMax);
+      if(fmin!=null&&floorPy<fmin) return false;
+      if(fmax!=null&&floorPy>fmax) return false;
+      const rmin=num(a.roiMin);
+      if(rmin!=null){
+        const roi=parseFloat(p.roi);
+        if(!Number.isFinite(roi)||roi<rmin) return false;
+      }
     }
     if(!search) return true;
     return propMatchesSearch(p,search);
@@ -1586,8 +1776,11 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     if(key==='floorArea') return parseFloat(p.floor)||-1;
     if(key==='zoning') return p.zoning||'';
     if(key==='landPy') return calcPyUnitPriceMan(p.price,p.land)??-1;
+    if(key==='floorPy') return calcPyUnitPriceMan(p.price,p.floor)??-1;
     if(key==='lastCall') return p.lastCall==='—'?'':p.lastCall;
     if(key==='created') return p.created;
+    if(key==='updatedAt') return propListActivityMs(p);
+    if(key==='agentName') return String(p.agentName||'').trim();
     if(key==='contractArea') return parseFloat(p.contractArea)||-1;
     if(key==='exclusiveArea') return parseFloat(p.exclusiveArea)||-1;
     if(key==='deposit') return rentalDepositMan(p);
@@ -1601,6 +1794,11 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   const sorted=rentList&&rentalListUsesJibunGroups(sortKey)
     ? sortRentalListByJibunGroups(rows,{createdDir:sortKey==='created'?sortDir:'desc'})
     : [...rows].sort((a,b)=>{
+    if(!sortKey&&!rentList) return comparePropListActivityDesc(a,b);
+    if(sortKey==='updatedAt'){
+      const c=comparePropListActivityDesc(a,b);
+      return sortDir==='asc'?-c:c;
+    }
     if(sortKey){
       const av=getSortVal(a,sortKey), bv=getSortVal(b,sortKey);
       if(typeof av==='string'&&typeof bv==='string'){
@@ -1618,6 +1816,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     return (b.fav?1:0)-(a.fav?1:0)||b.id-a.id;
   });
   const visible=sorted.slice(0,visibleCount);
+  const otherDealCount=baseProps.filter((p)=>!propertyMatchesDealMode(p,mode)).length;
   const selectableIds=useMemo(()=>sorted.map((p)=>p.id),[sorted]);
   const allSelected=selectableIds.length>0&&selectableIds.every((id)=>checked[id]);
   const someSelected=selectableIds.some((id)=>checked[id]);
@@ -1647,17 +1846,28 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
       window.alert('선택한 매물 중 수정 가능한 항목이 없습니다.');
       return;
     }
-    await Promise.all(targets.map((p)=>updateProperty(p.id,{status:newStatus})));
-    showNotification('수정되었습니다.','info');
+    const ready=[];
+    const blocked=[];
+    for(const p of targets){
+      const check=validatePropertyForSave({...p,status:newStatus});
+      if(check.ok) ready.push(p);
+      else blocked.push(`${propDisplayAddr(p)||p.bldg||p.id}: ${check.message}`);
+    }
+    if(blocked.length){
+      window.alert(`매각중으로 바꿀 수 없는 매물이 있습니다.\n${blocked.slice(0,8).join('\n')}${blocked.length>8?`\n외 ${blocked.length-8}건`:''}`);
+    }
+    if(!ready.length) return;
+    try{
+      await Promise.all(ready.map((p)=>updateProperty(p.id,{status:newStatus})));
+      showNotification(blocked.length?`가능한 ${ready.length}건만 수정되었습니다.`:'수정되었습니다.','info');
+    }catch(err){
+      window.alert(err instanceof Error?err.message:String(err));
+      return;
+    }
     setStatusBulkOpen(false);
     setChecked({});
   };
-  const PROP_STATUS_BULK_OPTS=[
-    {id:'NEW',label:'신규'},
-    {id:'ACTIVE',label:'진행중'},
-    {id:'HOLD',label:'보류'},
-    {id:'COMPLETED',label:'계약완료'},
-  ];
+  const PROP_STATUS_BULK_OPTS=propStatusOpts(rentList);
 
   const openFolderAdd=(fid)=>{
     setFolderAddOpen(prev=>prev===fid?null:fid);
@@ -1713,14 +1923,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
   };
   return(
     <div
-      style={{display:'flex',flexDirection:'column',height:'100%',background:C.bg,position:'relative'}}
+      style={{display:'flex',flexDirection:'column',flex:1,minHeight:0,height:'100%',overflow:'hidden',background:C.bg,position:'relative'}}
       onDragOver={onBulkDragOver}
       onDragLeave={onBulkDragLeave}
       onDrop={onBulkDrop}
     >
       {bulkDragActive&&(
         <div style={{
-          position:'absolute',inset:0,zIndex:50,background:'rgba(200,16,46,.08)',
+          position:'absolute',inset:0,zIndex:50,background:'rgba(var(--ln-brand-rgb),.08)',
           border:`3px dashed ${C.brand}`,borderRadius:4,pointerEvents:'none',
           display:'flex',alignItems:'center',justifyContent:'center',
         }}>
@@ -1736,7 +1946,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
       {!isMobile?(
       <PH title="매물 관리" sub={`${propListTabLabel(statusTab)} ${rows.length}건`}
         acts={<>
-          <Btn role="page-secondary" ch="폴더 관리" ic="ti-folder" on={()=>onOpen('fm',null)}/>
+          <Btn role="page-secondary" ch="그룹 관리" ic="ti-folder" on={()=>onOpen('fm',null)}/>
           <Btn role="page-secondary" ch="지도로 보기" ic="ti-map-2" on={()=>onNav&&onNav('mapview')}/>
           <Btn role="page-secondary" ch="일괄 등록" ic="ti-upload" on={()=>onNav&&onNav('registerBulk')}/>
           <Btn role="page-primary" ch="매물 등록" on={()=>onNav&&onNav('register')}/>
@@ -1747,7 +1957,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
               <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:15,height:15,flexShrink:0,color:C.txP}} aria-hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
               <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="도로명·지번·건물명 검색..." style={{border:'none',background:'transparent',fontSize:14,color:C.tx,flex:1,height:'100%'}}/>
             </div>
-            <Btn role="filter" ch={filter?'필터 닫기':'상세검색'} ic={filter?'ti-x':'ti-adjustments-horizontal'} sx={{gap:6}}
+              <Btn role="filter" ch={filter?'필터 닫기':'상세검색'} ic={filter?'ti-x':'ti-adjustments-horizontal'} sx={{gap:6}}
               on={()=>setFilter(v=>!v)}/>
           </div>
         }/>
@@ -1762,108 +1972,180 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/></svg>
           </button>
         </div>
-        <div style={{fontSize:13,color:C.txM}}>{propListTabLabel(statusTab)} <strong style={{color:C.tx}}>{rows.length}</strong>건</div>
+        <div style={{fontSize:13,color:C.txM}}>{statusTab==='ALL'&&showOwnerScopeTabs&&ownerScopeTab==='MINE'?'내 매물':propListTabLabel(statusTab)} <strong style={{color:C.tx}}>{rows.length}</strong>건</div>
       </div>
       )}
-      {showOwnerScopeTabs&&(
-        <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',flexDirection:'column',flexShrink:0}}>
-          <div style={{display:'flex',gap:0}}>
-            {[{id:'ALL',label:'전체 매물'},{id:'MINE',label:'내 매물'}].map(t=>(
-              <div key={t.id} onClick={()=>{setOwnerScopeTab(t.id);setVisibleCount(20);}}
-                style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:ownerScopeTab===t.id?600:400,color:ownerScopeTab===t.id?C.brand:C.txM,borderBottom:ownerScopeTab===t.id?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1}}>
-                {t.label}
-              </div>
-            ))}
-          </div>
-          {ownerScopeTab==='ALL'&&!canViewTeamProps&&!isCeoRole(companyRole)&&(
-            <div style={{padding:'8px 18px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2}}>
-              동료 매물 보기 권한이 없어 <strong style={{color:C.tx}}>내가 등록한 매물</strong>만 표시됩니다. 권한 변경은 대표에게 문의하세요.
-            </div>
-          )}
-          {ownerScopeTab==='ALL'&&canViewTeamProps&&!isCeoRole(companyRole)&&P.filter(p=>p.ownerId&&p.ownerId!==user?.id).length===0&&(
-            <div style={{padding:'8px 18px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2}}>
-              공유 매물이 아직 없습니다. <strong style={{color:C.tx}}>대시보드 상단「동기화」</strong>를 눌러 주세요. 옆 <strong style={{color:C.tx}}>?</strong> 버튼에서 안내를 볼 수 있습니다.
-            </div>
-          )}
-        </div>
-      )}
-      {/* Status filter tabs */}
-      <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',gap:0,overflowX:isMobile?'auto':'visible',flexShrink:0}}>
-        {statusTabList.map(t=>{
-          const active=statusTab===t.id;
-          return (
-          <React.Fragment key={t.id}>
-          {t.separate&&<div aria-hidden style={{width:1,alignSelf:'stretch',background:C.bdr,margin:'8px 6px',flexShrink:0}}/>}
-          <div onClick={()=>{setStatusTab(t.id);setVisibleCount(20);setSearchParams(t.id==='ALL'?{}:{tab:t.id},{replace:true});}} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:active?600:400,color:active?C.brand:C.txM,borderBottom:active?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s',display:'flex',alignItems:'center',gap:5}}>
-            {t.label}
-            {t.id!=='ALL'&&<span style={{fontSize:12,color:t.id==='FAV'?'#F59E0B':t.id==='RENT'?'#0D9488':C.txP}}>{
-              countForListTab(baseProps,t.id,propFolders)
-            }</span>}
-          </div>
-          </React.Fragment>
-          );
-        })}
-      </div>
       {filter&&(
-        <div key={filterResetKey} style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:'16px 28px'}}>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:12,marginBottom:12}}>
-            <div>
-              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>거래방식</div>
-              <select className="sel" style={{height:34,fontSize:13}} value={advTrade} onChange={e=>setAdvTrade(e.target.value)}>
-                <option value="">전체</option>
-                {listTradeOpts.map((o)=>(<option key={o.id} value={o.id}>{o.label}</option>))}
-              </select>
-            </div>
-            <div>
+        <div key={filterResetKey} style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'12px 16px':'14px 24px',flexShrink:0}}>
+          {rentList?(
+            <>
+          <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:10}}>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>지역(도·시)</div>
               <select className="sel" style={{height:34,fontSize:13}} value={selSido} onChange={e=>{setSelSido(e.target.value);setSelGu('');}}>
                 <option value="">전체</option>
                 {KR_SIDO.map(s=>(<option key={s} value={s}>{s}</option>))}
               </select>
             </div>
-            <div>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>구·군</div>
               <select className="sel" style={{height:34,fontSize:13}} value={selGu} onChange={e=>setSelGu(e.target.value)}>
                 <option value="">전체</option>
                 {(selSido?KR_GU[selSido]||[]:[...new Set(KR_SIDO.flatMap(s=>KR_GU[s]||[]))]).slice().sort((a,b)=>a.localeCompare(b,'ko')).map(g=>(<option key={g} value={g}>{g}</option>))}
               </select>
             </div>
-            <div>
-              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매물 종류</div>
-              <select className="sel" style={{height:34,fontSize:13}} value={advTag} onChange={e=>setAdvTag(e.target.value)}>
-                <option value="">전체</option>{['상가건물','아파트','오피스텔','사무실','빌라','토지','원룸/투룸'].map(t=>(<option key={t}>{t}</option>))}
-              </select>
-            </div>
-            <div>
+            <div style={{flex:'0 1 150px',minWidth:110}}>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>진행 상태</div>
               <select className="sel" style={{height:34,fontSize:13}} value={advStatus} onChange={e=>setAdvStatus(e.target.value)}>
-                <option value="">전체</option>{['신규','진행중','보류','계약완료'].map(s=>(<option key={s}>{s}</option>))}
+                <option value="">전체</option>{propStatusFilterLabels(true).map(s=>(<option key={s}>{s}</option>))}
               </select>
             </div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>가격 최소(만)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advPriceMin} onChange={e=>setAdvPriceMin(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>가격 최대(만)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advPriceMax} onChange={e=>setAdvPriceMax(e.target.value)}/></div>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:14}}>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>대지면적 최소(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advLandMin} onChange={e=>setAdvLandMin(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>대지면적 최대(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advLandMax} onChange={e=>setAdvLandMax(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>연면적 최소(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="-" value={advFloorMin} onChange={e=>setAdvFloorMin(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>연면적 최대(평)</div>
-              <MoneyInput style={{height:32,fontSize:13}} placeholder="-" value={advFloorMax} onChange={e=>setAdvFloorMax(e.target.value)}/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>수익률 이상(%)</div>
-              <MoneyInput decimal style={{height:32,fontSize:13}} placeholder="-" value={advRoiMin} onChange={e=>setAdvRoiMin(e.target.value)}/></div>
-          </div>
-          <div style={{display:'flex',gap:8}}>
+            </>
+          ):(
+            <>
+              <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(7,minmax(0,1fr))',gap:'12px 14px'}}>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>지역(도·시)</div>
+                  <select className="sel" style={{height:34,fontSize:13}} value={selSido} onChange={e=>{setSelSido(e.target.value);setSelGu('');}}>
+                    <option value="">전체</option>
+                    {KR_SIDO.map(s=>(<option key={s} value={s}>{s}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>구·군</div>
+                  <select className="sel" style={{height:34,fontSize:13}} value={selGu} onChange={e=>setSelGu(e.target.value)}>
+                    <option value="">전체</option>
+                    {(selSido?KR_GU[selSido]||[]:[...new Set(KR_SIDO.flatMap(s=>KR_GU[s]||[]))]).slice().sort((a,b)=>a.localeCompare(b,'ko')).map(g=>(<option key={g} value={g}>{g}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매물 종류</div>
+                  <select className="sel" style={{height:34,fontSize:13}} value={advMain} onChange={e=>setAdvMain(e.target.value)}>
+                    <option value="">전체</option>
+                    {SALE_PROP_KIND_OPTS.map(({id,label})=>(<option key={id} value={id}>{label}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>진행 상태</div>
+                  <select className="sel" style={{height:34,fontSize:13}} value={advStatus} onChange={e=>setAdvStatus(e.target.value)}>
+                    <option value="">전체</option>{PROP_STATUS_FILTER_LABELS.map(s=>(<option key={s}>{s}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>담당자</div>
+                  <select className="sel" style={{height:34,fontSize:13}} value={advAgent} onChange={e=>setAdvAgent(e.target.value)}>
+                    <option value="">전체</option>
+                    {agentNameOpts.map((n)=>(<option key={n} value={n}>{n}</option>))}
+                    <option value={PROP_AGENT_NONE}>미지정</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>가격 최소(만)</div>
+                  <input className="inp" inputMode="numeric" style={{height:34,fontSize:13}} value={advPriceMin} onChange={e=>setAdvPriceMin(fmtInputNum(e.target.value))} placeholder="0"/>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>가격 최대(만)</div>
+                  <input className="inp" inputMode="numeric" style={{height:34,fontSize:13}} value={advPriceMax} onChange={e=>setAdvPriceMax(fmtInputNum(e.target.value))} placeholder="0"/>
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(5,minmax(0,1fr))',gap:'12px 14px',marginTop:12,maxWidth:isMobile?undefined:920}}>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>대지면적 최소(평)</div>
+                  <input className="inp" inputMode="decimal" style={{height:34,fontSize:13}} value={advLandMin} onChange={e=>setAdvLandMin(fmtInputNum(e.target.value,{decimal:true}))} placeholder="0"/>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>대지면적 최대(평)</div>
+                  <input className="inp" inputMode="decimal" style={{height:34,fontSize:13}} value={advLandMax} onChange={e=>setAdvLandMax(fmtInputNum(e.target.value,{decimal:true}))} placeholder="0"/>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>연면적 최소(평)</div>
+                  <input className="inp" inputMode="decimal" style={{height:34,fontSize:13}} value={advFloorMin} onChange={e=>setAdvFloorMin(fmtInputNum(e.target.value,{decimal:true}))} placeholder="-"/>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>연면적 최대(평)</div>
+                  <input className="inp" inputMode="decimal" style={{height:34,fontSize:13}} value={advFloorMax} onChange={e=>setAdvFloorMax(fmtInputNum(e.target.value,{decimal:true}))} placeholder="-"/>
+                </div>
+                <div>
+                  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>수익률 이상(%)</div>
+                  <input className="inp" inputMode="decimal" style={{height:34,fontSize:13}} value={advRoiMin} onChange={e=>setAdvRoiMin(fmtInputNum(e.target.value,{decimal:true}))} placeholder="-"/>
+                </div>
+              </div>
+            </>
+          )}
+          <div style={{display:'flex',gap:8,marginTop:12}}>
             <Btn role="toolbar-primary" ch="검색 적용" ic="ti-search" on={applyAdvSearch}/>
             <Btn role="toolbar-secondary" ch="초기화" ic="ti-refresh" on={resetAdvSearch}/>
           </div>
         </div>
       )}
-      <div ref={scrollRef} style={{flex:1,overflow:'auto',padding:isMobile?'12px 16px 16px':'16px 28px'}} onScroll={handleScroll}>
+      {/* 검색 결과 구분: 목록 바로 위 */}
+      <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:isMobile?'0 12px':'0 28px',display:'flex',gap:0,alignItems:'center',overflowX:isMobile&&!ownerScopeMenuOpen?'auto':'visible',flexShrink:0,overflowY:'visible'}}>
+        {statusTabList.map(t=>{
+          const isAllScope=t.id==='ALL'&&showOwnerScopeTabs;
+          const allLabel=ownerScopeTab==='MINE'?'내 매물':'전체';
+          const active=statusTab===t.id;
+          return (
+          <React.Fragment key={t.id}>
+          {t.separate&&<div aria-hidden style={{width:1,alignSelf:'stretch',background:C.bdr,margin:'8px 6px',flexShrink:0}}/>}
+          <div ref={isAllScope?ownerScopeMenuRef:undefined} style={{position:'relative',flexShrink:0}}>
+            <div onClick={()=>{
+              if(isAllScope){
+                goStatusTab('ALL',{toggleOwnerScope:true});
+                return;
+              }
+              goStatusTab(t.id);
+            }} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:active?600:400,color:active?C.brand:C.txM,borderBottom:active?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s',display:'flex',alignItems:'center',gap:5,userSelect:'none'}}>
+              {isAllScope?allLabel:t.label}
+              {isAllScope&&<span style={{fontSize:11,opacity:ownerScopeTab==='MINE'?1:.35,lineHeight:1}}>▼</span>}
+              {t.id!=='ALL'&&<span style={{fontSize:12,color:t.id==='FAV'?'#F59E0B':C.txP}}>{
+                countForListTab(baseProps,t.id,propFolders,mode)
+              }</span>}
+            </div>
+            {isAllScope&&ownerScopeMenuOpen&&(
+              <div style={{position:'absolute',top:'100%',left:0,zIndex:20,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,boxShadow:'0 8px 24px rgba(15,23,42,.12)',minWidth:112,padding:'4px 0',marginTop:2}}>
+                {[{id:'ALL',label:'전체'},{id:'MINE',label:'내 매물'}].map(opt=>(
+                  <div key={opt.id} onClick={()=>{
+                    setOwnerScopeTab(opt.id);
+                    sanitizeTradeFiltersForTab();
+                    setStatusTab('ALL');
+                    setVisibleCount(20);
+                    setSearchParams({}, {replace:true});
+                    setOwnerScopeMenuOpen(false);
+                  }} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:ownerScopeTab===opt.id?C.brand:C.tx,fontWeight:ownerScopeTab===opt.id?600:400,whiteSpace:'nowrap'}}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.surf2}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    {opt.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          </React.Fragment>
+          );
+        })}
+        {rentList&&(
+          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,padding:'6px 0 6px 16px',flexShrink:0}}>
+            <span style={{fontSize:12,color:C.txM,fontWeight:600,whiteSpace:'nowrap'}}>담당자</span>
+            <select className="sel" style={{height:30,fontSize:13,minWidth:120}} value={colFilter.agent||''} onChange={e=>setColFilter((f)=>({...f,agent:e.target.value}))}>
+              <option value="">전체</option>
+              {agentNameOpts.map((n)=>(<option key={n} value={n}>{n}</option>))}
+              <option value={PROP_AGENT_NONE}>미지정</option>
+            </select>
+          </div>
+        )}
+      </div>
+      {showOwnerScopeTabs&&ownerScopeTab==='ALL'&&!canViewTeamProps&&!isCeoRole(companyRole)&&(
+        <div style={{padding:isMobile?'8px 12px 10px':'8px 28px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2,borderBottom:`1px solid ${C.bdr}`}}>
+          동료 매물 보기 권한이 없어 <strong style={{color:C.tx}}>내가 등록한 매물</strong>만 표시됩니다. 권한 변경은 대표에게 문의하세요.
+        </div>
+      )}
+      {showOwnerScopeTabs&&ownerScopeTab==='ALL'&&canViewTeamProps&&!isCeoRole(companyRole)&&P.filter(p=>p.ownerId&&p.ownerId!==user?.id).length===0&&(
+        <div style={{padding:isMobile?'8px 12px 10px':'8px 28px 10px',fontSize:12,color:C.txM,lineHeight:1.5,background:C.surf2,borderBottom:`1px solid ${C.bdr}`}}>
+          공유 매물이 아직 없습니다. <strong style={{color:C.tx}}>대시보드 상단「동기화」</strong>를 눌러 주세요. 옆 <strong style={{color:C.tx}}>?</strong> 버튼에서 안내를 볼 수 있습니다.
+        </div>
+      )}
+      <div ref={scrollRef} style={{flex:1,minHeight:0,overflow:'auto',padding:isMobile?'12px 16px 16px':'16px 28px'}} onScroll={handleScroll}>
         {statusTab==='FOLDER'&&(
           <div style={{marginBottom:16}} onClick={()=>setFolderAddOpen(null)}>
             <div style={{fontSize:12,fontWeight:700,color:C.txM,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
@@ -1873,7 +2155,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
             </div>
             {folders.length===0?(
               <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,padding:'18px 20px',fontSize:13,color:C.txP,display:'flex',alignItems:'center',gap:8}}>
-                만든 폴더가 없습니다. <span onClick={()=>onOpen('fm',null)} style={{color:C.brand,fontWeight:600,cursor:'pointer'}}>폴더 관리에서 만들어보세요</span>
+                만든 폴더가 없습니다. <span onClick={()=>onOpen('fm',null)} style={{color:C.brand,fontWeight:600,cursor:'pointer'}}>그룹 관리에서 만들어보세요</span>
               </div>
             ):(
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
@@ -1945,13 +2227,13 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
           <PropertyCardList properties={visible} variant={rentList?'rental':'sale'} onOpen={openProperty} onToggleFav={togglePropertyFav} getSharedLabel={getSharedLabel} emptyMessage={rentList?'등록된 임대 매물이 없습니다':'조건에 맞는 매물이 없습니다'}/>
         ):(
         <div style={{background:C.surf,borderRadius:10,overflowX:'auto',padding:`0 ${PROP_LIST_PAD_X}px`,boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
-          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${rentList?PROP_RENT_TBL_MOVEIN_CSS+PROP_RENT_TBL_AREA_CSS:PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
+          <style dangerouslySetInnerHTML={{__html:`.prop-list-tbl{border-collapse:separate;border-spacing:0}.prop-list-tbl th,.prop-list-tbl td{padding:10px 8px!important;letter-spacing:-0.01em;vertical-align:middle}.prop-list-tbl thead th{color:${C.txM}!important}.prop-list-tbl .prop-col-price{padding:10px 6px!important;font-size:12px;text-align:right}.prop-list-tbl .prop-col-num{text-align:right;font-size:12px;white-space:nowrap}.prop-list-tbl tbody .prop-col-zone{text-align:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.prop-list-tbl thead .prop-col-zone{text-align:center}${PROP_LIST_TBL_ADDR_CSS}${PROP_LIST_TBL_METRICS_CSS}${PROP_LIST_TBL_DATE_CSS}${rentList?PROP_RENT_TBL_AGENT_CSS+PROP_RENT_TBL_AREA_CSS:PROP_LIST_TBL_CREATED_STICKY_CSS}${PROP_LIST_TBL_ACTION_CSS}`}}/>
           <table className="tbl prop-list-tbl" style={{tableLayout:'fixed',minWidth:rentList?PROP_RENT_LIST_MIN_W:PROP_LIST_MIN_W,width:'100%'}} onClick={()=>setOpenColFilter(null)}>
             <colgroup>
               <col style={{width:PROP_COL.check}}/>
               <col style={{width:PROP_COL.star}}/>
               <col style={{width:PROP_COL.status}}/>
-              <col style={{width:rentList?PROP_RENT_COL.trade:PROP_COL.trade}}/>
+              {rentList&&<col style={{width:PROP_RENT_COL.trade}}/>}
               <col style={{width:PROP_COL.tag}}/>
               <col style={{width:rentList?propRentAddrColWidth:propAddrColWidth}}/>
               {rentList?(
@@ -1965,6 +2247,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                   <col style={{width:PROP_RENT_COL.maintenance}}/>
                   <col style={{width:PROP_RENT_COL.lastCall}}/>
                   <col style={{width:PROP_RENT_COL.moveIn}}/>
+                  <col style={{width:PROP_RENT_COL.agent}}/>
                 </>
               ):(
                 <>
@@ -1974,8 +2257,9 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                   <col style={{width:PROP_COL.floorArea}}/>
                   <col style={{width:PROP_COL.zoning}}/>
                   <col style={{width:PROP_COL.landPy}}/>
-                  <col style={{width:PROP_COL.lastCall}}/>
-                  <col style={{width:PROP_COL.created}}/>
+                  <col style={{width:PROP_COL.floorPy}}/>
+                  <col style={{width:PROP_COL.updatedAt}}/>
+                  <col style={{width:PROP_COL.agent}}/>
                 </>
               )}
               {PROP_LIST_SHOW_ROW_ACTIONS&&<col style={{width:PROP_COL.action}}/>}
@@ -1996,13 +2280,14 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:120,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,status:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.status?C.brand:C.tx,fontWeight:!colFilter.status?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {[['NEW','신규'],['ACTIVE','진행중'],['HOLD','보류'],['COMPLETED','계약완료']].map(([k,v])=>(
-                        <div key={k} onClick={()=>{setColFilter(f=>({...f,status:k}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.status===k?C.brand:C.tx,fontWeight:colFilter.status===k?600:400}}
-                          onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{v}</div>
+                      {propStatusOpts(rentList).map(({id,label})=>(
+                        <div key={id} onClick={()=>{setColFilter(f=>({...f,status:id}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.status===id?C.brand:C.tx,fontWeight:colFilter.status===id?600:400}}
+                          onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{label}</div>
                       ))}
                     </div>
                   )}
                 </th>
+                {rentList&&(
                 <th style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
                   <span style={{cursor:'pointer',display:'flex',alignItems:'center',gap:3}}
                     onClick={()=>setOpenColFilter(v=>v==='trade'?null:'trade')}>거래방식<span style={{fontSize:11,color:C.txM,marginLeft:2,opacity:colFilter.trade?1:.28}}>▼</span></span>
@@ -2017,6 +2302,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     </div>
                   )}
                 </th>
+                )}
                 <th style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
                   <span style={{cursor:'pointer',display:'flex',alignItems:'center',gap:3}}
                     onClick={()=>setOpenColFilter(v=>v==='tag'?null:'tag')}>종류<span style={{fontSize:11,color:C.txM,marginLeft:2,opacity:colFilter.tag?1:.28}}>▼</span></span>
@@ -2024,7 +2310,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:140,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
                       <div onClick={()=>{setColFilter(f=>({...f,tag:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.tag?C.brand:C.tx,fontWeight:!colFilter.tag?600:400}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                      {[...new Set(baseProps.filter((p)=>propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0})).map(p=>p.tag).filter(Boolean))].map(t=>(
+                      {[...new Set(baseProps.filter((p)=>propertyBelongsToListTab(p,statusTab,{inFolder:(propFolders[p.id]||[]).length>0,dealMode:mode})).map(p=>p.tag).filter(Boolean))].map(t=>(
                         <div key={t} onClick={()=>{setColFilter(f=>({...f,tag:t}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.tag===t?C.brand:C.tx,fontWeight:colFilter.tag===t?600:400}}
                           onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{t}</div>
                       ))}
@@ -2047,56 +2333,69 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
                     <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('maintenance')}>관리비 {sortMark('maintenance')}</th>
                     <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>최종통화일 {sortMark('lastCall')}</th>
                     <th className="prop-col-date prop-col-movein prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('moveInDate')}>입주가능일 {sortMark('moveInDate')}</th>
+                    <th className="prop-col-date prop-col-agent prop-col-metrics" style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
+                      <span style={{cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:3}}
+                        onClick={()=>setOpenColFilter(v=>v==='agent'?null:'agent')}>담당자<span style={{fontSize:11,color:C.txM,marginLeft:2,opacity:colFilter.agent?1:.28}}>▼</span></span>
+                      {openColFilter==='agent'&&(
+                        <div style={{position:'absolute',top:'100%',right:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:140,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4,textAlign:'left'}}>
+                          <div onClick={()=>{setColFilter(f=>({...f,agent:''}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.agent?C.brand:C.tx,fontWeight:!colFilter.agent?600:400}}
+                            onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
+                          {agentNameOpts.map((n)=>(
+                            <div key={n} onClick={()=>{setColFilter(f=>({...f,agent:n}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.agent===n?C.brand:C.tx,fontWeight:colFilter.agent===n?600:400}}
+                              onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{n}</div>
+                          ))}
+                          <div onClick={()=>{setColFilter(f=>({...f,agent:PROP_AGENT_NONE}));setOpenColFilter(null);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.agent===PROP_AGENT_NONE?C.brand:C.tx,fontWeight:colFilter.agent===PROP_AGENT_NONE?600:400}}
+                            onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>미지정</div>
+                        </div>
+                      )}
+                    </th>
                   </>
                 ):(
                   <>
-                <th onClick={()=>toggleSort('price')} className="prop-col-price prop-col-metrics" style={{cursor:'pointer'}}>
-                  가격 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='price'?1:.28}}>
-                    {sortKey==='price'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('roi')}>
-                  수익률 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='roi'?1:.28}}>
-                    {sortKey==='roi'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landArea')}>
-                  대지면적 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='landArea'?1:.28}}>
-                    {sortKey==='landArea'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('floorArea')}>
-                  연면적 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='floorArea'?1:.28}}>
-                    {sortKey==='floorArea'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-zone prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('zoning')}>
-                  용도지역 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='zoning'?1:.28}}>
-                    {sortKey==='zoning'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landPy')}>
-                  대지 평단가 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='landPy'?1:.28}}>
-                    {sortKey==='landPy'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-date prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('lastCall')}>
-                  최종통화일 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='lastCall'?1:.28}}>
-                    {sortKey==='lastCall'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
-                <th className="prop-col-date prop-col-created prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('created')}>
-                  등록일 <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey==='created'?1:.28}}>
-                    {sortKey==='created'&&sortDir==='asc'?'▲':'▼'}
-                  </span>
-                </th>
+                    <th onClick={()=>toggleSort('price')} className="prop-col-price prop-col-metrics" style={{cursor:'pointer'}}>
+                      매도호가 {sortMark('price')}
+                    </th>
+                    <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('roi')}>
+                      수익률 {sortMark('roi')}
+                    </th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landArea')}>
+                      대지면적 {sortMark('landArea')}
+                    </th>
+                    <th className="prop-col-num prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('floorArea')}>
+                      연면적 {sortMark('floorArea')}
+                    </th>
+                    <th className="prop-col-zone prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('zoning')}>
+                      용도지역 {sortMark('zoning')}
+                    </th>
+                    <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('landPy')}>
+                      대지단가 {sortMark('landPy')}
+                    </th>
+                    <th className="prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('floorPy')}>
+                      연면적단가 {sortMark('floorPy')}
+                    </th>
+                    <th className="prop-col-date prop-col-updated prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('updatedAt')}>
+                      최종수정일 {sortMark('updatedAt')}
+                    </th>
+                    <th className="prop-col-date prop-col-agent prop-col-metrics" style={{cursor:'pointer'}} onClick={()=>toggleSort('agentName')}>
+                      담당자 {sortMark('agentName')}
+                    </th>
                   </>
                 )}
                 {PROP_LIST_SHOW_ROW_ACTIONS&&<th className="prop-col-action"/>}
               </tr>
             </thead>
             <tbody>
-              {visible.map(p=>rentList?(
+              {visible.length===0?(
+                <tr>
+                  <td colSpan={rentList?16:(PROP_LIST_SHOW_ROW_ACTIONS?15:14)} style={{height:140,textAlign:'center',color:C.txP,fontSize:14,cursor:'default'}}>
+                    {otherDealCount&&!search&&!appliedAdv&&!colFilter.status&&!colFilter.tag&&!colFilter.trade
+                      ?`이 목록은 ${rentList?'임대':'매매'} 매물만 표시합니다. 상단에서 ${rentList?'매매':'임대'}로 전환해 보세요.`
+                      :(search||appliedAdv||colFilter.status||colFilter.tag||colFilter.trade
+                        ?'조건에 맞는 매물이 없습니다. 상세검색을 초기화하거나 상태 필터를 전체로 바꿔 보세요.'
+                        :(rentList?'등록된 임대 매물이 없습니다':'등록된 매물이 없습니다'))}
+                  </td>
+                </tr>
+              ):visible.map(p=>rentList?(
                 <PropRentRow key={p.id} p={p} onOpenDetail={openProperty} onToggleFav={togglePropertyFav} checked={checked} toggleCheck={toggleCheck}
                   sharedLabel={getSharedLabel(p)}/>
               ):(
@@ -2132,7 +2431,7 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
               <Btn role="toolbar-primary" ch="폴더에 담기" ic="ti-folder-plus" on={()=>setBulkOpen(v=>!v)}/>
               {bulkOpen&&(
                 <div style={{position:'absolute',bottom:'calc(100% + 6px)',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,minWidth:180,boxShadow:'0 6px 20px rgba(0,0,0,.15)',overflow:'hidden'}}>
-                  {folders.length===0&&<div style={{padding:'12px 14px',fontSize:12,color:C.txP}}>폴더 관리에서 먼저 폴더를 만들어주세요</div>}
+                  {folders.length===0&&<div style={{padding:'12px 14px',fontSize:12,color:C.txP}}>그룹 관리에서 먼저 폴더를 만들어주세요</div>}
                   {folders.map(f=>(
                     <div key={f.id} onClick={()=>{
                         setPropFolders(pf=>{
@@ -2160,6 +2459,48 @@ const PropList=({onOpen,onNav,folders,propFolders,setPropFolders,onDeletePropert
     </div>
   );
 };
+const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,sharedLabel,canEditProperty=true})=>(
+  <tr onClick={()=>onOpenDetail(p)}>
+    <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
+      <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${checked[p.id]?C.brand:C.bdrSt}`,background:checked[p.id]?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
+        {checked[p.id]&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+      </div>
+    </td>
+    <td onClick={e=>e.stopPropagation()} style={{cursor:'default',textAlign:'center'}}>
+      <span style={{fontSize:18,color:p.fav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}}
+        onClick={e=>onToggleFav(p,e)}>
+        {p.fav?'★':'☆'}
+      </span>
+    </td>
+    <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status}/></td>
+    <td style={{whiteSpace:'nowrap'}}><Bdg label={propKindDisplayLabel(p)||p.tag} type="gray"/></td>
+    <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
+      <PropJibunPhotoPreview property={p}>
+        <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
+      </PropJibunPhotoPreview>
+      {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
+      {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
+      <PropSyncHint rec={p} cloudEnabled={isSupabaseConfigured}/>
+    </td>
+    <td className="prop-col-price prop-col-metrics" style={{fontWeight:600,color:C.info,fontSize:12,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}} title={propPrice(p)}>{propPrice(p)}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:C.ok,fontWeight:500}}>{p.roi||'-'}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:p.land>0?C.tx:C.txP}}>{propLandPyungLabel(p)}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:p.floor>0?C.tx:C.txP}}>{propFloorPyungLabel(p)}</td>
+    <PropZoningCell p={p} className="prop-col-zone prop-col-metrics"/>
+    <td className="prop-col-num prop-col-metrics" style={{color:p.land>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.land)}</td>
+    <td className="prop-col-num prop-col-metrics" style={{color:p.floor>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.floor)}</td>
+    <td className="prop-col-date prop-col-updated prop-col-metrics" style={{color:C.txM,fontSize:12,whiteSpace:'nowrap'}}>{fmtPropUpdatedAt(p)}</td>
+    <td className="prop-col-date prop-col-agent prop-col-metrics" style={{color:C.txM,fontSize:12,whiteSpace:'nowrap'}}>{propAgentLabel(p)}</td>
+    {PROP_LIST_SHOW_ROW_ACTIONS&&(
+      <td onClick={e=>e.stopPropagation()} className="prop-col-action">
+        <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'nowrap',minWidth:120}}>
+          <Btn role="row-edit" ch="수정" on={()=>onOpen('pe',p)} disabled={!canEditProperty} title={!canEditProperty?PERMISSION_DENIED_TOOLTIP:undefined}/>
+          <Btn role="row-delete" ch="삭제" on={()=>onDelete&&onDelete(p)} disabled={!canEditProperty||!onDelete} title={!canEditProperty?PERMISSION_DENIED_TOOLTIP:undefined}/>
+        </div>
+      </td>
+    )}
+  </tr>
+);
 const RentalAreaCell=({m2})=>{
   const a=rentalAreaParts(m2);
   return (
@@ -2181,13 +2522,16 @@ const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})
         {p.fav?'★':'☆'}
       </span>
     </td>
-    <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
+    <td style={{whiteSpace:'nowrap'}}><PropStatusBdg s={p.status} rent/></td>
     <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{rentalTradeLabel(p.trade)}</span></td>
-    <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
+    <td style={{whiteSpace:'nowrap'}}><Bdg label={propKindDisplayLabel(p)||p.tag} type="gray"/></td>
     <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
-      <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
+      <PropJibunPhotoPreview property={p}>
+        <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
+      </PropJibunPhotoPreview>
       {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
       {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
+      <PropSyncHint rec={p} cloudEnabled={isSupabaseConfigured}/>
     </td>
     <RentalAreaCell m2={p.contractArea}/>
     <RentalAreaCell m2={p.exclusiveArea}/>
@@ -2198,45 +2542,7 @@ const PropRentRow=({p,onOpenDetail,onToggleFav,checked,toggleCheck,sharedLabel})
     <td className="prop-col-num prop-col-metrics" style={{color:rentalMaintMan(p)>0?C.tx:C.txP}}>{fmtRentalMan(rentalMaintMan(p))}</td>
     <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
     <td className="prop-col-date prop-col-movein prop-col-metrics" style={{color:p.moveInDate?C.tx:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{fmtListDotDate(p.moveInDate)}</td>
-  </tr>
-);
-const PropRow=({p,onOpenDetail,onOpen,onToggleFav,checked,toggleCheck,onDelete,sharedLabel,canEditProperty=true})=>(
-  <tr onClick={()=>onOpenDetail(p)}>
-    <td onClick={e=>{e.stopPropagation();toggleCheck(p.id);}} style={{textAlign:'center',cursor:'pointer'}}>
-      <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${checked[p.id]?C.brand:C.bdrSt}`,background:checked[p.id]?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
-        {checked[p.id]&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-      </div>
-    </td>
-    <td onClick={e=>e.stopPropagation()} style={{cursor:'default',textAlign:'center'}}>
-      <span style={{fontSize:18,color:p.fav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}}
-        onClick={e=>onToggleFav(p,e)}>
-        {p.fav?'★':'☆'}
-      </span>
-    </td>
-    <td style={{whiteSpace:'nowrap'}}><StatusBdg s={p.status}/></td>
-    <td style={{whiteSpace:'nowrap',overflow:'hidden'}}><span style={{fontSize:12,color:C.txM}}>{TL[p.trade]}</span></td>
-    <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
-    <td className="prop-col-addr" style={{overflow:'hidden',verticalAlign:'middle'}}>
-      <div className="cell-wrap" style={{fontWeight:500,fontSize:14}}>{propDisplayAddr(p)}</div>
-      {sharedLabel&&<div style={{marginTop:4}}><span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span></div>}
-      {p.bldg&&<div className="cell-wrap" style={{fontSize:12,color:C.txM,marginTop:2}}>{p.bldg}</div>}
-    </td>
-    <td className="prop-col-price prop-col-metrics" style={{fontWeight:600,color:C.info,fontSize:12,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}} title={propPrice(p)}>{propPrice(p)}</td>
-    <td className="prop-col-num prop-col-metrics" style={{color:C.ok,fontWeight:500}}>{p.roi||'-'}</td>
-    <td className="prop-col-num prop-col-metrics" style={{color:p.land>0?C.tx:C.txP}}>{propLandPyungLabel(p)}</td>
-    <td className="prop-col-num prop-col-metrics" style={{color:p.floor>0?C.tx:C.txP}}>{propFloorPyungLabel(p)}</td>
-    <PropZoningCell p={p} className="prop-col-zone prop-col-metrics"/>
-    <td className="prop-col-num prop-col-metrics" style={{color:p.land>0&&p.price>0?C.tx:C.txP}}>{fmtLandPyUnit(p.price,p.land)}</td>
-    <td className="prop-col-date prop-col-metrics" style={{color:p.lastCall!=='—'?C.txS:C.txP,fontSize:12,whiteSpace:'nowrap'}}>{p.lastCall}</td>
-    <td className="prop-col-date prop-col-created prop-col-metrics" style={{color:C.txM,fontSize:12,whiteSpace:'nowrap'}}>{p.created}</td>
-    {PROP_LIST_SHOW_ROW_ACTIONS&&(
-      <td onClick={e=>e.stopPropagation()} className="prop-col-action">
-        <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'nowrap',minWidth:120}}>
-          <Btn role="row-edit" ch="수정" on={()=>onOpen('pe',p)} disabled={!canEditProperty} title={!canEditProperty?PERMISSION_DENIED_TOOLTIP:undefined}/>
-          <Btn role="row-delete" ch="삭제" on={()=>onDelete&&onDelete(p)} disabled={!canEditProperty||!onDelete} title={!canEditProperty?PERMISSION_DENIED_TOOLTIP:undefined}/>
-        </div>
-      </td>
-    )}
+    <td className="prop-col-date prop-col-agent prop-col-metrics" style={{color:C.txM,fontSize:12,whiteSpace:'nowrap'}}>{propAgentLabel(p)}</td>
   </tr>
 );
 
@@ -2307,7 +2613,7 @@ const FolderManageWin=({folders,setFolders,propFolders,setPropFolders,onClose,on
     .sort((a,b)=>(b.fav?1:0)-(a.fav?1:0)),[P,search]);
 
   return(
-    <Win title="폴더 관리" ic="ti-folder" onClose={onClose} w={920}
+    <Win title="그룹 관리" ic="ti-folder" onClose={onClose} w={920}
       ch={<>
         <div style={{flex:1,minHeight:0,display:'flex',overflow:'hidden',padding:'20px 24px',gap:16}}>
           {/* 좌측: 폴더 목록 + 새 폴더 생성 */}
@@ -2395,40 +2701,40 @@ const FolderManageWin=({folders,setFolders,propFolders,setPropFolders,onClose,on
 };
 
 /* ═══ PROPERTY REGISTER ═══ */
-const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainType,subType,collectMoveInDate=false})=>{
+const TradeModeChips=({trade,setTrade})=>{
+  const { mode }=useDealMode();
+  const tradeOpts=tradesForDealMode(mode);
+  return(
+    <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',justifyContent:'flex-end'}}>
+      {tradeOpts.map(t=>(
+        <div key={t} onClick={()=>setTrade(t)} style={{padding:'4px 12px',borderRadius:20,border:'1.5px solid',borderColor:trade===t?C.brand:C.bdr,background:trade===t?C.brandL:'transparent',color:trade===t?C.brand:C.txS,fontSize:12,cursor:'pointer',fontWeight:trade===t?700:400,lineHeight:1.2,transition:'all .1s'}}>
+          {TL[t]}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const PropPriceSection=({trade,priceForm,setPriceForm,idPrefix='',subType,collectMoveInDate=false})=>{
   const set=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:e.target.value}));
   const setNum=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:fmtInputNum(e.target.value)}));
   const setDecNum=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:fmtInputNum(e.target.value,{decimal:true})}));
-  const chk=(k)=>(e)=>setPriceForm((f)=>({...f,[k]:e.target.checked}));
   const L=({children,req})=>(<div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>{children}{req&&<span style={{color:C.brand}}> *</span>}</div>);
-  const negId=`${idPrefix}neg`;
   const numVal=(k)=>fmtInputNum(priceForm[k]??'');
   const decVal=(k)=>fmtInputNum(priceForm[k]??'',{decimal:true});
   const showInvest=showsSaleInvestmentFields(trade, subType);
-  const showPremium=showsPremiumField(trade, subType);
   const showUnit=showsRentalUnitFields(trade);
 
   return(
-    <>
-      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-        {['SALE','JEONSE','MONTHLY','SHORT_TERM','PRESALE'].map(t=>(
-          <div key={t} onClick={()=>setTrade(t)} style={{padding:'6px 16px',borderRadius:20,border:'1.5px solid',borderColor:trade===t?C.brand:C.bdr,background:trade===t?C.brandL:'transparent',color:trade===t?C.brand:C.txS,fontSize:13,cursor:'pointer',fontWeight:trade===t?600:400,transition:'all .1s'}}>
-            {TL[t]}
-          </div>
-        ))}
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
-        {(trade==='SALE'||trade==='PRESALE')&&<>
-          <div><L req>매매가 (만)</L><input className="inp" inputMode="numeric" value={numVal('price')} onChange={setNum('price')} placeholder="예: 4,300,000"/></div>
-          <div><L>융자금 (만)</L><input className="inp" inputMode="numeric" value={numVal('loan')} onChange={setNum('loan')} placeholder="0"/></div>
-          {showInvest&&<>
-            <div><L>관리비 (만)</L><input className="inp" inputMode="numeric" value={numVal('maintenance')} onChange={setNum('maintenance')} placeholder="0"/></div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:14}}>
+        {isSaleTrade(trade)&&<>
+          <div><L req>매도호가 (만)</L><input className="inp" inputMode="numeric" value={numVal('price')} onChange={setNum('price')} placeholder="예: 4,300,000"/></div>
+          <div><L>입금가 (만)</L><input className="inp" inputMode="numeric" value={numVal('inPrice')} onChange={setNum('inPrice')} placeholder="예: 4,300,000"/></div>
+          {showInvest&&(
             <div style={{gridColumn:'1 / -1',fontSize:12,color:C.txP,lineHeight:1.5}}>
               보증금·월임대료·임차계약만료일·수익률은 임대차관리에서 입력합니다.
             </div>
-          </>}
-          {showPremium&&<div><L>권리금 (만)<span style={{fontSize:12,color:C.txP,marginLeft:4}}>상가</span></L><input className="inp" inputMode="numeric" value={numVal('premium')} onChange={setNum('premium')} placeholder="0"/></div>}
-          <div style={{display:'flex',alignItems:'center',gap:8,paddingTop:22}}><input type="checkbox" id={negId} checked={priceForm.priceNegotiable} onChange={chk('priceNegotiable')} style={{width:16,height:16,accentColor:C.brand}}/><label htmlFor={negId} style={{fontSize:13,color:C.txS,cursor:'pointer'}}>가격 협의 가능</label></div>
+          )}
         </>}
         {trade==='JEONSE'&&<>
           <div><L req>전세보증금 (만)</L><input className="inp" inputMode="numeric" value={numVal('jDep')} onChange={setNum('jDep')} placeholder="예: 35,000"/></div>
@@ -2468,21 +2774,27 @@ const PropPriceSection=({trade,setTrade,priceForm,setPriceForm,idPrefix='',mainT
           <div><L>해당 층</L><input className="inp" value={priceForm.unitFloor} onChange={set('unitFloor')} placeholder="예: 3F, B1, 2~3층"/></div>
           <div><L>전용면적 (㎡)</L><input className="inp" inputMode="decimal" value={decVal('exclusiveArea')} onChange={setDecNum('exclusiveArea')} placeholder="예: 84.5"/></div>
           <div><L>계약면적 (㎡)</L><input className="inp" inputMode="decimal" value={decVal('contractArea')} onChange={setDecNum('contractArea')} placeholder="예: 110.2"/></div>
-          <div><L>권리금 (만)</L><input className="inp" inputMode="numeric" value={numVal('premium')} onChange={setNum('premium')} placeholder="0"/></div>
         </>}
-        {(trade==='JEONSE'||trade==='MONTHLY'||trade==='SHORT_TERM')&&(
-          <div style={{display:'flex',alignItems:'center',gap:8,paddingTop:22}}>
-            <input type="checkbox" id={`${negId}${trade}`} checked={priceForm.priceNegotiable} onChange={chk('priceNegotiable')} style={{width:16,height:16,accentColor:C.brand}}/>
-            <label htmlFor={`${negId}${trade}`} style={{fontSize:13,color:C.txS,cursor:'pointer'}}>가격 협의 가능</label>
-          </div>
-        )}
-      </div>
-    </>
+    </div>
   );
 };
 
-const PropLandFields=({landForm,setLandForm,readOnlyStyle})=>{
+const LAND_FORM_FIELDS=[
+  {label:'토지면적 (㎡)',key:'landAreaM2',min:7},
+  {label:'용도지역',key:'landUseZone',min:8},
+  {label:'지목',key:'landCategory',min:4},
+  {label:'개별공시지가 (원/㎡)',key:'officialPriceM2',min:10},
+  {label:'기준년도',key:'officialPriceYear',min:4},
+];
+
+const landFieldWeight=(label,value,min)=>{
+  const val=String(value??'');
+  return Math.max(min,[...String(label)].length,[...val].length+1);
+};
+
+const PropLandFields=({landForm,setLandForm,readOnlyStyle,locked})=>{
   const set=(k)=>(e)=>{
+    if(locked) return;
     if(k==='officialPriceM2'){
       const raw=e.target.value.replace(/\D/g,'');
       setLandForm((f)=>({...f,officialPriceM2:raw===''?'':fmtNum(raw)}));
@@ -2491,48 +2803,256 @@ const PropLandFields=({landForm,setLandForm,readOnlyStyle})=>{
     setLandForm((f)=>({...f,[k]:e.target.value}));
   };
   return(
+    <div style={{display:'flex',gap:10,alignItems:'flex-end',width:'100%',minWidth:0,overflowX:'auto'}}>
+      {LAND_FORM_FIELDS.map(({label,key,min})=>{
+        const val=landForm[key]??'';
+        const w=landFieldWeight(label,val,min);
+        return(
+          <div key={key} style={{flex:`${w} 1 ${Math.max(56,w*9)}px`,minWidth:key==='officialPriceYear'?72:0}}>
+            <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6,whiteSpace:'nowrap'}}>{label}</div>
+            <input className="inp" value={val} onChange={set(key)} readOnly={!!locked} inputMode={key==='officialPriceM2'?'numeric':undefined} style={readOnlyStyle||(locked?{background:C.surf2}:undefined)}/>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const PropExtraParcelsList=({extraParcels,onChangeLand,onRemove,onRefetch})=>{
+  if(!extraParcels?.length) return null;
+  return extraParcels.map((p,i)=>(
+    <div key={p.id} style={{border:`1px solid ${C.bdr}`,borderRadius:8,padding:'12px 14px',background:C.surf2}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:10}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.tx}}>추가 필지 {i+1}</div>
+          <div style={{fontSize:12,color:C.txM,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            {p.jibunAddr||p.roadAddr||'주소 없음'}
+            {p.status==='loading'?' · 토지정보 조회 중…':''}
+            {p.status==='success'?' · API완료':''}
+            {p.status==='error'&&p.error?` · ${p.error}`:''}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8,flexShrink:0}}>
+          {onRefetch&&(
+            <button type="button" onClick={()=>onRefetch(p.id)} disabled={p.status==='loading'}
+              style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:p.status==='loading'?'wait':'pointer',color:C.txS,textDecoration:'underline'}}>
+              재조회
+            </button>
+          )}
+          <button type="button" onClick={()=>onRemove(p.id)}
+            style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline'}}>
+            삭제
+          </button>
+        </div>
+      </div>
+      <PropLandFields
+          landForm={p.landForm}
+          setLandForm={(fn)=>onChangeLand(p.id,fn)}
+          readOnlyStyle={(p.status==='success'||p.status==='loading')?{background:'#fff'}:undefined}
+        />
+    </div>
+  ));
+};
+
+const PropFieldLabel=({children,req})=>(
+  <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>{children}{req&&<span style={{color:C.brand}}> *</span>}</div>
+);
+
+const PropFormSplit=({children})=>(
+  <div className="prop-form-split">{children}</div>
+);
+const PropFormCol=({children})=>(
+  <div className="prop-form-col">{children}</div>
+);
+
+const lookupApiBadge=(lookup)=>lookup.status==='loading'?'조회중…'
+  :lookup.status==='success'?'API완료'
+  :lookup.status==='unverified'?'미확인'
+  :lookup.status==='error'?'API오류'
+  :lookup.status==='address_confirmed'?'코드대기':'API';
+
+const PropLocationBlock=({
+  lookup, isLoading, extraParcelLoading,
+  roadSearch,
+  onAddressSearch, onResetAddress, onAddParcelSearch,
+  setLocationForm,
+  extraParcels, onRemoveExtra,
+  jibunValue, roadValue, ownerNameValue, ownerTelValue, roadInfoValue,
+})=>{
+  const openSearch=()=>{ if(!isLoading) onAddressSearch(); };
+  const searchFieldStyle={flex:1,cursor:isLoading?'wait':'pointer',background:'#fff'};
+  const lockedFieldStyle={background:C.surf2,cursor:isLoading?'wait':'pointer'};
+  return(
     <>
-      {[['토지면적 (㎡)','landAreaM2'],['용도지역','landUseZone'],['지목','landCategory'],['개별공시지가 (원/㎡)','officialPriceM2'],['기준년도','officialPriceYear']].map(([l,k])=>(
-        <div key={k}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>{l}</div>
-          <input className="inp" value={landForm[k]??''} onChange={set(k)} inputMode={k==='officialPriceM2'?'numeric':undefined} style={readOnlyStyle}/></div>
-      ))}
+      <SecLabel ch="소재지" badge={lookupApiBadge(lookup)} formSection/>
+      <div style={{padding:'16px 20px',display:'flex',flexDirection:'column',gap:14}}>
+        {lookup.error&&<div style={{fontSize:12,color:C.err,padding:'8px 12px',background:C.errBg,borderRadius:7}}>{lookup.error}</div>}
+        {lookup.warnings?.length>0&&lookup.status!=='idle'&&(
+          <div style={{fontSize:12,color:C.warn,padding:'8px 12px',background:C.warnBg,borderRadius:7}}>
+            {lookup.warnings.join(' · ')}
+          </div>
+        )}
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          <input className="inp" value={roadSearch} readOnly
+            onClick={openSearch}
+            onKeyDown={e=>{ if(e.key==='Enter'||e.key===' ') { e.preventDefault(); openSearch(); } }}
+            placeholder="클릭하면 주소 검색 — 도로명·지번·건물명" style={{...searchFieldStyle,flex:'1 1 180px',minWidth:160}} disabled={isLoading}/>
+          <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={openSearch}/>
+          <Btn role="page-secondary" ch="초기화" ic="ti-x" on={onResetAddress}/>
+          <Btn role="page-secondary" ch={extraParcelLoading?'필지 조회중…':'필지 추가'} ic="ti-plus" on={onAddParcelSearch}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:14,alignItems:'start'}}>
+          <div>
+            <PropFieldLabel>지번주소</PropFieldLabel>
+            <input className="inp" value={jibunValue} readOnly onClick={openSearch} style={lockedFieldStyle}/>
+          </div>
+          <div>
+            <PropFieldLabel>도로명주소</PropFieldLabel>
+            <input className="inp" value={roadValue} readOnly onClick={openSearch} style={lockedFieldStyle}/>
+          </div>
+          {(extraParcels||[]).map((p)=>(
+            <React.Fragment key={p.id}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input className="inp" value={p.jibunAddr||''} readOnly
+                  style={{background:C.surf2,flex:1}}
+                  placeholder={p.status==='loading'?'조회 중…':'추가 지번주소'}/>
+                {onRemoveExtra&&(
+                  <button type="button" onClick={()=>onRemoveExtra(p.id)}
+                    style={{border:'none',background:'transparent',padding:'4px 6px',fontSize:12,cursor:'pointer',color:C.txS,textDecoration:'underline',flexShrink:0}}>
+                    삭제
+                  </button>
+                )}
+              </div>
+              <input className="inp" value={p.roadAddr||''} readOnly
+                style={{background:C.surf2}}
+                placeholder="추가 도로명주소"/>
+            </React.Fragment>
+          ))}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:14}}>
+          <div>
+            <PropFieldLabel>소유주명</PropFieldLabel>
+            <input className="inp" value={ownerNameValue||''} onChange={e=>setLocationForm(f=>({...f,ownerName:e.target.value}))} placeholder="소유주 이름"/>
+          </div>
+          <div>
+            <PropFieldLabel>소유주 연락처</PropFieldLabel>
+            <PhoneInput value={ownerTelValue} onChange={e=>setLocationForm(f=>({...f,ownerTel:e.target.value}))} placeholder="010-0000-0000"/>
+          </div>
+          <div>
+            <PropFieldLabel>도로조건</PropFieldLabel>
+            <input className="inp" value={roadInfoValue} onChange={e=>setLocationForm(f=>({...f,roadInfo:e.target.value}))} placeholder="예: 8m × 4m"/>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const PropLandSection=({apiBadge, extraParcels, landForm, setLandForm, lookupSuccess, onChangeLand, onRemove, onRefetch})=>{
+  const hasExtra=extraParcels.length>0;
+  return(
+    <>
+      <SecLabel ch="토지정보" badge={apiBadge} formSection/>
+      <div style={{padding:'16px 20px',display:'flex',flexDirection:'column',gap:14}}>
+        {hasExtra&&(
+          <div style={{fontSize:12,fontWeight:700,color:C.tx}}>합계 (면적 합 · 공시지가 가중평균 · 직접 수정 불가)</div>
+        )}
+        <PropLandFields
+          landForm={hasExtra?aggregateLandForm(landForm,extraParcels):landForm}
+          setLandForm={setLandForm}
+          locked={hasExtra}
+          readOnlyStyle={(lookupSuccess||hasExtra)?{background:C.surf2}:undefined}
+        />
+        {hasExtra&&(
+          <>
+            <div style={{fontSize:12,fontWeight:700,color:C.tx,marginTop:4}}>대표 필지</div>
+            <PropLandFields landForm={landForm} setLandForm={setLandForm} readOnlyStyle={lookupSuccess?{background:C.surf2}:undefined}/>
+          </>
+        )}
+        <PropExtraParcelsList extraParcels={extraParcels} onChangeLand={onChangeLand} onRemove={onRemove} onRefetch={onRefetch}/>
+      </div>
     </>
   );
 };
 
 const BUILDING_COMMA_KEYS = new Set(['grossFloorAreaM2', 'vlRatEstmTotAreaM2', 'archAreaM2', 'bcRat', 'vlRat']);
 
+const BUILDING_FORM_FIELDS=[
+  {label:'연면적 (㎡)',key:'grossFloorAreaM2',min:8},
+  {label:'용적률산정연면적 (㎡)',key:'vlRatEstmTotAreaM2',min:12},
+  {label:'건축면적 (㎡)',key:'archAreaM2',min:8},
+  {label:'건폐율 (%)',key:'bcRat',min:5},
+  {label:'용적률 (%)',key:'vlRat',min:5},
+  {label:'지상층수',key:'grndFlrCnt',min:4},
+  {label:'지하층수',key:'ugrndFlrCnt',min:4},
+  {label:'주차대수',key:'parkingCnt',min:4},
+  {label:'승강기 대수',key:'elevatorCnt',min:5},
+  {label:'주구조',key:'strctCdNm',min:6},
+  {label:'주용도',key:'mainPurpsCdNm',min:8},
+  {label:'사용승인일',key:'useAprDay',min:10},
+];
+
 const PropBuildingFields=({buildingForm,setBuildingForm,readOnlyStyle})=>{
   const set=(k)=>(e)=>setBuildingForm((f)=>({...f,[k]:e.target.value}));
   const setNum=(k)=>(e)=>setBuildingForm((f)=>({...f,[k]:fmtInputNum(e.target.value,{decimal:true})}));
   const displayVal=(k)=>BUILDING_COMMA_KEYS.has(k)?fmtInputNum(buildingForm[k]??'',{decimal:true}):(buildingForm[k]??'');
+  const rowSizes=[3,6,3];
+  const rows=[];
+  let idx=0;
+  for(const n of rowSizes){
+    rows.push(BUILDING_FORM_FIELDS.slice(idx,idx+n));
+    idx+=n;
+  }
   return(
-    <>
-      {[['연면적 (㎡)','grossFloorAreaM2'],['용적률산정연면적 (㎡)','vlRatEstmTotAreaM2'],['건축면적 (㎡)','archAreaM2'],['건폐율 (%)','bcRat'],['용적률 (%)','vlRat'],['지상층수','grndFlrCnt'],['지하층수','ugrndFlrCnt'],['주차대수','parkingCnt'],['승강기 대수','elevatorCnt'],['주구조','strctCdNm'],['주용도','mainPurpsCdNm'],['사용승인일','useAprDay']].map(([l,k])=>(
-        <div key={k}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>{l}</div>
-          <input className="inp" type={k==='useAprDay'?'date':'text'} inputMode={BUILDING_COMMA_KEYS.has(k)?'decimal':undefined} value={displayVal(k)} onChange={BUILDING_COMMA_KEYS.has(k)?setNum(k):set(k)} style={readOnlyStyle}/></div>
+    <div style={{display:'flex',flexDirection:'column',gap:14,width:'100%',minWidth:0}}>
+      {rows.map((row,ri)=>(
+        <div key={ri} style={{display:'flex',gap:10,alignItems:'flex-end',width:'100%',minWidth:0,overflowX:'auto'}}>
+          {row.map(({label,key,min})=>{
+            const val=displayVal(key);
+            const w=landFieldWeight(label,val,min);
+            return(
+              <div key={key} style={{flex:`${w} 1 ${Math.max(56,w*9)}px`,minWidth:0}}>
+                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6,whiteSpace:'nowrap'}}>{label}</div>
+                <input className="inp" type={key==='useAprDay'?'date':'text'} inputMode={BUILDING_COMMA_KEYS.has(key)?'decimal':undefined} value={val} onChange={BUILDING_COMMA_KEYS.has(key)?setNum(key):set(key)} style={readOnlyStyle}/>
+              </div>
+            );
+          })}
+        </div>
       ))}
-    </>
+    </div>
   );
 };
 
 const PropRegister=({onNav})=>{
-  const { accountDefaults, user }=useAuth();
+  const { accountDefaults, user, teamMembers }=useAuth();
+  const { mode, isRent, defaultTrade }=useDealMode();
   const userId=user?.id??null;
   const registerDraft=useMemo(()=>hydratePropertyRegisterDraft(loadPropertyRegisterDraft(userId)),[userId]);
   const [draftReady,setDraftReady]=useState(()=>!registerDraft);
   const draftRestoredRef=useRef(false);
-  const [trade,setTrade]=useState(()=>registerDraft?.trade??'SALE');
+  const [trade,setTrade]=useState(()=>{
+    const t=normalizePropTrade(registerDraft?.trade??defaultTrade);
+    return tradeMatchesDealMode(t,mode)?t:defaultTrade;
+  });
   const [mainType,setMainType]=useState(()=>registerDraft?.mainType??'COMMERCIAL');
   const [subType,setSubType]=useState(()=>registerDraft?.subType??'WHOLE_BUILDING');
+  const [saleKind,setSaleKind]=useState(()=>normalizeSalePropKind(registerDraft?.saleKind)||saleKindFromProp({main:registerDraft?.mainType,sub:registerDraft?.subType,tag:''})||'BUILDING');
   const [status,setStatus]=useState(()=>registerDraft?.status??'NEW');
   const [pub,setPub]=useState(()=>registerDraft?.pub??'true');
   const [photoSlots,setPhotoSlots]=useState(()=>registerDraft?.photoSlots??[null,null,null]);
   const [priceForm,setPriceForm]=useState(()=>registerDraft?.priceForm??emptyPriceForm());
+  useEffect(()=>{
+    setTrade((prev)=>{
+      const t=normalizePropTrade(prev);
+      if(!tradeMatchesDealMode(t,mode)) return defaultTrade;
+      return t;
+    });
+  },[mode,defaultTrade]);
   const [roadSearch,setRoadSearch]=useState(()=>registerDraft?.roadSearch??'');
   const [addressModalOpen,setAddressModalOpen]=useState(false);
+  const [addressModalMode,setAddressModalMode]=useState('primary');
   const [detailForm,setDetailForm]=useState(()=>registerDraft?.detailForm??{
-    title:'', agentName:'', agentTel:'', promo:'', memo:'', discoUrl:'',
+    title:'', agentName:'', agentTel:'', promo:'', memo:'', discoUrl:'', folderUrl:'',
   });
   useEffect(()=>{
     setDetailForm(f=>({
@@ -2544,11 +3064,13 @@ const PropRegister=({onNav})=>{
   const {
     lookup, addressKeys, locationForm, setLocationForm,
     landForm, setLandForm, buildingForm, setBuildingForm,
-    handleAddressFetchSuccess, refetchPublicData, isLoading,
+    extraParcels, addExtraParcelFromAddress, removeExtraParcel, updateExtraParcelLand, extraParcelLoading, refetchExtraParcel,
+    handleAddressFetchSuccess, resetAddressLookup, isLoading,
     restoreAddressLookupDraft,
   }=usePropertyAddressLookup({ mode:'register' });
 
   const persistDraftRef=useRef(true);
+  const [saving,setSaving]=useState(false);
   useEffect(()=>{
     if(draftRestoredRef.current||!registerDraft) return;
     draftRestoredRef.current=true;
@@ -2561,9 +3083,9 @@ const PropRegister=({onNav})=>{
     const timer=window.setTimeout(()=>{
       if(!persistDraftRef.current) return;
       savePropertyRegisterDraft({
-        trade, mainType, subType, status, pub,
+        trade, mainType, subType, saleKind, status, pub,
         priceForm, roadSearch, detailForm, photoSlots,
-        locationForm, landForm, buildingForm, addressKeys,
+        locationForm, landForm, buildingForm, addressKeys, extraParcels,
         lookup: {
           status: lookup.status,
           error: lookup.error,
@@ -2576,57 +3098,81 @@ const PropRegister=({onNav})=>{
     return ()=>window.clearTimeout(timer);
   },[
     draftReady, userId,
-    trade, mainType, subType, status, pub,
+    trade, mainType, subType, saleKind, status, pub,
     priceForm, roadSearch, detailForm, photoSlots,
-    locationForm, landForm, buildingForm, addressKeys, lookup,
+    locationForm, landForm, buildingForm, addressKeys, extraParcels, lookup,
   ]);
-  const subOpts=PROP_SUB[mainType]||{};
+  const subOpts=Object.fromEntries(visiblePropSubEntries(mainType,subType));
 
-  const onAddressSearch=()=>setAddressModalOpen(true);
+  const onAddressSearch=()=>{ setAddressModalMode('primary'); setAddressModalOpen(true); };
+  const onAddParcelSearch=()=>{ setAddressModalMode('extra'); setAddressModalOpen(true); };
+  const onResetAddress=()=>{
+    setRoadSearch('');
+    resetAddressLookup();
+  };
 
   const onAddressSelected=async (addr)=>{
+    if(addressModalMode==='extra'){
+      await addExtraParcelFromAddress(addr);
+      return;
+    }
     setRoadSearch(addr.jibunAddr||addr.roadAddr||'');
     await handleAddressFetchSuccess(addr);
   };
 
-  const apiBadge=lookup.status==='loading'?'조회중…'
-    :lookup.status==='success'?'API완료'
-    :lookup.status==='error'?'API오류'
-    :lookup.status==='address_confirmed'?'코드대기':'API';
+  const apiBadge=lookupApiBadge(lookup);
 
   const handleSave=async()=>{
+    if(saving) return;
+    if(lookupBlocksPropertySave(lookup, extraParcelLoading)){
+      window.alert(propertySaveBlockedTitle(lookup, extraParcelLoading));
+      return;
+    }
     persistDraftRef.current=false;
+    setSaving(true);
     try{
     const addressFields=buildPropertyAddressFields(locationForm, roadSearch);
     const mapCoordFields=await resolveMapCoordFieldsForSave(null, {
       ...addressFields,
       bldg: detailForm.title || '',
     });
-    await addProperty({
-      main:mainType, sub:subType, status, pub:pub==='true', trade, fav:false, favAt:null,
+    const typeCodes=typeCodesForSave({isSale:!isRent,saleKind,main:mainType,sub:subType});
+    const payload={
+      main:typeCodes.main, sub:typeCodes.sub, status, pub:pub==='true', trade, fav:false, favAt:null,
       ...addressFields,
       ...mapCoordFields,
       bldg:detailForm.title||'',
+      ownerName:locationForm.ownerName||'',
       ownerTel:normalizePhone(locationForm.ownerTel)||'',
       roadInfo:locationForm.roadInfo||'',
       promo:detailForm.promo||'',
       memo:detailForm.memo||'',
       discoUrl:normalizeDiscoUrl(detailForm.discoUrl)||'',
+      folderUrl:normalizeHttpUrl(detailForm.folderUrl)||'',
       agentName:detailForm.agentName||'',
       agentTel:normalizePhone(detailForm.agentTel)||'',
       photos:photoSlotsToSave(photoSlots),
-      tag:PROP_SUB[mainType]?.[subType]||'',
+      tag:typeCodes.tag,
       lastCall:'—', created:formatCreatedDate(), deletedAt:null,
       ...buildPriceFields(trade, priceForm),
-      ...landToPropertyFields(landForm),
+      ...landFieldsForPropertySave(landForm, extraParcels, addressKeys),
       ...buildingToPropertyFields(buildingForm),
-    });
+    };
+    const check=validatePropertyForSave(payload);
+    if(!check.ok){
+      persistDraftRef.current=true;
+      window.alert(check.message);
+      return;
+    }
+    const { sync }=await addProperty(payload);
     clearPropertyRegisterDraft();
-    showNotification('저장하였습니다.','success');
+    showNotification(propertySaveToastMessage(sync),'success');
     onNav('properties');
     }catch(err){
       persistDraftRef.current=true;
-      throw err;
+      window.alert(err instanceof Error?err.message:String(err));
+    }finally{
+      setSaving(false);
     }
   };
 
@@ -2636,21 +3182,24 @@ const PropRegister=({onNav})=>{
         open={addressModalOpen}
         onClose={()=>setAddressModalOpen(false)}
         onSelect={onAddressSelected}
-        initialKeyword={roadSearch}
+        initialKeyword={addressModalMode==='extra'?'':roadSearch}
+        initialMode={addressModalMode==='extra'?'jibun':'all'}
         autoSearchOnOpen={false}
       />
       <PH title="매물 등록" sub="필드에 * 표시는 필수 입력항목입니다"
         acts={<Btn role="page-secondary" ch="일괄 등록" ic="ti-upload" on={()=>onNav&&onNav('registerBulk')}/>}
       />
       <div style={{flex:1,minHeight:0,overflow:'auto',padding:'20px 28px 0'}}>
-        <div style={{display:'flex',flexDirection:'column',gap:0,background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)',marginBottom:20}}>
-          {/* 매물종류·상태 */}
-          <SecLabel ch="매물종류 · 상태"/>
-          <div style={{padding:'16px 20px',display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,borderBottom:`1px solid ${C.bdr}`}}>
+        <PropFormSplit>
+          <PropFormCol>
+          <SecLabel ch="매물종류 · 상태" formSection/>
+          <div className="prop-form-sec-body" style={{padding:'16px 20px',display:'grid',gridTemplateColumns:isRent?'repeat(4,minmax(0,1fr))':'repeat(3,minmax(0,1fr))',gap:14}}>
+            {isRent?(
+              <>
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>매물 대분류 <span style={{color:C.brand}}>*</span></div>
-              <select className="sel" value={mainType} onChange={e=>{setMainType(e.target.value);setSubType(Object.keys(PROP_SUB[e.target.value]||{})[0]||'');}}>
-                {Object.entries(PROP_MAIN).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
+              <select className="sel" value={mainType} onChange={e=>{setMainType(e.target.value);setSubType(visiblePropSubEntries(e.target.value)[0]?.[0]||'');}}>
+                {visiblePropMainEntries(mainType).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
               </select>
             </div>
             <div>
@@ -2659,88 +3208,106 @@ const PropRegister=({onNav})=>{
                 {Object.entries(subOpts).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
               </select>
             </div>
+              </>
+            ):(
+            <div>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>매물 종류 <span style={{color:C.brand}}>*</span></div>
+              <select className="sel" value={saleKind} onChange={e=>{
+                const k=normalizeSalePropKind(e.target.value)||'BUILDING';
+                setSaleKind(k);
+                const t=typeCodesForSave({isSale:true,saleKind:k});
+                setMainType(t.main);setSubType(t.sub);
+              }}>
+                {SALE_PROP_KIND_OPTS.map(({id,label})=>(<option key={id} value={id}>{label}</option>))}
+              </select>
+            </div>
+            )}
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>진행 상태 <span style={{color:C.brand}}>*</span></div>
-              <select className="sel" value={status} onChange={e=>setStatus(e.target.value)}><option value="NEW">신규</option><option value="ACTIVE">진행중</option><option value="HOLD">보류</option><option value="COMPLETED">계약완료</option></select>
+              <select className="sel" value={status} onChange={e=>setStatus(e.target.value)}>{propStatusOpts(isRent).map(({id,label})=>(<option key={id} value={id}>{label}</option>))}</select>
             </div>
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>공개 여부 <span style={{color:C.brand}}>*</span></div>
               <select className="sel" value={pub} onChange={e=>setPub(e.target.value)}><option value="true">공개</option><option value="false">비공개</option></select>
             </div>
           </div>
-          {/* 소재지 — addressKeys: sigunguCd·bjdongCd·bun·ji (공공데이터 키) */}
-          <SecLabel ch="소재지" badge={apiBadge}/>
-          <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.bdr}`,display:'flex',flexDirection:'column',gap:14}}>
-            {lookup.error&&<div style={{fontSize:12,color:C.err,padding:'8px 12px',background:C.errBg,borderRadius:7}}>{lookup.error}</div>}
-            {lookup.warnings?.length>0&&lookup.status!=='idle'&&(
-              <div style={{fontSize:12,color:C.warn,padding:'8px 12px',background:C.warnBg,borderRadius:7}}>
-                {lookup.warnings.join(' · ')}
-              </div>
-            )}
-            <div style={{display:'flex',gap:10}}>
-              <input className="inp" value={roadSearch} onChange={e=>setRoadSearch(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter') onAddressSearch(); }}
-                placeholder="주소 검색 — 도로명·지번·건물명 (예: 상계동 737, 동일로215길 48)" style={{flex:1}} disabled={isLoading}/>
-              <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={onAddressSearch}/>
-              <Btn role="page-secondary" ch="재조회" ic="ti-refresh" on={refetchPublicData}/>
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-              <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>지번주소</div>
-                <input className="inp" value={locationForm.jibunAddr} readOnly style={{background:C.surf2}}/></div>
-              <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>도로명주소</div>
-                <input className="inp" value={locationForm.roadAddr} readOnly style={{background:C.surf2}}/></div>
-              <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>소유주 연락처</div>
-                <PhoneInput value={locationForm.ownerTel} onChange={e=>setLocationForm(f=>({...f,ownerTel:e.target.value}))} placeholder="010-0000-0000"/></div>
-              <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>도로상황</div>
-                <input className="inp" value={locationForm.roadInfo} onChange={e=>setLocationForm(f=>({...f,roadInfo:e.target.value}))} placeholder="예: 8m × 4m"/></div>
-            </div>
+          </PropFormCol>
+          <PropFormCol>
+          <SecLabel ch="거래방식 · 가격" formSection end={<TradeModeChips trade={trade} setTrade={setTrade}/>}/>
+          <div className="prop-form-sec-body" style={{padding:'16px 20px'}}>
+            <PropPriceSection trade={trade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="reg_" subType={subType} collectMoveInDate/>
           </div>
-          {/* 거래방식·가격 */}
-          <SecLabel ch="거래방식 · 가격"/>
-          <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.bdr}`}}>
-            <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="reg_" mainType={mainType} subType={subType} collectMoveInDate/>
-          </div>
-          {/* 토지정보 — landForm: 토지대장·이용계획 API 매핑 */}
-          <SecLabel ch="토지정보" badge={apiBadge}/>
-          <div style={{padding:'16px 20px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,borderBottom:`1px solid ${C.bdr}`}}>
-            <PropLandFields landForm={landForm} setLandForm={setLandForm} readOnlyStyle={lookup.status==='success'?{background:C.surf2}:undefined}/>
-          </div>
-          {/* 건물정보 — buildingForm: 건축물대장 API 매핑 */}
-          <SecLabel ch="건물정보" badge={apiBadge}/>
-          <div style={{padding:'16px 20px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,borderBottom:`1px solid ${C.bdr}`}}>
+          </PropFormCol>
+        </PropFormSplit>
+        <PropFormSplit>
+          <PropFormCol>
+          <PropLocationBlock
+            lookup={lookup} isLoading={isLoading} extraParcelLoading={extraParcelLoading}
+            roadSearch={roadSearch}
+            onAddressSearch={onAddressSearch} onResetAddress={onResetAddress} onAddParcelSearch={onAddParcelSearch}
+            setLocationForm={setLocationForm}
+            extraParcels={extraParcels} onRemoveExtra={removeExtraParcel}
+            jibunValue={locationForm.jibunAddr}
+            roadValue={locationForm.roadAddr}
+            ownerNameValue={locationForm.ownerName}
+            ownerTelValue={locationForm.ownerTel}
+            roadInfoValue={locationForm.roadInfo}
+          />
+          <PropLandSection
+            apiBadge={apiBadge} extraParcels={extraParcels}
+            landForm={landForm} setLandForm={setLandForm}
+            lookupSuccess={lookup.status==='success'}
+            onChangeLand={updateExtraParcelLand} onRemove={removeExtraParcel} onRefetch={refetchExtraParcel}
+          />
+          <SecLabel ch="건물정보" badge={apiBadge} formSection/>
+          <div style={{padding:'16px 20px'}}>
             <PropBuildingFields buildingForm={buildingForm} setBuildingForm={setBuildingForm} readOnlyStyle={lookup.status==='success'?{background:C.surf2}:undefined}/>
           </div>
-          {/* 사진 */}
-          <SecLabel ch="사진 (선택, 최대 3장)"/>
+          <SecLabel ch="임대차관리" formSection/>
+          <div style={{padding:'16px 20px',fontSize:13,color:C.txM,lineHeight:1.6}}>
+            {isSaleTrade(trade)
+              ? '매물을 저장한 뒤 수정 화면에서 층별 임대차 내역을 등록할 수 있습니다.'
+              : '임대 거래는 위 거래방식·가격에서 보증금·월세 등을 입력합니다.'}
+          </div>
+          </PropFormCol>
+          <PropFormCol>
+          <SecLabel ch="사진 (선택, 최대 3장)" formSection/>
           <PropertyPhotoPicker slots={photoSlots} onChange={setPhotoSlots}/>
-          {/* 게시·담당자 */}
-          <SecLabel ch="세부내용"/>
+          <SecLabel ch="세부내용" formSection/>
           <div style={{padding:'16px 20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>게시글 제목 <span style={{color:C.brand}}>*</span></div>
               <input className="inp" value={detailForm.title} onChange={e=>setDetailForm(f=>({...f,title:e.target.value}))} placeholder="예: 영등포 핵심 상권 상가건물 매매"/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>담당자 이름</div>
-              <input className="inp" value={detailForm.agentName} onChange={e=>setDetailForm(f=>({...f,agentName:e.target.value}))} placeholder="담당자 이름"/></div>
-            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>담당자 연락처</div>
-              <PhoneInput value={detailForm.agentTel} onChange={e=>setDetailForm(f=>({...f,agentTel:e.target.value}))} placeholder="010-0000-0000"/></div>
+            <PropAgentFields
+              detailForm={detailForm}
+              setDetailForm={setDetailForm}
+              teamMembers={teamMembers}
+              accountDefaults={accountDefaults}
+            />
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>홍보문구 (공개)</div>
               <textarea className="ta" rows={6} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>내부 메모 (비공개)</div>
               <textarea className="ta" rows={2} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항"/></div>
+            <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>저장폴더 바로가기 <span style={{fontWeight:400,color:C.txP}}>(선택)</span></div>
+              <input className="inp" value={detailForm.folderUrl||''} onChange={e=>setDetailForm(f=>({...f,folderUrl:e.target.value}))} placeholder="구글 드라이브, 원드라이브 등 폴더 주소"/></div>
+            {isRent&&(
             <div style={{gridColumn:'1/-1'}}><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>디스코 상세 링크 <span style={{fontWeight:400,color:C.txP}}>(선택)</span></div>
               <input className="inp" value={detailForm.discoUrl||''} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
+            )}
           </div>
-        </div>
+          </PropFormCol>
+        </PropFormSplit>
       </div>
-      <ActionBar saveLabel="저장하기" onSave={handleSave} onCancel={()=>onNav('properties')}/>
+      <ActionBar saveLabel={saving?'저장 중…':'저장하기'} onSave={handleSave} onCancel={()=>onNav('properties')} saveDisabled={saving||lookupBlocksPropertySave(lookup,extraParcelLoading)} saveDisabledTitle={saving?'저장 중입니다.':propertySaveBlockedTitle(lookup,extraParcelLoading)}/>
     </div>
   );
 };
 
 /* ═══ CUSTOMER LIST ═══ */
-const CustList=({onOpen,onNav,onDeleteCustomer,onCustomersDeleted})=>{
-  const CU=useOwnerCustomers();
-  const { user, companyRole, memberPermissions }=useAuth();
-  const canEditCust=(c)=>canWriteRecord(c,user?.id,companyRole,memberPermissions,'customers');
+const CustList=({onOpen,onNav})=>{
+  const { isRent }=useDealMode();
+  const CUAll=useOwnerCustomers();
+  const saleAll=useMemo(()=>CUAll.filter((c)=>customerMatchesDealMode(c,DEAL_MODE_SALE)),[CUAll]);
+  const rentAll=useMemo(()=>CUAll.filter((c)=>customerMatchesDealMode(c,DEAL_MODE_RENT)),[CUAll]);
   const CALLS=useOwnerCallLogs();
   const callDateMap=useMemo(()=>buildCustCallDateMap(CALLS),[CALLS]);
   const toggleCustomerFav=useCallback(async(c,e)=>{
@@ -2766,128 +3333,90 @@ const CustList=({onOpen,onNav,onDeleteCustomer,onCustomersDeleted})=>{
     setAppliedAdv(null);
     setFilterResetKey((k)=>k+1);
   };
-  const [typeTab,setTypeTab]=useState('ALL');
-  const [sortKey,setSortKey]=useState(null);
-  const [sortDir,setSortDir]=useState('asc');
+  const [sortSale,setSortSale]=useState({key:'grade',dir:'desc'});
+  const [sortRent,setSortRent]=useState({key:'grade',dir:'desc'});
   const [colFilter,setColFilter]=useState({status:'',type:''});
   const [openColFilter,setOpenColFilter]=useState(null);
   const [visibleCount,setVisibleCount]=useState(20);
-  const [checked,setChecked]=useState({});
-  const [statusBulkOpen,setStatusBulkOpen]=useState(false);
-  const [deleteConfirm,setDeleteConfirm]=useState(null);
-  const toggleCheck=(id)=>setChecked((c)=>({...c,[id]:!c[id]}));
-  const checkedIds=Object.keys(checked).filter((id)=>checked[id]).map(Number);
+  useEffect(()=>{ setVisibleCount(20); },[isRent]);
   const handleScroll=(e)=>{const el=e.currentTarget;if(el.scrollHeight-el.scrollTop-el.clientHeight<80)setVisibleCount(v=>v+20);};
-  const typeTabList=[{id:'ALL',label:'전체'},{id:'BUYER',label:'매수인'},{id:'SELLER',label:'매도인'},{id:'TENANT',label:'임차인'},{id:'LANDLORD',label:'임대인'},{id:'OTHER',label:'기타'}];
-  const toggleSort=(key)=>{
-    if(sortKey!==key){setSortKey(key);setSortDir('asc');}
-    else if(sortDir==='asc'){setSortDir('desc');}
-    else{setSortKey(null);setSortDir('asc');}
+  const toggleSort=(pane,key)=>{
+    const apply=(prev)=>{
+      if(prev.key!==key) return {key,dir:key==='grade'?'desc':'asc'};
+      if(key==='grade') return prev.dir==='desc'?{key,dir:'asc'}:{key:'grade',dir:'desc'};
+      if(prev.dir==='asc') return {key,dir:'desc'};
+      return {key:'grade',dir:'desc'};
+    };
+    if(pane==='rent') setSortRent(apply);
+    else setSortSale(apply);
   };
   const getSortVal=(c,key)=>{
     const cd=custCallDatesOf(callDateMap,c.id);
     if(key==='name') return c.name||'';
     if(key==='co') return c.co||'';
-    if(key==='region') return c.region||'';
-    if(key==='preferredTrades') return customerTradeLabelOf(c);
+    if(key==='region') return serializeLeaseConditions(leaseConditionsFromCustomer(c))[0]?.region||c.region||'';
+    if(key==='preferredTrades'||key==='buyTypes') return customerBuyLabelOf(c);
+    if(key==='buyTiming') return String(c.buyTiming||'');
+    if(key==='leaseArea'){
+      const row=serializeLeaseConditions(leaseConditionsFromCustomer(c))[0];
+      return Number(row?.exclusiveAreaPyMin||row?.exclusiveAreaPyMax)||0;
+    }
+    if(key==='leaseBudget'){
+      const row=serializeLeaseConditions(leaseConditionsFromCustomer(c))[0];
+      return Number(row?.budgetManMin||row?.budgetManMax)||0;
+    }
+    if(key==='moveTiming') return serializeLeaseConditions(leaseConditionsFromCustomer(c))[0]?.moveTiming||'';
     if(key==='lastCall') return cd.last||'';
     if(key==='created') return c.created||'';
+    if(key==='grade') return custGradeRank(c);
     return '';
   };
-  const custSortMark=(key)=>(
-    <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sortKey===key?1:.28}}>
-      {sortKey===key&&sortDir==='asc'?'▲':'▼'}
+  const custSortMark=(pane,key)=>{
+    const sort=pane==='rent'?sortRent:sortSale;
+    return (
+    <span style={{fontSize:11,color:C.txM,marginLeft:2,verticalAlign:'middle',opacity:sort.key===key?1:.28}}>
+      {sort.key===key&&sort.dir==='asc'?'▲':'▼'}
     </span>
-  );
-  const base=CU.filter(c=>{
-    if(!customerMatchesTypeTab(c,typeTab)) return false;
+    );
+  };
+  const filterCust=(c,pane)=>{
     if(colFilter.status&&custStatusOf(c)!==colFilter.status) return false;
     if(colFilter.type&&!customerMatchesTypeTab(c,colFilter.type)) return false;
-    if(appliedAdv&&!customerMatchesAdvSearch(c,appliedAdv)) return false;
+    if(appliedAdv){
+      const adv=pane==='rent'?{...appliedAdv,trade:'',buyMin:'',buyMax:''}:appliedAdv;
+      if(!customerMatchesAdvSearch(c,adv)) return false;
+    }
     if(!customerMatchesBasicSearch(c,search)) return false;
     return true;
-  });
-  const sorted=[...base].sort((a,b)=>{
-    if(sortKey){
-      const av=getSortVal(a,sortKey), bv=getSortVal(b,sortKey);
-      if(av<bv) return sortDir==='asc'?-1:1;
-      if(av>bv) return sortDir==='asc'?1:-1;
-      return 0;
-    }
-    return (b.fav?1:0)-(a.fav?1:0)||b.id-a.id;
-  });
-  const visible=sorted.slice(0,visibleCount);
-  const selectableIds=useMemo(()=>sorted.map((c)=>c.id),[sorted]);
-  const allSelected=selectableIds.length>0&&selectableIds.every((id)=>checked[id]);
-  const someSelected=selectableIds.some((id)=>checked[id]);
-  const toggleSelectAll=()=>{
-    if(allSelected){
-      setChecked((c)=>{
-        const next={...c};
-        selectableIds.forEach((id)=>{ delete next[id]; });
-        return next;
-      });
-    }else{
-      setChecked((c)=>{
-        const next={...c};
-        selectableIds.forEach((id)=>{ next[id]=true; });
-        return next;
-      });
-    }
   };
-  const applyBulkStatus=async(newStatus)=>{
-    const targets=sorted.filter((c)=>checked[c.id]&&canEditCust(c));
-    if(!targets.length){
-      window.alert('선택한 고객 중 수정 가능한 항목이 없습니다.');
-      return;
-    }
-    await Promise.all(targets.map((c)=>updateCustomer(c.id,{status:newStatus})));
-    showNotification('수정되었습니다.','info');
-    setStatusBulkOpen(false);
-    setChecked({});
-  };
-  const requestBulkDelete=()=>{
-    const targets=sorted.filter((c)=>checked[c.id]&&canEditCust(c));
-    if(!targets.length){
-      window.alert('선택한 고객 중 삭제 가능한 항목이 없습니다.');
-      return;
-    }
-    const skipped=checkedIds.length-targets.length;
-    setDeleteConfirm({
-      count:targets.length,
-      skipped,
-      onConfirm:async()=>{
-        await Promise.all(targets.map((c)=>softDeleteCustomer(c.id)));
-        showNotification('삭제한 항목은 휴지통으로 이동되었습니다.','warning');
-        if(onCustomersDeleted) onCustomersDeleted(targets.map((c)=>c.id));
-        setDeleteConfirm(null);
-        setStatusBulkOpen(false);
-        setChecked({});
-      },
+  const sortCusts=(list,sort)=>{
+    return [...list].sort((a,b)=>{
+      if(sort.key==='grade'){
+        const d=custGradeRank(a)-custGradeRank(b);
+        return sort.dir==='asc'?d:-d;
+      }
+      if(sort.key){
+        const av=getSortVal(a,sort.key), bv=getSortVal(b,sort.key);
+        if(av<bv) return sort.dir==='asc'?-1:1;
+        if(av>bv) return sort.dir==='asc'?1:-1;
+      }
+      const g=custGradeRank(b)-custGradeRank(a);
+      if(g) return g;
+      return (b.fav?1:0)-(a.fav?1:0)||b.id-a.id;
     });
   };
-  const handleDeleteCustomer=(c)=>{
-    if(!onDeleteCustomer) return;
-    onDeleteCustomer(c,()=>setChecked((chk)=>{const next={...chk};delete next[c.id];return next;}));
-  };
+  const saleSorted=sortCusts(saleAll.filter((c)=>filterCust(c,'sale')),sortSale);
+  const rentSorted=sortCusts(rentAll.filter((c)=>filterCust(c,'rent')),sortRent);
+  const saleVisible=saleSorted.slice(0,visibleCount);
+  const rentVisible=rentSorted.slice(0,visibleCount);
+  const panes=isRent
+    ?[{title:'임차고객',count:rentSorted.length,rows:rentVisible,createMode:DEAL_MODE_RENT,rent:true}]
+    :[{title:'매수고객',count:saleSorted.length,rows:saleVisible,createMode:DEAL_MODE_SALE,rent:false}];
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:C.bg}}>
-      {deleteConfirm&&(
-        <ConfirmDialog
-          msg={`${deleteConfirm.count}명을 휴지통으로 이동하시겠습니까?`}
-          subMsg={deleteConfirm.skipped>0
-            ? `삭제 권한이 없는 ${deleteConfirm.skipped}명은 제외됩니다. 휴지통에서 복구할 수 있습니다.`
-            : '선택한 고객이 휴지통으로 이동됩니다. 언제든지 복구할 수 있습니다.'}
-          confirmLabel="이동"
-          danger={false}
-          onConfirm={deleteConfirm.onConfirm}
-          onCancel={()=>setDeleteConfirm(null)}
-        />
-      )}
-      <PH title="고객 관리" sub={`전체 ${sorted.length}명`}
+      <PH title="고객 관리" sub={isRent?`임차 ${rentSorted.length}명`:`매수 ${saleSorted.length}명`}
         acts={<>
           <Btn role="page-secondary" ch="일괄 등록" ic="ti-upload" on={()=>onNav&&onNav('customersBulk')}/>
-          <Btn role="page-primary" ch="고객 등록" on={()=>onOpen('cf',null)}/>
         </>}
         ch={
           <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:20,flex:1}}>
@@ -2901,7 +3430,7 @@ const CustList=({onOpen,onNav,onDeleteCustomer,onCustomersDeleted})=>{
         }/>
       {filter&&(
         <div key={filterResetKey} style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:'16px 28px'}}>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:14}}>
+          <div style={{display:'grid',gridTemplateColumns:isRent?'repeat(2,1fr)':'repeat(5,1fr)',gap:12,marginBottom:14}}>
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매물 종류</div>
               <select className="sel" style={{height:34,fontSize:13}} value={advTag} onChange={e=>setAdvTag(e.target.value)}>
@@ -2909,20 +3438,24 @@ const CustList=({onOpen,onNav,onDeleteCustomer,onCustomersDeleted})=>{
                 {CUSTOMER_ADV_PROP_KIND_OPTS.map(t=>(<option key={t} value={t}>{t}</option>))}
               </select>
             </div>
+            {!isRent&&(
             <div>
-              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>희망거래방식</div>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매수유형</div>
               <select className="sel" style={{height:34,fontSize:13}} value={advTrade} onChange={e=>setAdvTrade(e.target.value)}>
                 <option value="">전체</option>
-                {CUSTOMER_TRADE_OPTS.map((opt)=>(<option key={opt.id} value={opt.id}>{opt.label}</option>))}
+                {CUSTOMER_BUY_TYPE_OPTS.map((opt)=>(<option key={opt.id} value={opt.id}>{opt.label}</option>))}
               </select>
             </div>
+            )}
             <div>
-              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>진행 상태</div>
+              <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>등급</div>
               <select className="sel" style={{height:34,fontSize:13}} value={advStatus} onChange={e=>setAdvStatus(e.target.value)}>
                 <option value="">전체</option>
                 {CUST_STATUS_OPTS.map(s=>(<option key={s.id} value={s.label}>{s.label}</option>))}
               </select>
             </div>
+            {!isRent&&(
+            <>
             <div>
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매입가능액 최소(만)</div>
               <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advBuyMin} onChange={e=>setAdvBuyMin(e.target.value)}/>
@@ -2931,6 +3464,8 @@ const CustList=({onOpen,onNav,onDeleteCustomer,onCustomersDeleted})=>{
               <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>매입가능액 최대(만)</div>
               <MoneyInput style={{height:32,fontSize:13}} placeholder="0" value={advBuyMax} onChange={e=>setAdvBuyMax(e.target.value)}/>
             </div>
+            </>
+            )}
           </div>
           <div style={{display:'flex',gap:8}}>
             <Btn role="toolbar-primary" ch="검색 적용" ic="ti-search" on={()=>{applyAdvSearch();setVisibleCount(20);}}/>
@@ -2938,147 +3473,79 @@ const CustList=({onOpen,onNav,onDeleteCustomer,onCustomersDeleted})=>{
           </div>
         </div>
       )}
-      {/* Type filter tabs */}
-      <div style={{background:C.surf,borderBottom:`1px solid ${C.bdr}`,padding:'0 28px',display:'flex',gap:0}}>
-        {typeTabList.map(t=>(
-          <div key={t.id} onClick={()=>setTypeTab(t.id)} style={{padding:'10px 18px',cursor:'pointer',fontSize:13,fontWeight:typeTab===t.id?600:400,color:typeTab===t.id?C.brand:C.txM,borderBottom:typeTab===t.id?`2px solid ${C.brand}`:'2px solid transparent',marginBottom:-1,transition:'color .1s'}}>
-            {t.label}
-            {t.id!=='ALL'&&<span style={{fontSize:12,color:C.txP,marginLeft:5}}>{CU.filter(c=>customerMatchesTypeTab(c,t.id)).length}</span>}
+      <div style={{flex:1,minHeight:0,overflow:'auto',padding:'16px 20px',display:'flex',flexDirection:'column',gap:12}} onScroll={handleScroll} onClick={()=>setOpenColFilter(null)}>
+        <style dangerouslySetInnerHTML={{__html:`.cust-list-tbl thead th{color:${C.txM}!important}.cust-list-tbl{table-layout:auto!important}.cust-list-tbl td{overflow:visible;height:auto;min-height:57px;padding-top:10px;padding-bottom:10px;vertical-align:middle}.cust-list-tbl .cust-col-fav{width:28px;max-width:28px;padding-left:4px!important;padding-right:4px!important;text-align:center}.cust-list-tbl .cust-col-grade{width:52px;max-width:52px;padding-left:4px!important;padding-right:4px!important;text-align:center;white-space:nowrap}.cust-list-tbl .cust-col-name{padding-left:6px!important;padding-right:6px!important}.cust-list-tbl .cust-call-cell,.cust-list-tbl .cust-call-cell span{white-space:nowrap;overflow:visible;text-overflow:clip}.cust-pane{flex:1;minWidth:0;background:${C.surf};border-radius:10;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04);display:flex;flex-direction:column}`}}/>
+        <div style={{display:'flex',gap:14,flex:1,minHeight:0,alignItems:'stretch'}}>
+        {panes.map((pane)=>{
+          const paneKey=pane.rent?'rent':'sale';
+          return (
+        <div key={pane.createMode} className="cust-pane" onClick={e=>e.stopPropagation()}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'12px 14px',borderBottom:`1px solid ${C.bdr}`}}>
+            <div style={{fontSize:14,fontWeight:800,color:C.tx}}>{pane.title} <span style={{fontWeight:600,color:C.txM,fontSize:12}}>{pane.count}명</span></div>
+            <Btn role="page-primary" ch="등록" on={()=>onOpen('cf',{__createMode:pane.createMode})}/>
           </div>
-        ))}
-      </div>
-      <div style={{flex:1,overflow:'auto',padding:'16px 28px'}} onScroll={handleScroll} onClick={()=>setOpenColFilter(null)}>
-        <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}} onClick={e=>e.stopPropagation()}>
-          <style dangerouslySetInnerHTML={{__html:`.cust-list-tbl thead th{color:${C.txM}!important}`}}/>
+          <div style={{overflow:'auto',flex:1}}>
           <table className="tbl tbl-fixed cust-list-tbl">
-            <colgroup>
-              <col style={{width:32}}/>
-              <col style={{width:44}}/>
-              <col style={{width:72}}/>
-              <col style={{width:'7%'}}/>
-              <col style={{width:'8.4%'}}/>
-              <col style={{width:'9.2%'}}/>
-              <col style={{width:'8.8%'}}/>
-              <col style={{width:132}}/>
-              <col style={{width:82}}/>
-              <col style={{width:82}}/>
-              <col style={{width:'14%'}}/>
-              <col style={{width:99}}/>
-              <col style={{width:128}}/>
-            </colgroup>
             <thead><tr>
-              <th style={{textAlign:'center',cursor:'pointer'}} title={allSelected?'전체 선택 해제':'전체 선택'} onClick={(e)=>{e.stopPropagation();toggleSelectAll();}}>
-                <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${allSelected||someSelected?C.brand:C.bdrSt}`,background:allSelected?C.brand:someSelected?C.brandL:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center',margin:'0 auto'}}>
-                  {allSelected&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                  {!allSelected&&someSelected&&<span style={{width:8,height:2,background:C.brand,borderRadius:1,display:'block'}}/>}
-                </div>
-              </th>
-              <th style={{width:44}}>★</th>
-              <th style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
-                <span style={{cursor:'pointer',display:'flex',alignItems:'center',gap:3}}
-                  onClick={()=>setOpenColFilter(v=>v==='status'?null:'status')}>상태<span style={{fontSize:11,color:C.txM,marginLeft:2,opacity:colFilter.status?1:.28}}>▼</span></span>
-                {openColFilter==='status'&&(
-                  <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:120,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
-                    <div onClick={()=>{setColFilter(f=>({...f,status:''}));setOpenColFilter(null);setVisibleCount(20);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.status?C.brand:C.tx,fontWeight:!colFilter.status?600:400}}
-                      onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                    {CUST_STATUS_OPTS.map(o=>(
-                      <div key={o.id} onClick={()=>{setColFilter(f=>({...f,status:o.id}));setOpenColFilter(null);setVisibleCount(20);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.status===o.id?C.brand:C.tx,fontWeight:colFilter.status===o.id?600:400}}
-                        onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{o.label}</div>
-                    ))}
-                  </div>
-                )}
-              </th>
-              <th onClick={()=>{toggleSort('name');setVisibleCount(20);}} style={{cursor:'pointer'}}>
-                이름 {custSortMark('name')}
-              </th>
-              <th onClick={()=>{toggleSort('co');setVisibleCount(20);}} style={{cursor:'pointer'}}>
-                회사 {custSortMark('co')}
-              </th>
-              <th onClick={()=>{toggleSort('region');setVisibleCount(20);}} style={{cursor:'pointer'}}>
-                선호지역 {custSortMark('region')}
-              </th>
-              <th onClick={()=>{toggleSort('preferredTrades');setVisibleCount(20);}} style={{cursor:'pointer'}}>
-                희망거래방식 {custSortMark('preferredTrades')}
-              </th>
-              <th style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
-                <span style={{cursor:'pointer',display:'flex',alignItems:'center',gap:3}}
-                  onClick={()=>setOpenColFilter(v=>v==='type'?null:'type')}>유형<span style={{fontSize:11,color:C.txM,marginLeft:2,opacity:colFilter.type?1:.28}}>▼</span></span>
-                {openColFilter==='type'&&(
-                  <div style={{position:'absolute',top:'100%',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,minWidth:120,boxShadow:'0 6px 20px rgba(0,0,0,.12)',marginTop:4}}>
-                    <div onClick={()=>{setColFilter(f=>({...f,type:''}));setOpenColFilter(null);setVisibleCount(20);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:!colFilter.type?C.brand:C.tx,fontWeight:!colFilter.type?600:400}}
-                      onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>전체</div>
-                    {CUST_TYPE_OPTS.map(o=>(
-                      <div key={o.id} onClick={()=>{setColFilter(f=>({...f,type:o.id}));setOpenColFilter(null);setVisibleCount(20);}} style={{padding:'8px 14px',cursor:'pointer',fontSize:13,color:colFilter.type===o.id?C.brand:C.tx,fontWeight:colFilter.type===o.id?600:400}}
-                        onMouseEnter={e=>e.currentTarget.style.background=C.surf2} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>{o.label}</div>
-                    ))}
-                  </div>
-                )}
-              </th>
-              <th style={{textTransform:'none',letterSpacing:0,fontSize:11,lineHeight:1.25,whiteSpace:'normal'}} title="매입가능액 최소(만)">매입가능액<br/>최소(만)</th>
-              <th style={{textTransform:'none',letterSpacing:0,fontSize:11,lineHeight:1.25,whiteSpace:'normal'}} title="매입가능액 최대(만)">매입가능액<br/>최대(만)</th>
-              <th>메모</th>
-              <th onClick={()=>{toggleSort('lastCall');setVisibleCount(20);}} style={{cursor:'pointer'}}>
-                마지막 통화일 {custSortMark('lastCall')}
-              </th>
-              <th style={{width:128}}></th>
+              <th className="cust-col-fav">★</th>
+              <th className="cust-col-grade" onClick={()=>{toggleSort(paneKey,'grade');setVisibleCount(20);}} style={{cursor:'pointer'}}>등급 {custSortMark(paneKey,'grade')}</th>
+              <th className="cust-col-name" onClick={()=>{toggleSort(paneKey,'name');setVisibleCount(20);}} style={{cursor:'pointer'}}>이름 {custSortMark(paneKey,'name')}</th>
+              {pane.rent?(
+                <>
+                  <th onClick={()=>{toggleSort(paneKey,'leaseArea');setVisibleCount(20);}} style={{cursor:'pointer'}}>전용면적(평) {custSortMark(paneKey,'leaseArea')}</th>
+                  <th onClick={()=>{toggleSort(paneKey,'leaseBudget');setVisibleCount(20);}} style={{cursor:'pointer'}}>예산(만) {custSortMark(paneKey,'leaseBudget')}</th>
+                  <th onClick={()=>{toggleSort(paneKey,'region');setVisibleCount(20);}} style={{cursor:'pointer'}}>선호지역 {custSortMark(paneKey,'region')}</th>
+                  <th onClick={()=>{toggleSort(paneKey,'moveTiming');setVisibleCount(20);}} style={{cursor:'pointer'}}>이전시기 {custSortMark(paneKey,'moveTiming')}</th>
+                </>
+              ):(
+                <>
+                  <th onClick={()=>{toggleSort(paneKey,'region');setVisibleCount(20);}} style={{cursor:'pointer'}}>선호지역 {custSortMark(paneKey,'region')}</th>
+                  <th onClick={()=>{toggleSort(paneKey,'buyTypes');setVisibleCount(20);}} style={{cursor:'pointer'}}>매수유형 {custSortMark(paneKey,'buyTypes')}</th>
+                  <th onClick={()=>{toggleSort(paneKey,'buyTiming');setVisibleCount(20);}} style={{cursor:'pointer'}}>매수시기 {custSortMark(paneKey,'buyTiming')}</th>
+                  <th>매입가능액</th>
+                </>
+              )}
+              <th className="cust-call-cell" style={{minWidth:108,width:108}} onClick={()=>{toggleSort(paneKey,'lastCall');setVisibleCount(20);}}>통화 {custSortMark(paneKey,'lastCall')}</th>
             </tr></thead>
             <tbody>
-              {visible.map(c=>{
+              {pane.rows.map(c=>{
                 const cd=custCallDatesOf(callDateMap,c.id);
+                const lease=pane.rent?leaseConditionListSummary(c):null;
                 return(
                 <tr key={c.id} onClick={()=>onOpen('cd',c)}>
-                  <td onClick={(e)=>{e.stopPropagation();toggleCheck(c.id);}} style={{textAlign:'center',cursor:'pointer'}}>
-                    <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${checked[c.id]?C.brand:C.bdrSt}`,background:checked[c.id]?C.brand:'#fff',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
-                      {checked[c.id]&&<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-                    </div>
+                  <td className="cust-col-fav" onClick={e=>e.stopPropagation()}>
+                    <span style={{fontSize:16,color:c.fav?'#F59E0B':C.txP,cursor:'pointer'}} onClick={e=>toggleCustomerFav(c,e)}>{c.fav?'★':'☆'}</span>
                   </td>
-                  <td onClick={e=>e.stopPropagation()} style={{textAlign:'center',whiteSpace:'nowrap'}}>
-                    <span style={{fontSize:18,color:c.fav?'#F59E0B':C.txP,cursor:'pointer'}}
-                      onClick={e=>toggleCustomerFav(c,e)}>{c.fav?'★':'☆'}</span>
-                  </td>
-                  <td style={{whiteSpace:'nowrap'}}><CustStatusBdg s={c.status}/></td>
-                  <td><div className="cell-ellipsis" style={{fontWeight:600,fontSize:14}} title={c.name}>{c.name}</div></td>
-                  <td><div className="cell-ellipsis" style={{color:C.txS}} title={c.co}>{c.co}</div></td>
-                  <td><div className="cell-ellipsis" style={{color:C.txS}} title={c.region}>{c.region||'—'}</div></td>
-                  <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:12,whiteSpace:'nowrap'}} title={customerTradeLabelOf(c)}>{customerTradeLabelOf(c)}</div></td>
-                  <td style={{whiteSpace:'nowrap',overflow:'visible'}}><Bdg label={customerTypeLabelOf(c)} type="info"/></td>
-                  <td><div className="cell-ellipsis" style={{color:C.info,fontSize:12,fontWeight:500,textAlign:'right'}} title={fmtCustomerMoney(c.buyMin)}>{fmtCustomerMoney(c.buyMin)}</div></td>
-                  <td><div className="cell-ellipsis" style={{color:C.info,fontSize:12,fontWeight:500,textAlign:'right'}} title={fmtCustomerMoney(c.buyMax)}>{fmtCustomerMoney(c.buyMax)}</div></td>
-                  <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:13}} title={c.memo}>{c.memo}</div></td>
-                  <td><div className="cell-ellipsis" style={{color:C.txM,fontSize:13}} title={fmtCallDate(cd.last)}>{fmtCallDate(cd.last)}</div></td>
-                  <td onClick={e=>e.stopPropagation()} style={{whiteSpace:'nowrap'}}>
-                    <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'nowrap'}}>
-                      <Btn role="row-edit" ch="수정" on={()=>onOpen('cf',c)} disabled={!canEditCust(c)} title={!canEditCust(c)?PERMISSION_DENIED_TOOLTIP:undefined}/>
-                      <Btn role="row-delete" ch="삭제" on={()=>handleDeleteCustomer(c)} disabled={!canEditCust(c)||!onDeleteCustomer} title={!canEditCust(c)?PERMISSION_DENIED_TOOLTIP:undefined}/>
-                    </div>
-                  </td>
+                  <td className="cust-col-grade"><CustStatusBdg s={c.status}/></td>
+                  <td className="cust-col-name"><div className="cell-ellipsis" style={{fontWeight:600,fontSize:13}} title={c.name}>{c.name}</div></td>
+                  {pane.rent?(
+                    <>
+                      <td><div className="cell-ellipsis" style={{fontSize:12}} title={lease.area}>{lease.area}</div></td>
+                      <td><div className="cell-ellipsis" style={{fontSize:12,color:C.info,fontWeight:500}} title={lease.budget}>{lease.budget}</div></td>
+                      <td><div className="cell-ellipsis" style={{fontSize:12}} title={lease.region}>{lease.region}</div></td>
+                      <td><div className="cell-ellipsis" style={{fontSize:12}} title={lease.moveTiming}>{lease.moveTiming}</div></td>
+                    </>
+                  ):(
+                    <>
+                      <td><div className="cell-ellipsis" style={{fontSize:12}} title={c.region}>{c.region||'—'}</div></td>
+                      <td><div className="cell-ellipsis" style={{fontSize:12}} title={customerBuyLabelOf(c)}>{customerBuyLabelOf(c)}</div></td>
+                      <td><div className="cell-ellipsis" style={{fontSize:12}} title={c.buyTiming||''}>{c.buyTiming||'—'}</div></td>
+                      <td><div className="cell-ellipsis" style={{fontSize:12,color:C.info,fontWeight:500}} title={fmtCustomerBudgetRange(c.buyMin,c.buyMax)}>{fmtCustomerBudgetRange(c.buyMin,c.buyMax)}</div></td>
+                    </>
+                  )}
+                  <td className="cust-call-cell" style={{whiteSpace:'nowrap'}}><span style={{fontSize:12,color:C.txM,whiteSpace:'nowrap'}}>{fmtCallDate(cd.last)}</span></td>
                 </tr>
               );})}
+              {pane.rows.length===0&&(
+                <tr><td colSpan={8} style={{textAlign:'center',padding:'28px 12px',color:C.txP,fontSize:13}}>등록된 고객이 없습니다</td></tr>
+              )}
             </tbody>
           </table>
-        </div>
-        {checkedIds.length>0&&(
-          <div style={{position:'sticky',bottom:0,marginTop:12,background:'#1A2332',borderRadius:10,padding:'10px 18px',display:'flex',alignItems:'center',gap:14,boxShadow:'0 4px 16px rgba(0,0,0,.2)'}}>
-            <span style={{fontSize:13,color:'#fff',fontWeight:500}}>{checkedIds.length}명 선택됨</span>
-            <div style={{position:'relative'}}>
-              <Btn role="toolbar-secondary" ch="상태 변경" on={()=>setStatusBulkOpen((v)=>!v)} sx={{background:'rgba(255,255,255,.1)',borderColor:'rgba(255,255,255,.2)',color:'#fff'}}/>
-              {statusBulkOpen&&(
-                <div style={{position:'absolute',bottom:'calc(100% + 6px)',left:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,minWidth:140,boxShadow:'0 6px 20px rgba(0,0,0,.15)',overflow:'hidden'}}>
-                  {CUST_STATUS_OPTS.map((opt)=>(
-                    <div key={opt.id} onClick={()=>applyBulkStatus(opt.id)}
-                      style={{padding:'9px 14px',cursor:'pointer',fontSize:13,color:C.tx}}
-                      onMouseEnter={(e)=>{ e.currentTarget.style.background=C.surf2; }}
-                      onMouseLeave={(e)=>{ e.currentTarget.style.background='transparent'; }}>
-                      {opt.label}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <Btn role="toolbar-danger" ch="삭제" on={requestBulkDelete} sx={{background:'rgba(220,38,38,.85)',borderColor:'rgba(255,255,255,.2)',color:'#fff'}}/>
-            <Btn role="toolbar-secondary" ch="선택 해제" on={()=>{setChecked({});setStatusBulkOpen(false);}} sx={{background:'rgba(255,255,255,.1)',borderColor:'rgba(255,255,255,.2)',color:'#fff'}}/>
           </div>
-        )}
+        </div>
+        );
+        })}
+        </div>
       </div>
     </div>
   );
@@ -3093,7 +3560,7 @@ const DropSelect=({sel,onSel,onClear,search,setSearch,open,setOpen,items,renderC
       {sel?(
         <div style={{display:'flex',alignItems:'flex-start',gap:8,minHeight:38,border:`1.5px solid ${C.brand}`,borderRadius:7,background:C.brandL,padding:'8px 12px'}}>
           <span className="cell-wrap" style={{fontSize:13,fontWeight:600,color:C.brand,flex:1,minWidth:0}}>{renderChip(sel)}</span>
-          <span onClick={onClear} style={{width:20,height:20,borderRadius:'50%',background:'rgba(200,16,46,.2)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:C.brand,fontSize:13,fontWeight:700,flexShrink:0,marginTop:1}}>×</span>
+          <span onClick={onClear} style={{width:20,height:20,borderRadius:'50%',background:'rgba(var(--ln-brand-rgb),.2)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:C.brand,fontSize:13,fontWeight:700,flexShrink:0,marginTop:1}}>×</span>
         </div>
       ):(
         <div style={{display:'flex',alignItems:'center',height:38,border:`1.5px solid ${C.bdr}`,borderRadius:7,background:'#fff',overflow:'hidden'}}>
@@ -3143,11 +3610,13 @@ const DropSelect=({sel,onSel,onClear,search,setSearch,open,setOpen,items,renderC
 
 /* ═══ CALL LOGS ═══ */
 const CallLogs=({onOpen,onDelete})=>{
+  const { mode }=useDealMode();
   const { user, companyRole, memberPermissions }=useAuth();
   const P=useProperties();
   const CU=useOwnerCustomers();
-  const CALLS=useOwnerCallLogs();
-  const canEditCall=(c)=>canWriteRecord(c,user?.id,companyRole,memberPermissions,'call_logs');
+  const CALLSAll=useOwnerCallLogs();
+  const CALLS=useMemo(()=>CALLSAll.filter((c)=>callMatchesDealMode(c,P,mode)),[CALLSAll,P,mode]);
+  const canEditCall=(c)=>canManageCallLogs(companyRole)&&canWriteRecord(c,user?.id,companyRole,memberPermissions,'call_logs');
   const [showFilter,setShowFilter]=useState(false);
   const [keyword,setKeyword]=useState('');
   const [dateFrom,setDateFrom]=useState('');
@@ -3159,7 +3628,7 @@ const CallLogs=({onOpen,onDelete})=>{
     if(dateTo&&c.date>dateTo) return false;
     if(!keyword) return true;
     const kw=keyword.toLowerCase();
-    const prop=P.find(p=>p.id===c.pid);
+    const prop=findPropertyByPid(P,c.pid);
     const cust=CU.find(cu=>cu.id===c.cid);
     return (c.content&&c.content.toLowerCase().includes(kw))||
       (cust&&cust.name&&cust.name.includes(kw))||
@@ -3205,20 +3674,21 @@ const CallLogs=({onOpen,onDelete})=>{
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {calls.map(c=>{
-                const prop=P.find(p=>p.id===c.pid);
+                const prop=findPropertyByPid(P,c.pid);
                 const cust=CU.find(cu=>cu.id===c.cid);
+                const propLabel=prop?propCallIdentLabel(prop):'';
                 return(
                   <div key={c.id} style={{background:C.surf,borderRadius:10,padding:'14px 18px',boxShadow:'0 1px 3px rgba(0,0,0,.04),0 0 0 1px rgba(0,0,0,.04)',display:'flex',gap:14,borderBottom:`2px solid ${C.bdr}`}}>
                     <div style={{width:8,height:8,borderRadius:'50%',background:prop?C.brand:C.bdrSt,marginTop:5,flexShrink:0}}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}}>
                         <span style={{fontSize:13,fontWeight:600,color:C.tx}}>{c.date} {c.time}</span>
-                        {prop&&<span onClick={()=>onOpen('pd',prop)} style={{fontSize:13,color:C.info,cursor:'pointer',fontWeight:500}}>{prop.bldg||propDisplayAddr(prop)}</span>}
+                        {prop&&<span onClick={()=>onOpen('pd',prop)} style={{fontSize:13,color:C.info,cursor:'pointer',fontWeight:500}} title={propLabel}>{propLabel}</span>}
                         {cust&&<span onClick={e=>{e.stopPropagation();if(onOpen)onOpen('cd',cust);}} style={{fontSize:12,color:C.info,cursor:'pointer',fontWeight:500,textDecoration:'underline',textDecorationColor:'rgba(37,99,235,.3)'}}>· {cust.name}</span>}
                         {!cust&&c.contactPhone&&<span style={{fontSize:12,color:C.txM,fontWeight:500}}>· {formatPhone(c.contactPhone)||c.contactPhone}</span>}
                         {!prop&&!cust&&!c.contactPhone&&<span style={{fontSize:12,color:C.txP}}>(관련 매물/고객 없음)</span>}
                       </div>
-                      <div style={{fontSize:13,color:C.txS,lineHeight:1.6,maxHeight:80,overflowY:'auto'}}>{c.content}</div>
+                      <div style={{fontSize:13,color:C.txS,lineHeight:1.6,maxHeight:80,overflowY:'auto',whiteSpace:'pre-line'}}>{c.content}</div>
                       {c.next&&<div style={{marginTop:8,display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.txM}}>
                         <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:12,height:12,flexShrink:0}} aria-hidden><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
                         <span style={{fontWeight:500}}>다음 액션:</span>
@@ -3226,9 +3696,15 @@ const CallLogs=({onOpen,onDelete})=>{
                         {c.nDate&&<span style={{background:C.warnBg,color:C.warn,padding:'2px 8px',borderRadius:20,fontSize:12,fontWeight:500}}>{c.nDate}</span>}
                       </div>}
                     </div>
-                    <div style={{display:'flex',gap:6,flexShrink:0}}>
-                      <Btn role="row-edit" ch="수정" on={()=>{if(onOpen)onOpen('ce',c);}} disabled={!canEditCall(c)} title={!canEditCall(c)?PERMISSION_DENIED_TOOLTIP:undefined}/>
-                      <Btn role="row-delete" ch="삭제" on={()=>onDelete&&onDelete(c)} disabled={!canEditCall(c)||!onDelete} title={!canEditCall(c)?PERMISSION_DENIED_TOOLTIP:undefined}/>
+                    <div style={{display:'flex',gap:6,flexShrink:0,alignItems:'center'}}>
+                      {isLockedCallLog(c)?(
+                        <span style={{fontSize:11,fontWeight:600,color:C.txM,background:C.surf3,borderRadius:4,padding:'3px 8px',whiteSpace:'nowrap'}} title={LOCKED_CALL_LOG_MSG}>변경기록</span>
+                      ):(
+                        <>
+                          <Btn role="row-edit" ch="수정" on={()=>{if(onOpen)onOpen('ce',c);}} disabled={!canEditCall(c)} title={!canEditCall(c)?(canManageCallLogs(companyRole)?PERMISSION_DENIED_TOOLTIP:CALL_LOG_MANAGE_DENIED_TOOLTIP):undefined}/>
+                          <Btn role="row-delete" ch="삭제" on={()=>onDelete&&onDelete(c)} disabled={!canEditCall(c)||!onDelete} title={!canEditCall(c)?(canManageCallLogs(companyRole)?PERMISSION_DENIED_TOOLTIP:CALL_LOG_MANAGE_DENIED_TOOLTIP):undefined}/>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -3266,8 +3742,8 @@ const ScheduleImportGuideWin=({onClose})=>{
             <div style={{padding:'14px 16px',background:C.surf2,borderRadius:10,border:`1px solid ${C.bdr}`}}>
               <div style={{fontSize:14,fontWeight:700,color:C.tx,marginBottom:8}}>구글 캘린더</div>
               <div style={{fontSize:13,color:C.txM,lineHeight:1.65}}>
-                구글 캘린더와 연동하면 일정을 한 번 가져옵니다. 이미 가져온 일정은 유지되며 중복 저장되지 않습니다.
-                이후 새 일정을 반영하려면「동기화」버튼을 눌러 주세요.
+                구글 캘린더와 한 번 연동하면, 이후 일정 화면을 열 때마다 새 일정을 자동으로 가져옵니다.
+                이미 가져온 일정은 유지되며 중복 저장되지 않습니다. 바로 다시 받으려면「전체 동기화」를 누르면 됩니다.
                 <div style={{marginTop:8}}>단, LandNote에서 등록한 일정은 구글 캘린더에 등록되지 않습니다.</div>
               </div>
             </div>
@@ -3364,7 +3840,7 @@ const GoogleCalendarSyncWin=({onClose,onImported,gcalLinks,gcalSyncing,onSyncNow
           <div style={{display:'flex',flexDirection:'column',gap:14,paddingTop:gcalLinks.length>0?18:0,borderTop:gcalLinks.length>0?`1px solid ${C.bdr}`:'none'}}>
             <div style={{fontSize:13,fontWeight:700,color:C.tx}}>새 캘린더 연동하기</div>
             <div style={{fontSize:13,color:C.txS,lineHeight:1.6}}>
-              Google Calendar의 공유 링크 또는 iCal 주소를 붙여 넣으면 일정을 가져옵니다. 이후에는「동기화」버튼을 눌러야 새 일정이 반영됩니다. (이미 가져온 일정은 유지되며 중복 저장되지 않습니다.)
+              Google Calendar의 공유 링크 또는 iCal 주소를 붙여 넣으면 일정을 가져옵니다. 한 번 연동하면 일정 화면을 열 때마다 자동으로 동기화됩니다. 바로 다시 받으려면「전체 동기화」를 누르세요. (이미 가져온 일정은 유지되며 중복 저장되지 않습니다.)
               <div style={{marginTop:8,padding:'10px 12px',background:C.surf2,borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:12,color:C.txM}}>
                 <div style={{fontWeight:600,color:C.tx,marginBottom:6}}>링크 찾는 방법</div>
                 <div>Google Calendar → 설정 → 내 캘린더 → 해당 캘린더 →「캘린더 통합」</div>
@@ -3471,9 +3947,13 @@ const CalendarDayCell=React.memo(function CalendarDayCell({
 });
 
 const Calendar=({onOpen})=>{
+  const { mode }=useDealMode();
   const { user, companyRole, memberPermissions }=useAuth();
-  const SCHEDS=useOwnerSchedules();
-  const CALLS=useOwnerCallLogs();
+  const P=useProperties();
+  const SCHEDSAll=useOwnerSchedules();
+  const CALLSAll=useOwnerCallLogs();
+  const SCHEDS=useMemo(()=>SCHEDSAll.filter((s)=>scheduleMatchesDealMode(s,P,mode)),[SCHEDSAll,P,mode]);
+  const CALLS=useMemo(()=>CALLSAll.filter((c)=>callMatchesDealMode(c,P,mode)),[CALLSAll,P,mode]);
   const todayRef=useMemo(()=>{
     const d=new Date();
     return {year:d.getFullYear(),month:d.getMonth()+1,date:d.getDate()};
@@ -3531,6 +4011,38 @@ const Calendar=({onOpen})=>{
   useEffect(()=>{
     refreshGcalLinks();
   },[refreshGcalLinks]);
+
+  // 연동된 구글 캘린더가 있으면 일정 화면 진입 시 자동 동기화 (15분 이내 재요청은 생략)
+  useEffect(()=>{
+    const links=listGoogleCalendarLinks(gcalOwnerId).filter((l)=>l.enabled!==false);
+    if(!links.length) return undefined;
+    let cancelled=false;
+    (async()=>{
+      setGcalSyncing(true);
+      try{
+        const result=await syncLinkedGoogleCalendars({force:false,ownerId:gcalOwnerId});
+        if(cancelled) return;
+        refreshGcalLinks();
+        if(!result.synced){
+          if(result.errors){
+            setIcsNotice('구글 캘린더 자동 동기화에 실패했습니다. 「구글 캘린더」에서 링크를 확인해 주세요.');
+          }
+          return;
+        }
+        if(result.added>0){
+          refreshGcalLinks();
+          setIcsNotice(`구글 캘린더에서 새 일정 ${result.added}건을 가져왔습니다.`);
+          showNotification(`구글 캘린더 동기화: 총 ${result.total}건 중 신규 ${result.added}건`,'success');
+        }
+      }catch(err){
+        if(!cancelled) console.warn('[Calendar] auto gcal sync',err);
+      }finally{
+        if(!cancelled) setGcalSyncing(false);
+      }
+    })();
+    return()=>{ cancelled=true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 일정 화면 마운트·계정 변경 시에만
+  },[gcalOwnerId,refreshGcalLinks]);
 
   // syncUserId 지연으로 ownerId=dev-local 에 묶인 구글 일정 → 귀속·합치기 (맹삭제 금지)
   useEffect(()=>{
@@ -3719,6 +4231,7 @@ const Calendar=({onOpen})=>{
         {gcalLinks.length>0&&(<>
           <span style={{width:1,height:14,background:C.bdr,flexShrink:0}}/>
           <span style={{fontSize:12,color:C.txM,fontWeight:600}}>연동 캘린더</span>
+          {gcalSyncing&&<span style={{fontSize:12,color:C.txM}}>동기화 중…</span>}
           {gcalLinks.map(l=>{
             const meta=gcalMeta.get(l.sourceId);
             return(
@@ -4171,6 +4684,40 @@ const ConfirmDialog=({msg,subMsg,confirmLabel='확인',onConfirm,onCancel,danger
     </div>
   </div>
 );
+const FolderLinkDialog=({value,canEdit,onClose,onSave,onOpen})=>{
+  const [draft,setDraft]=useState(value||'');
+  const save=()=>{
+    if(!canEdit) return;
+    const raw=String(draft||'').trim();
+    if(raw){
+      const next=normalizeHttpUrl(raw);
+      if(!next){
+        showNotification('http(s) 주소를 입력해 주세요.','warning');
+        return;
+      }
+      onSave(next);
+      return;
+    }
+    onSave('');
+  };
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:CONFIRM_DIALOG_Z,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
+      onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:14,padding:'24px 28px',maxWidth:480,width:'90%',boxShadow:'0 16px 48px rgba(0,0,0,.2)'}}
+        onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:700,color:C.tx,marginBottom:8}}>저장폴더 바로가기</div>
+        <div style={{fontSize:13,color:C.txM,lineHeight:1.55,marginBottom:14}}>구글 드라이브, 원드라이브 등 폴더 링크를 붙여넣으세요.</div>
+        <input className="inp" value={draft} onChange={e=>setDraft(e.target.value)} placeholder="https://drive.google.com/drive/folders/..."
+          onKeyDown={e=>{if(e.key==='Enter') save();}} autoFocus/>
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap',marginTop:18}}>
+          {value&&<Btn role="page-secondary" ch="열기" ic="ti-folder" on={onOpen}/>}
+          <Btn role="dialog-cancel" ch="취소" on={onClose}/>
+          {canEdit&&<Btn role="dialog-confirm" ch="저장" on={save}/>}
+        </div>
+      </div>
+    </div>
+  );
+};
 const AlertDialog=({msg,onClose})=>(
   <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:CONFIRM_DIALOG_Z,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}
     onClick={onClose}>
@@ -4185,10 +4732,16 @@ const AlertDialog=({msg,onClose})=>(
 );
 
 const Trash=()=>{
-  const deletedProps=useOwnerDeletedProperties();
-  const deletedCusts=useOwnerDeletedCustomers();
-  const deletedScheds=useOwnerDeletedSchedules();
-  const deletedCalls=useOwnerDeletedCallLogs();
+  const { mode }=useDealMode();
+  const P=useProperties();
+  const deletedPropsAll=useOwnerDeletedProperties();
+  const deletedCustsAll=useOwnerDeletedCustomers();
+  const deletedSchedsAll=useOwnerDeletedSchedules();
+  const deletedCallsAll=useOwnerDeletedCallLogs();
+  const deletedProps=useMemo(()=>deletedPropsAll.filter((p)=>propertyMatchesDealMode(p,mode)),[deletedPropsAll,mode]);
+  const deletedCusts=useMemo(()=>deletedCustsAll.filter((c)=>customerMatchesDealMode(c,mode)),[deletedCustsAll,mode]);
+  const deletedScheds=useMemo(()=>deletedSchedsAll.filter((s)=>scheduleMatchesDealMode(s,P,mode)),[deletedSchedsAll,P,mode]);
+  const deletedCalls=useMemo(()=>deletedCallsAll.filter((c)=>callMatchesDealMode(c,P,mode)),[deletedCallsAll,P,mode]);
   const [tab,setTab]=useState('props');
   const [confirm,setConfirm]=useState(null); // {msg,subMsg,label,danger,onConfirm}
   const [checked,setChecked]=useState({});
@@ -4226,11 +4779,18 @@ const Trash=()=>{
     else if(type==='scheds') await restoreSchedule(id);
     else if(type==='calls') await restoreCallLog(id);
   };
-  const handleHardDelete=(type,id)=>{
-    if(type==='props') hardDeleteProperty(id);
-    else if(type==='custs') hardDeleteCustomer(id);
-    else if(type==='scheds') hardDeleteSchedule(id);
-    else if(type==='calls') hardDeleteCallLog(id);
+  const handleHardDelete=async(type,id)=>{
+    if(type==='props'){
+      const result=await hardDeleteProperty(id);
+      if(result&&result.ok===false){
+        window.alert(result.conflict
+          ? '클라우드 삭제와 충돌했습니다. 로컬 자료와 사진을 유지합니다.'
+          : '클라우드 삭제를 확인하지 못해 로컬 자료와 사진을 유지합니다.');
+      }
+    }
+    else if(type==='custs') await hardDeleteCustomer(id);
+    else if(type==='scheds') await hardDeleteSchedule(id);
+    else if(type==='calls') await hardDeleteCallLog(id);
   };
   const requestBulkRestore=()=>{
     const ids=checkedIds;
@@ -4249,7 +4809,10 @@ const Trash=()=>{
   };
   const emptyCurrentTrashTab=async()=>{
     if(tab==='props'){
-      await Promise.all(deletedProps.map((p)=>hardDeleteProperty(p.id)));
+      const results=await Promise.all(deletedProps.map((p)=>hardDeleteProperty(p.id)));
+      if(results.some((r)=>r&&r.ok===false)){
+        window.alert('일부 매물은 클라우드 삭제를 확인하지 못해 로컬에 남겼습니다.');
+      }
     }else if(tab==='custs'){
       await Promise.all(deletedCusts.map((c)=>hardDeleteCustomer(c.id)));
     }else if(tab==='scheds'){
@@ -4325,7 +4888,7 @@ const Trash=()=>{
                 {deletedProps.map(p=>(
                   <tr key={p.id}>
                     <TrashCheckCell id={p.id}/>
-                    <td style={{whiteSpace:'nowrap'}}><Bdg label={p.tag} type="gray"/></td>
+                    <td style={{whiteSpace:'nowrap'}}><Bdg label={propKindDisplayLabel(p)||p.tag} type="gray"/></td>
                     <td style={{fontWeight:500}}>{propDisplayAddr(p)}</td>
                     <td><span style={{fontSize:12,color:C.txM}}>{p.status}</span></td>
                     <td style={{color:C.txM,fontSize:13}}>{p.deletedAt}</td>
@@ -4441,6 +5004,7 @@ const Settings=({onClose,onSignOut})=>{
       phone:accountDefaults.phone,
       tel:accountDefaults.tel,
       email:accountDefaults.email,
+      workEmail:accountDefaults.workEmail,
       agencyName:accountDefaults.agencyName,
       agencyPhone:accountDefaults.agencyPhone,
       address:accountDefaults.address,
@@ -4501,6 +5065,7 @@ const Settings=({onClose,onSignOut})=>{
       title:form.title||null,
       phone:normalizePhone(form.phone)||null,
       tel:normalizePhone(form.tel)||null,
+      work_email:String(form.workEmail||'').trim()||null,
       agency_name:form.agencyName||null,
       agency_phone:normalizePhone(form.agencyPhone)||null,
       address:form.address||null,
@@ -4642,6 +5207,8 @@ const Settings=({onClose,onSignOut})=>{
             ))}
             <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>이메일</div>
               <input className="inp" value={form.email} readOnly style={{background:C.surf2,color:C.txM,cursor:'default'}}/></div>
+            <div><div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:5}}>업무용 이메일</div>
+              <input className="inp" type="email" value={form.workEmail||''} autoComplete="email" placeholder="업무용 이메일" onChange={e=>setForm(f=>({...f,workEmail:e.target.value}))}/></div>
           </div>
         </div>
         <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}>
@@ -4871,7 +5438,7 @@ const PhotoViewer=({photos,startIdx,onClose})=>{
       onClick={onClose}>
       <div style={{position:'absolute',top:16,right:16}}>
         <div onClick={onClose} style={{width:36,height:36,borderRadius:8,background:'rgba(255,255,255,.2)',border:'1.5px solid rgba(255,255,255,.4)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#fff',fontSize:17,fontWeight:700,lineHeight:1}}
-          onMouseEnter={e=>{e.currentTarget.style.background='rgba(200,16,46,.85)';}}
+          onMouseEnter={e=>{e.currentTarget.style.background='rgba(var(--ln-brand-rgb),.85)';}}
           onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,.2)';}}>
           ✕
         </div>
@@ -4944,7 +5511,10 @@ const PropInfoGrid=({items})=>{
         >
           {pair.map((item,ci)=>(
             <React.Fragment key={ci}>
-              <span style={propDetailLabelCell}>{item.k}</span>
+              <span style={{
+                ...propDetailLabelCell,
+                ...(item.wrapLabel?{whiteSpace:'normal',lineHeight:1.35}:{}),
+              }}>{item.k}</span>
               <span style={{
                 ...propDetailValueCell,
                 color:item.c||C.tx,
@@ -4960,7 +5530,7 @@ const PropInfoGrid=({items})=>{
   );
 };
 
-/** 매각정보 — 1행 전체(매각가액) + 이하 4열 행(좌·우 항목쌍) */
+/** 매각정보 — 4열 행(좌·우 항목쌍). 1행은 매각가액·입금가 */
 const PropSaleInfoGrid=({rows})=>{
   const twoCol=`${PROP_DETAIL_LABEL_W}px 1fr`;
   const fourCol=`${PROP_DETAIL_LABEL_W}px 1fr ${PROP_DETAIL_LABEL_W}px 1fr`;
@@ -4969,7 +5539,7 @@ const PropSaleInfoGrid=({rows})=>{
     return(
       <>
         <span style={propDetailLabelCell}>{item.k}</span>
-        <span style={{...propDetailValueCell,color:item.c||C.tx,fontWeight:item.c?600:400,borderRight:withRightBorder?`1px solid ${C.bdr}`:'none'}}>{item.v||'—'}</span>
+        <span style={{...propDetailValueCell,color:item.c||C.tx,fontWeight:item.c?500:400,borderRight:withRightBorder?`1px solid ${C.bdr}`:'none'}}>{item.v||'—'}</span>
       </>
     );
   };
@@ -4981,7 +5551,7 @@ const PropSaleInfoGrid=({rows})=>{
           return(
             <div key={ri} style={{display:'grid',gridTemplateColumns:twoCol,borderTop}}>
               <span style={propDetailLabelCell}>{row.full.k}</span>
-              <span style={{...propDetailValueCell,color:row.full.c||C.tx,fontWeight:row.full.bold?700:(row.full.c?600:500),fontSize:row.full.c?14:undefined}}>{row.full.v||'—'}</span>
+              <span style={{...propDetailValueCell,color:row.full.c||C.tx,fontWeight:row.full.c?500:400}}>{row.full.v||'—'}</span>
             </div>
           );
         }
@@ -5012,9 +5582,7 @@ const fmtSalePriceEokWon=(priceMan)=>{
   return formatKoreanAmountFromMan(p);
 };
 
-/* 매물 상세 - 지도영역 외부 사이트 연결 (지번주소로 검색결과 연결) */
 const EXT_SITES=[
-  {key:'K',label:'카카오맵',bg:'#FEE500',fg:'#3C1E1E',url:(addr)=>`https://map.kakao.com/?q=${encodeURIComponent(addr)}`},
   {key:'D',label:'디스코',bg:'#1F2937',fg:'#FFFFFF',handler:'disco'},
   {key:'V',label:'밸류맵',bg:'#2563EB',fg:'#FFFFFF',url:()=>`https://www.valueupmap.com/`},
   {key:'N',label:'네이버 부동산',bg:'#03C75A',fg:'#FFFFFF',url:()=>`https://land.naver.com/`},
@@ -5057,19 +5625,24 @@ const DetailCallHistoryPanel=({
   newCallContent,setNewCallContent,onAddCall,
   addDisabled,addDisabledTitle,
   callsWrite=true,
+  callsManage=false,
   linkPicker,onDismissPicker,
   whiteBg=false,
+  compact=false,
 })=>{
   const panelBg=whiteBg?C.surf:C.surf2;
+  const headPad=compact?'6px 8px':'12px 16px';
+  const listPad=compact?'8px 8px':'12px 14px';
+  const footPad=compact?'6px 8px 4px':'12px 14px';
   return(
   <div style={{display:'flex',flexDirection:'column',minHeight:0,height:'100%',background:whiteBg?C.surf:undefined}}>
-    <div style={{padding:'12px 16px',background:panelBg,borderBottom:`1px solid ${C.bdr}`,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+    <div style={{padding:headPad,background:panelBg,borderBottom:`1px solid ${C.bdr}`,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
       <span style={{fontSize:14,fontWeight:600,color:C.tx}}>통화 이력</span>
       <span style={{fontSize:12,color:C.txM,background:C.surf3,padding:'2px 8px',borderRadius:20}}>{calls.length}건</span>
     </div>
-    <div style={{flex:1,overflowY:'auto',padding:'12px 14px',display:'flex',flexDirection:'column',gap:10,minHeight:0,background:whiteBg?C.surf:undefined}}>
+    <div style={{flex:1,overflowY:'auto',padding:listPad,display:'flex',flexDirection:'column',gap:compact?8:10,minHeight:0,background:whiteBg?C.surf:undefined}}>
       {calls.length>0?calls.map(c=>(
-        <div key={c.id} style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:8,padding:'12px 14px',boxShadow:'0 1px 3px rgba(0,0,0,.04)',marginBottom:2,borderBottom:`2px solid ${C.bdr}`}}>
+        <div key={c.id} style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:8,padding:compact?'8px 10px':'12px 14px',boxShadow:'0 1px 3px rgba(0,0,0,.04)',marginBottom:2,borderBottom:`2px solid ${C.bdr}`}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
             <div style={{minWidth:0,flex:1,paddingRight:8}}>
               <div>
@@ -5078,12 +5651,18 @@ const DetailCallHistoryPanel=({
               </div>
               {renderCallLink?.(c)}
             </div>
-            <div style={{display:'flex',gap:5,flexShrink:0}}>
-              <Btn role="row-edit" ch="수정" on={()=>onOpen('ce',c)} disabled={!callsWrite} title={!callsWrite?PERMISSION_DENIED_TOOLTIP:undefined}/>
-              <Btn role="row-delete" ch="삭제" on={()=>onDeleteCall&&onDeleteCall(c)} disabled={!callsWrite||!onDeleteCall} title={!callsWrite?PERMISSION_DENIED_TOOLTIP:undefined}/>
+            <div style={{display:'flex',gap:5,flexShrink:0,alignItems:'center'}}>
+              {isLockedCallLog(c)?(
+                <span style={{fontSize:11,fontWeight:600,color:C.txM,background:C.surf3,borderRadius:4,padding:'3px 8px',whiteSpace:'nowrap'}} title={LOCKED_CALL_LOG_MSG}>변경기록</span>
+              ):(
+                <>
+                  <Btn role="row-edit" ch="수정" on={()=>onOpen('ce',c)} disabled={!callsManage} title={!callsManage?CALL_LOG_MANAGE_DENIED_TOOLTIP:undefined}/>
+                  <Btn role="row-delete" ch="삭제" on={()=>onDeleteCall&&onDeleteCall(c)} disabled={!callsManage||!onDeleteCall} title={!callsManage?CALL_LOG_MANAGE_DENIED_TOOLTIP:undefined}/>
+                </>
+              )}
             </div>
           </div>
-          <div style={{fontSize:13,color:C.txS,lineHeight:1.6,maxHeight:80,overflowY:'auto'}}>{c.content}</div>
+          <div style={{fontSize:13,color:C.txS,lineHeight:1.6,maxHeight:80,overflowY:'auto',whiteSpace:'pre-line'}}>{c.content}</div>
           {c.next&&<div style={{marginTop:6,fontSize:12,color:C.txM,display:'flex',alignItems:'center',gap:4}}>
             <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:12,height:12,flexShrink:0}} aria-hidden><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>{c.next}
             {c.nDate&&<span style={{background:C.warnBg,color:C.warn,padding:'1px 6px',borderRadius:20,fontSize:12,marginLeft:2}}>{c.nDate}</span>}
@@ -5091,15 +5670,17 @@ const DetailCallHistoryPanel=({
         </div>
       )):<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:80,fontSize:13,color:C.txM}}>통화 이력 없음</div>}
     </div>
-    <div style={{borderTop:`1px solid ${C.bdr}`,padding:'12px 14px',background:panelBg,flexShrink:0}}>
-      <div style={{fontSize:12,fontWeight:700,color:C.txM,marginBottom:10,textTransform:'uppercase',letterSpacing:'.04em'}}>통화 기록 추가</div>
-      <div style={{display:'flex',gap:6,marginBottom:8}}>
-        <input type="date" className="inp" value={newCallDate} onChange={e=>setNewCallDate(e.target.value)} style={{flex:'1 1 140px',minWidth:0,height:32,fontSize:13}}/>
-        <input type="time" className="inp" value={newCallTime} onChange={e=>setNewCallTime(e.target.value)} style={{width:140,flexShrink:0,height:32,fontSize:13}}/>
+    <div style={{borderTop:`1px solid ${C.bdr}`,padding:footPad,background:panelBg,flexShrink:0}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:compact?6:8}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.txM,whiteSpace:'nowrap',flexShrink:0,letterSpacing:'.02em'}}>통화 기록 추가</div>
+        {linkPicker?<div style={{flex:1,minWidth:0}}>{linkPicker}</div>:null}
       </div>
-      {linkPicker}
-      <textarea className="ta" rows={3} placeholder="통화 내용을 입력하세요..."
-        style={{marginBottom:8,fontSize:13,width:'100%',display:'block',boxSizing:'border-box'}}
+      <div style={{display:'flex',gap:6,marginBottom:compact?6:8}}>
+        <input type="date" className="inp" value={newCallDate} onChange={e=>setNewCallDate(e.target.value)} style={{flex:'1 1 0',minWidth:0,height:compact?28:32,fontSize:13}}/>
+        <input type="time" className="inp" value={newCallTime} onChange={e=>setNewCallTime(e.target.value)} style={{width:compact?92:140,flexShrink:0,height:compact?28:32,fontSize:13}}/>
+      </div>
+      <textarea className="ta" rows={compact?2:3} placeholder="통화 내용을 입력하세요..."
+        style={{marginBottom:compact?6:8,fontSize:13,width:'100%',display:'block',boxSizing:'border-box'}}
         value={newCallContent}
         onChange={e=>setNewCallContent(e.target.value)}
         onClick={()=>onDismissPicker&&onDismissPicker()}/>
@@ -5110,12 +5691,17 @@ const DetailCallHistoryPanel=({
 };
 
 const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
+  const { setDealMode }=useDealMode();
   const { accountDefaults, user, companyRole, memberPermissions, teamNameMap, teamRoleMap }=useAuth();
   const P=useProperties();
   const CU=useOwnerCustomers();
   const CALLS=useOwnerCallLogs();
   const RENTALS=useRentals(prop.id);
   const liveProp=P.find(x=>x.id===prop.id);
+  useEffect(()=>{
+    const next=dealModeFromProperty(liveProp||prop);
+    if(next) setDealMode(next);
+  },[prop.id, prop.trade, liveProp?.trade, setDealMode]);
   const [propData,setPropData]=useState({...prop});
   useEffect(()=>{
     if(liveProp) setPropData(prev=>({...prev,...liveProp}));
@@ -5131,6 +5717,8 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   const [newCallTime,setNewCallTime]=useState(()=>defaultCallDateTime().time);
   const [newCallContent,setNewCallContent]=useState('');
   const [copying,setCopying]=useState(false);
+  const [showPdfView,setShowPdfView]=useState(false);
+  const [folderLinkOpen,setFolderLinkOpen]=useState(false);
   const photoList=Array.isArray(propData.photos)?propData.photos.filter(Boolean):[];
   const hasPhotos=photoList.length>0;
   const saleInvest=buildSaleInvestmentMetrics(propData.price, RENTALS, propData);
@@ -5202,7 +5790,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
       </span>
       <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
         <Bdg label={TL[propData.trade]||'—'} type="brand"/>
-        <Bdg label={{NEW:'신규',ACTIVE:'진행중',HOLD:'보류',COMPLETED:'완료'}[propData.status]||'신규'} type={{NEW:'gray',ACTIVE:'info',HOLD:'warn',COMPLETED:'gray'}[propData.status]||'gray'}/>
+        <Bdg label={propStatusLabel(propData.status, isRentalListProperty(propData))} type={{NEW:'gray',ACTIVE:'info',HOLD:'warn',COMPLETED:'gray'}[propData.status]||'gray'}/>
         <Bdg label={propData.pub?'공개':'비공개'} type={propData.pub?'gray':'warn'}/>
         {sharedLabel&&<span style={{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:600,color:'#185FA5',background:'#E6F1FB',borderRadius:4,padding:'2px 7px'}}>{sharedLabel}</span>}
         <span onClick={()=>setPropertyFav(prop.id,!isFav)} style={{fontSize:18,color:isFav?'#F59E0B':C.txP,cursor:'pointer',lineHeight:1}} title={isFav?'즐겨찾기 해제':'즐겨찾기'}>{isFav?'★':'☆'}</span>
@@ -5210,11 +5798,13 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
     </>
   );
 
+  const tradePriceItems=buildTradePriceInfoItems(propData, TL);
   const jibunAddr=propJibunAddr(propData)||propDisplayAddr(propData);
   const roadAddr=propRoadAddr(propData);
+  const locationJibun=formatJibunWithExtraParcels(jibunAddr, extraParcelCount(propData))||jibunAddr;
   const locationDisplay=(
     <span style={{display:'block',lineHeight:1.45}}>
-      <span style={{display:'block'}}>{jibunAddr||roadAddr||'—'}</span>
+      <span style={{display:'block'}}>{locationJibun||roadAddr||'—'}</span>
       {roadAddr&&roadAddr!==jibunAddr&&(
         <span style={{display:'block',marginTop:2,color:C.txM,fontSize:12,fontWeight:400}}>{roadAddr}</span>
       )}
@@ -5222,16 +5812,15 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
   );
   const buildingScale=(propData.floorsBelow?`B${propData.floorsBelow}/`:'')+(propData.floorsAbove?`${propData.floorsAbove}F`:'—');
   const saleInfoRows=buildPropSaleInfoRows(propData, RENTALS, { fmtSalePriceEokWon, fmtLandPyUnit });
-  const tradePriceItems=buildTradePriceInfoItems(propData, TL);
-
   const detailSpecPanel=(
     <>
       <SecLabel ch="기본정보" plain propTitle ic="location" sx={{marginTop:0}}/>
       <PropInfoGrid items={[
         {k:'소재지',v:locationDisplay,full:true,wrap:true},
-        {k:'매물 대분류',v:PROP_MAIN[propData.main]||'—'},
-        {k:'매물 소분류',v:PROP_SUB[propData.main]?.[propData.sub]||'—'},
-        {k:'도로상황',v:propData.roadInfo||'—',full:true},
+        {k:'매물 종류',v:propKindDisplayLabel(propData)||'—'},
+        {k:'소유주명',v:propData.ownerName||'—'},
+        {k:'소유주 연락처',v:hasOwnerTel?showPhone(propData.ownerTel):'—'},
+        {k:'도로조건',v:propData.roadInfo||'—'},
       ]}/>
       <SecLabel ch="토지정보" plain propTitle ic="land"/>
       <PropInfoGrid items={[
@@ -5260,7 +5849,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
       ):(
         <PropInfoGrid items={tradePriceItems}/>
       )}
-      {(propData.trade==='SALE'||propData.trade==='PRESALE')&&<>
+      {(isSaleTrade(propData.trade))&&<>
         <SecLabel ch="임대차내역" plain propTitle ic="rental"/>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.bdr}`}}>
           {RENTALS.length>0&&(()=>{
@@ -5325,21 +5914,59 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
           {propData.memo||<span style={{fontStyle:'italic',color:C.txP}}>메모 없음</span>}
         </div>
       </div>
-      <SecLabel ch="세부내용" plain propTitle ic="detail"/>
-      <PropInfoGrid items={[
-        {k:'게시글 제목',v:propData.bldg||propDisplayAddr(propData)||'—'},
-        {k:'공개 여부',v:propData.pub?'공개':'비공개',c:propData.pub?undefined:C.warn},
-        {k:'담당자',v:propData.agentName||accountDefaults.displayName||'—'},
-        {k:'담당자 연락처',v:formatPhone(propData.agentTel||accountDefaults.phone)||'—'},
-        ...(hasOwnerTel?[{k:'소유주 연락처',v:showPhone(propData.ownerTel)}]:[]),
-      ]}/>
       <div style={{height:16}}/>
     </>
   );
+  const brochurePhotoPanel=(
+    <div style={{width:'100%',height:'100%',background:'#F4F6F9',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+      {hasPhotos ? (
+        <img src={photoList[photoIdx]} alt="" style={{width:'100%',height:'100%',objectFit:'contain',objectPosition:'center',display:'block'}}/>
+      ) : (
+        <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:44,height:44,flexShrink:0,color:'#185FA5',opacity:.35}} aria-hidden>
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </span>
+      )}
+    </div>
+  );
+  const brochureCadastral=(
+    <PropertyDetailMap
+      key={`pd-cad-${propData.id}-${propData.jibunAddr || propData.addr || ''}`}
+      property={propData}
+      useDistrict
+    />
+  );
+  const brochureRentPrice=(
+    <div>
+      {tradePriceItems.map((item)=>(
+        <div key={item.k} style={{display:'flex',justifyContent:'space-between',gap:8,marginBottom:8,fontSize:12}}>
+          <span style={{color:C.txM}}>{item.k}</span>
+          <span style={{fontWeight:700,color:item.c||C.tx}}>{item.v||'—'}</span>
+        </div>
+      ))}
+    </div>
+  );
 
+  const agentNameLabel=propData.agentName||accountDefaults.displayName||'—';
+  const agentTelLabel=formatPhone(propData.agentTel||accountDefaults.phone)||'—';
   const detailCallPanel=(
+    <div style={{display:'flex',flexDirection:'column',minHeight:0,height:'100%'}}>
+      <div style={{
+        flexShrink:0,display:'flex',alignItems:'center',gap:14,padding:'2px 2px 6px',
+        fontSize:12,whiteSpace:'nowrap',overflow:'hidden',minHeight:0,lineHeight:1.3,
+      }}>
+        <span style={{display:'inline-flex',alignItems:'baseline',gap:6,minWidth:0,overflow:'hidden'}}>
+          <span style={{color:C.txM,fontWeight:600,flexShrink:0}}>담당자</span>
+          <span style={{color:C.tx,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis'}} title={agentNameLabel}>{agentNameLabel}</span>
+        </span>
+        <span style={{display:'inline-flex',alignItems:'baseline',gap:6,minWidth:0,overflow:'hidden'}}>
+          <span style={{color:C.txM,fontWeight:600,flexShrink:0}}>연락처</span>
+          <span style={{color:C.tx,overflow:'hidden',textOverflow:'ellipsis'}} title={agentTelLabel}>{agentTelLabel}</span>
+        </span>
+      </div>
+      <div style={{flex:1,minHeight:0,overflow:'hidden'}}>
     <DetailCallHistoryPanel
       whiteBg
+      compact
       calls={calls}
       onOpen={onOpen}
       onDeleteCall={onDeleteCall}
@@ -5372,6 +5999,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
       addDisabled={!canWriteCalls}
       addDisabledTitle={PERMISSION_DENIED_TOOLTIP}
       callsWrite={canWriteCalls}
+      callsManage={canWriteCalls&&canManageCallLogs(companyRole)}
       onDismissPicker={()=>setCustDropOpen(false)}
       onAddCall={async()=>{
         if(!canWriteCalls||!newCallContent.trim()) return;
@@ -5399,10 +6027,10 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
         setCustDropOpen(false);
       }}
       linkPicker={
-        <div style={{position:'relative',marginBottom:8}}>
+        <div style={{position:'relative',marginBottom:0}}>
           {selCallCust?(
-            <div style={{display:'flex',alignItems:'center',gap:8,height:34,border:`1.5px solid ${C.brand}`,borderRadius:7,background:C.brandL,padding:'0 10px'}}>
-              <div style={{width:22,height:22,borderRadius:'50%',background:C.brand,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,height:28,border:`1.5px solid ${C.brand}`,borderRadius:7,background:C.brandL,padding:'0 8px'}}>
+              <div style={{width:20,height:20,borderRadius:'50%',background:C.brand,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                 <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:12,height:12,flexShrink:0,color:'#fff'}} aria-hidden><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
               </div>
               <span style={{fontSize:13,fontWeight:600,color:C.brand,flex:1}}>
@@ -5411,11 +6039,11 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
               {!isFreePhoneSel(selCallCust)&&<span style={{fontSize:12,color:C.txM}}>{selCallCust.co}</span>}
               {isFreePhoneSel(selCallCust)&&<span style={{fontSize:11,color:C.txM,background:'#fff',padding:'1px 6px',borderRadius:10}}>미등록</span>}
               <span onClick={()=>{setSelCallCust(null);setCustSearch('');setCustDropOpen(false);}}
-                style={{width:20,height:20,borderRadius:'50%',background:'rgba(200,16,46,.2)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,color:C.brand,fontSize:13,fontWeight:700}}>×</span>
+                style={{width:20,height:20,borderRadius:'50%',background:'rgba(var(--ln-brand-rgb),.2)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,color:C.brand,fontSize:13,fontWeight:700}}>×</span>
             </div>
           ):(
-            <div style={{display:'flex',alignItems:'center',gap:0,height:34,border:`1.5px solid ${C.bdr}`,borderRadius:7,background:'#fff',overflow:'hidden'}}>
-              <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:13,height:13,flexShrink:0,color:C.txP,marginLeft:10}} aria-hidden><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+            <div style={{display:'flex',alignItems:'center',gap:0,height:28,border:`1.5px solid ${C.bdr}`,borderRadius:7,background:'#fff',overflow:'hidden'}}>
+              <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:13,height:13,flexShrink:0,color:C.txP,marginLeft:8}} aria-hidden><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
               <input value={custSearch}
                 onChange={e=>{setCustSearch(e.target.value);setCustDropOpen(true);}}
                 onFocus={()=>setCustDropOpen(true)}
@@ -5432,7 +6060,7 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
             </div>
           )}
           {!selCallCust&&custDropOpen&&(
-            <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,maxHeight:200,overflowY:'auto',boxShadow:'0 6px 20px rgba(0,0,0,.12)'}}>
+            <div style={{position:'absolute',bottom:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:`1px solid ${C.bdr}`,borderRadius:8,zIndex:20,maxHeight:200,overflowY:'auto',boxShadow:'0 6px 20px rgba(0,0,0,.12)'}}>
               {filtCusts.map(c=>{
                 const nameCount=filtCusts.filter(x=>x.name===c.name).length;
                 return(
@@ -5473,7 +6101,41 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
         </div>
       }
     />
+      </div>
+    </div>
   );
+
+  if(showPdfView){
+    const pdfTitle=(
+      <span style={{fontSize:15,fontWeight:600,color:C.tx,letterSpacing:'-.01em'}}>매각안내서</span>
+    );
+    return(
+      <Win title={pdfTitle} ic="ti-building" onClose={()=>setShowPdfView(false)} w={PROP_DETAIL_WIN_W}
+        shellClass="prop-detail-win-overlay"
+        acts={<>
+          <Btn role="page-secondary" ch="인쇄" ic="ti-printer" on={()=>{
+            const el=document.querySelector('.prop-pdf-print-root');
+            printPdfBrochure(el, { fileName: brochurePdfFileName(propData) });
+          }}/>
+        </>}
+        ch={
+          <div className="prop-pdf-print-pane" style={{height:'100%',minHeight:0,overflow:'hidden'}}>
+            <PropertySaleBrochure
+              prop={propData}
+              photo={brochurePhotoPanel}
+              locationMap={detailMapPanel}
+              cadastralMap={brochureCadastral}
+              accountDefaults={accountDefaults}
+              extras={{
+                rentals: RENTALS,
+                rentPrice: brochureRentPrice,
+              }}
+            />
+          </div>
+        }
+      />
+    );
+  }
 
   const detailBody=(
     <>
@@ -5513,11 +6175,63 @@ const PropDetail=({prop,onClose,onEdit,onOpen,onDelete,onDeleteCall})=>{
       />
     </>
   );
+  const folderUrl=normalizeHttpUrl(propData.folderUrl);
+  const openFolderUrl=()=>{
+    if(folderUrl) window.open(folderUrl,'_blank','noopener,noreferrer');
+  };
+  const saveFolderUrl=async(next)=>{
+    try{
+      await updateProperty(prop.id,{folderUrl:next||''});
+      setPropData((p)=>({...p,folderUrl:next||''}));
+      setFolderLinkOpen(false);
+      showNotification(next?'저장폴더 바로가기를 지정했습니다.':'저장폴더 바로가기를 지웠습니다.','success');
+    }catch(err){
+      if(err?.message==='FORBIDDEN') showNotification(PERMISSION_DENIED_TOOLTIP,'warning');
+      else showNotification(err?.message||'저장에 실패했습니다.','error');
+    }
+  };
   return(
+    <>
     <Win title={detailWinTitle} ic="ti-building" onClose={onClose} w={PROP_DETAIL_WIN_W}
-      acts={<>{EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr} property={propData}/>)}</>}
+      acts={<>
+        <span
+          style={{display:'inline-flex'}}
+          onContextMenu={(e)=>{
+            e.preventDefault();
+            if(!canEditProp&&!folderUrl) return;
+            setFolderLinkOpen(true);
+          }}
+        >
+          <Btn
+            role="page-secondary"
+            ch="저장폴더"
+            ic="ti-folder"
+            title={folderUrl?'저장폴더 열기 (우클릭: 바로가기 변경)':'저장폴더 바로가기 지정'}
+            on={()=>{
+              if(folderUrl) openFolderUrl();
+              else if(!canEditProp){
+                showNotification(PERMISSION_DENIED_TOOLTIP,'warning');
+                return;
+              }
+              setFolderLinkOpen(true);
+            }}
+          />
+        </span>
+        <Btn role="page-secondary" ch="PDF뷰" ic="ti-file" on={()=>setShowPdfView(true)}/>
+        {EXT_SITES.map(s=><ExtSiteBtn key={s.key} site={s} addr={extSiteAddr} property={propData}/>)}
+      </>}
       ch={detailBody}
     />
+    {folderLinkOpen&&(
+      <FolderLinkDialog
+        value={folderUrl}
+        canEdit={canEditProp}
+        onClose={()=>setFolderLinkOpen(false)}
+        onOpen={()=>{openFolderUrl();setFolderLinkOpen(false);}}
+        onSave={saveFolderUrl}
+      />
+    )}
+    </>
   );
 };
 
@@ -5555,9 +6269,9 @@ const RentalWin=({prop,onClose,canWrite=true})=>{
     if(!canWrite||saving) return;
     setSaving(true);
     try{
-      await saveRentalsForProperty(pid, rows);
+      const sync=await saveRentalsForProperty(pid, rows);
       dirtyRef.current=false;
-      showNotification('저장하였습니다.','success');
+      showNotification(propertySaveToastMessage(sync),'success');
       onClose();
     }catch(err){
       console.error('[rentals save]', err);
@@ -5670,7 +6384,12 @@ const RentalWin=({prop,onClose,canWrite=true})=>{
 
 /* ═══ CUST FORM (고객 등록/수정 공용 Win 오버레이) ═══ */
 const CustForm=({custData,onClose,onSaved})=>{
-  const isNew=!custData;
+  const isNew=!custData?.id;
+  const { mode }=useDealMode();
+  const formMode=isNew
+    ? (custData?.__createMode===DEAL_MODE_RENT?DEAL_MODE_RENT:custData?.__createMode===DEAL_MODE_SALE?DEAL_MODE_SALE:mode)
+    : inferCustomerDealMode(custData);
+  const isRentForm=formMode===DEAL_MODE_RENT;
   const CALLS=useOwnerCallLogs();
   const callDates=!isNew&&custData?.id?custCallDatesOf(buildCustCallDateMap(CALLS),custData.id):null;
   const [name,setName]=useState(custData?.name||'');
@@ -5679,15 +6398,24 @@ const CustForm=({custData,onClose,onSaved})=>{
   const [email,setEmail]=useState(custData?.email||'');
   const [co,setCo]=useState(custData?.co||'');
   const [title,setTitle]=useState(custData?.title||'');
-  const [customerTypes,setCustomerTypes]=useState(()=>customerTypesOf(custData||{}));
+  const [customerTypes,setCustomerTypes]=useState(()=>{
+    const t=customerTypesOf(custData||{});
+    if(t.length) return t;
+    if(isNew&&formMode===DEAL_MODE_RENT) return ['TENANT'];
+    if(isNew&&formMode===DEAL_MODE_SALE) return ['BUYER'];
+    return [];
+  });
   const [status,setStatus]=useState(()=>normalizeCustStatus(custData?.status));
   const [cash,setCash]=useState(()=>fmtInputNum(custData?.cash??''));
   const [buyMin,setBuyMin]=useState(()=>fmtInputNum(custData?.buyMin??''));
   const [buyMax,setBuyMax]=useState(()=>fmtInputNum(custData?.buyMax??''));
   const [region,setRegion]=useState(custData?.region||'');
-  const [preferredTrades,setPreferredTrades]=useState(()=>preferredTradesOf(custData||{}));
+  const [buyTypes,setBuyTypes]=useState(()=>buyTypesOf(custData||{}));
+  const [buyTiming,setBuyTiming]=useState(()=>String(custData?.buyTiming||''));
   const [memo,setMemo]=useState(custData?.memo||'');
+  const [leaseRows,setLeaseRows]=useState(()=>leaseConditionsFromCustomer(custData||{}));
   const [alertMsg,setAlertMsg]=useState(null);
+  const [showSaleExtra,setShowSaleExtra]=useState(false);
 
   useEffect(()=>{
     if(!custData?.id) return;
@@ -5703,19 +6431,16 @@ const CustForm=({custData,onClose,onSaved})=>{
     setBuyMin(fmtInputNum(custData.buyMin??''));
     setBuyMax(fmtInputNum(custData.buyMax??''));
     setRegion(custData.region||'');
-    setPreferredTrades(preferredTradesOf(custData));
+    setBuyTypes(buyTypesOf(custData));
+    setBuyTiming(String(custData.buyTiming||''));
     setMemo(custData.memo||'');
+    setLeaseRows(leaseConditionsFromCustomer(custData));
+    setShowSaleExtra(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 수정 대상 고객 변경 시 폼 동기화
   },[custData?.id]);
 
-  const toggleCustomerType=(id)=>{
-    setCustomerTypes((prev)=>(
-      prev.includes(id) ? prev.filter((t)=>t!==id) : [...prev, id]
-    ));
-  };
-
-  const togglePreferredTrade=(id)=>{
-    setPreferredTrades((prev)=>(
+  const toggleBuyType=(id)=>{
+    setBuyTypes((prev)=>(
       prev.includes(id) ? prev.filter((t)=>t!==id) : [...prev, id]
     ));
   };
@@ -5725,22 +6450,43 @@ const CustForm=({custData,onClose,onSaved})=>{
       setAlertMsg('고객이름을 입력해주세요.');
       return;
     }
-    if(!customerTypes.length){
-      setAlertMsg('고객유형을 하나 이상 선택해주세요.');
-      return;
-    }
+    const typesForSave=customerTypes.length
+      ? customerTypes
+      : (isRentForm?['TENANT']:['BUYER']);
     const cashNum=parseFormNum(cash);
     const buyMinNum=parseFormNum(buyMin);
     const buyMaxNum=parseFormNum(buyMax);
-    if(buyMinNum>0&&buyMaxNum>0&&buyMinNum>buyMaxNum){
+    if(!isRentForm&&buyMinNum>0&&buyMaxNum>0&&buyMinNum>buyMaxNum){
       setAlertMsg('매입가능액 최소(만)은 최대(만)보다 클 수 없습니다.');
       return;
     }
-    const { customer_types, type }=normalizeCustomerTypesField(customerTypes);
+    if(isRentForm){
+      for(let i=0;i<leaseRows.length;i+=1){
+        const row=leaseRows[i];
+        const areaMin=Number(String(row.exclusiveAreaPyMin??'').replace(/,/g,'').trim())||0;
+        const areaMax=Number(String(row.exclusiveAreaPyMax??'').replace(/,/g,'').trim())||0;
+        if(areaMin>0&&areaMax>0&&areaMin>areaMax){
+          setAlertMsg(`임차조건 ${i+1}: 필요 전용면적 최소는 최대보다 클 수 없습니다.`);
+          return;
+        }
+        const budMin=parseFormNum(row.budgetManMin);
+        const budMax=parseFormNum(row.budgetManMax);
+        if(budMin>0&&budMax>0&&budMin>budMax){
+          setAlertMsg(`임차조건 ${i+1}: 예산 최소는 최대보다 클 수 없습니다.`);
+          return;
+        }
+      }
+    }
+    const { customer_types, type }=normalizeCustomerTypesField(typesForSave);
+    const leaseConditions=isRentForm?serializeLeaseConditions(leaseRows):[];
+    const firstLease=leaseConditions[0];
     const payload={
       name:name.trim(),phone:normalizePhone(phone),addr:addr.trim(),email,co,title,customer_types,type,
       status:normalizeCustStatus(status),
-      cash:cashNum,buyMin:buyMinNum,buyMax:buyMaxNum,region,preferred_trades:preferredTrades,memo,
+      cash:isRentForm?0:cashNum,buyMin:isRentForm?0:buyMinNum,buyMax:isRentForm?0:buyMaxNum,
+      region:isRentForm?(firstLease?.region||''):region,preferred_trades:[],buyTypes:isRentForm?[]:buyTypes,buyTiming:isRentForm?'':buyTiming.trim(),memo,
+      dealMode:formMode,
+      leaseConditions,
     };
     try{
       if(isNew){
@@ -5763,7 +6509,7 @@ const CustForm=({custData,onClose,onSaved})=>{
   return(
     <>
     {alertMsg&&<AlertDialog msg={alertMsg} onClose={()=>setAlertMsg(null)}/>}
-    <Win title={isNew?'고객 등록':'고객 수정'} ic={isNew?'ti-user-plus':'ti-user-edit'} onClose={onClose} w={760}
+    <Win title={isNew?(isRentForm?'임차고객 등록':'매수고객 등록'):(isRentForm?'임차고객 수정':'매수고객 수정')} ic={isNew?'ti-user-plus':'ti-user-edit'} onClose={onClose} w={760}
       ch={<>
         <div style={{...WIN_COLUMN}}>
           <div style={{...WIN_BODY_SCROLL,padding:'20px 24px 28px',display:'flex',flexDirection:'column',gap:16}}>
@@ -5777,46 +6523,38 @@ const CustForm=({custData,onClose,onSaved})=>{
                 <input className="inp" value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동"/>
               </div>
               <div>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>연락처 <span style={{color:C.brand}}>*</span></div>
+                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>연락처</div>
                 <PhoneInput value={phone} onChange={e=>setPhone(e.target.value)} placeholder="010-0000-0000"/>
               </div>
-              <div style={{gridColumn:'1 / -1'}}>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>주소</div>
-                <input className="inp" value={addr} onChange={e=>setAddr(e.target.value)} placeholder="서울 강남구 역삼동 123"/>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>이메일</div>
-                <input className="inp" value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@email.com"/>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>회사</div>
-                <input className="inp" value={co} onChange={e=>setCo(e.target.value)} placeholder="회사명"/>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:8}}>
-                  고객 유형 <span style={{color:C.brand}}>*</span>
-                  <span style={{fontWeight:400,color:C.txP,marginLeft:6,fontSize:11}}>복수 선택</span>
+              {!showSaleExtra?(
+                <div style={{gridColumn:'1 / -1'}}>
+                  <button type="button" onClick={()=>setShowSaleExtra(true)}
+                    style={{height:40,width:'100%',borderRadius:8,border:`1.5px dashed ${C.bdrSt}`,background:'transparent',color:C.brand,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                    + 상세내역 추가
+                  </button>
                 </div>
-                <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
-                  {CUST_TYPE_OPTS.map((opt)=>(
-                    <label key={opt.id} style={{display:'inline-flex',alignItems:'center',gap:5,cursor:'pointer',fontSize:13,color:C.tx,userSelect:'none'}}>
-                      <input
-                        type="checkbox"
-                        checked={customerTypes.includes(opt.id)}
-                        onChange={()=>toggleCustomerType(opt.id)}
-                        style={{width:16,height:16,accentColor:C.brand}}
-                      />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>직함</div>
-                <input className="inp" value={title} onChange={e=>setTitle(e.target.value)} placeholder="대표, 이사, 팀장..."/>
-              </div>
+              ):(
+                <>
+                  <div style={{gridColumn:'1 / -1'}}>
+                    <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>주소</div>
+                    <input className="inp" value={addr} onChange={e=>setAddr(e.target.value)} placeholder="서울 강남구 역삼동 123"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>이메일</div>
+                    <input className="inp" value={email} onChange={e=>setEmail(e.target.value)} placeholder="example@email.com"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>회사</div>
+                    <input className="inp" value={co} onChange={e=>setCo(e.target.value)} placeholder="회사명"/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>직함</div>
+                    <input className="inp" value={title} onChange={e=>setTitle(e.target.value)} placeholder="대표, 이사, 팀장..."/>
+                  </div>
+                </>
+              )}
               <div style={{minWidth:0}}>
-                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>진행 상태 <span style={{color:C.brand}}>*</span></div>
+                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>등급 <span style={{color:C.brand}}>*</span></div>
                 <select className="sel" value={status} onChange={e=>setStatus(e.target.value)} style={{display:'block'}}>
                   {CUST_STATUS_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
                 </select>
@@ -5834,7 +6572,57 @@ const CustForm=({custData,onClose,onSaved})=>{
             </div>
           </div>
 
-          {/* 투자 조건 */}
+          {/* 투자 조건 / 임차조건 */}
+          {isRentForm?(
+          <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10}}>
+            <SecLabel ch="임차조건" formSection end={
+              <button type="button" onClick={()=>setLeaseRows((rows)=>[...rows,emptyLeaseCondition()])} title="임차조건 추가"
+                style={{width:32,height:32,borderRadius:8,border:`1.5px solid ${C.brand}`,background:C.brandL,color:C.brand,fontSize:20,fontWeight:700,lineHeight:1,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+            }/>
+            <div style={{padding:'16px 18px 18px',display:'flex',flexDirection:'column',gap:14}}>
+              {leaseRows.map((row,idx)=>(
+                <div key={idx} style={{border:`1px solid ${C.bdr}`,borderRadius:8,padding:'12px 12px 14px',background:C.surf2}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:700,color:C.tx}}>임차조건 {idx+1}</div>
+                    {leaseRows.length>1&&(
+                      <Btn role="row-delete" ch="삭제" on={()=>setLeaseRows((rows)=>rows.filter((_,i)=>i!==idx))}/>
+                    )}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px 12px'}}>
+                    <div style={{gridColumn:'1 / -1'}}>
+                      <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>필요 전용면적 (평)</div>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <input className="inp" inputMode="decimal" value={row.exclusiveAreaPyMin??''} onChange={e=>setLeaseRows((rows)=>rows.map((r,i)=>i===idx?{...r,exclusiveAreaPyMin:e.target.value}:r))} placeholder="최소"/>
+                        <span style={{color:C.txM,fontSize:13,flexShrink:0}}>~</span>
+                        <input className="inp" inputMode="decimal" value={row.exclusiveAreaPyMax??''} onChange={e=>setLeaseRows((rows)=>rows.map((r,i)=>i===idx?{...r,exclusiveAreaPyMax:e.target.value}:r))} placeholder="최대"/>
+                      </div>
+                    </div>
+                    <div style={{gridColumn:'1 / -1'}}>
+                      <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>예산 (만원)</div>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <MoneyInput value={row.budgetManMin??''} onChange={e=>setLeaseRows((rows)=>rows.map((r,i)=>i===idx?{...r,budgetManMin:e.target.value}:r))} placeholder="최소"/>
+                        <span style={{color:C.txM,fontSize:13,flexShrink:0}}>~</span>
+                        <MoneyInput value={row.budgetManMax??''} onChange={e=>setLeaseRows((rows)=>rows.map((r,i)=>i===idx?{...r,budgetManMax:e.target.value}:r))} placeholder="최대"/>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>선호지역</div>
+                      <input className="inp" value={row.region??''} onChange={e=>setLeaseRows((rows)=>rows.map((r,i)=>i===idx?{...r,region:e.target.value}:r))} placeholder="예: 강남·서초"/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>이전시기</div>
+                      <input className="inp" value={row.moveTiming??''} onChange={e=>setLeaseRows((rows)=>rows.map((r,i)=>i===idx?{...r,moveTiming:e.target.value}:r))} placeholder="예: 즉시, 3월 말"/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button type="button" onClick={()=>setLeaseRows((rows)=>[...rows,emptyLeaseCondition()])}
+                style={{height:40,borderRadius:8,border:`1.5px dashed ${C.bdrSt}`,background:'transparent',color:C.brand,fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                + 임차조건 추가
+              </button>
+            </div>
+          </div>
+          ):(
           <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10}}>
             <SecLabel ch="투자 조건"/>
             <div style={{padding:'16px 18px 22px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 14px',alignItems:'start'}}>
@@ -5848,16 +6636,20 @@ const CustForm=({custData,onClose,onSaved})=>{
               </div>
               <div style={{gridColumn:'1 / -1'}}>
                 <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:8}}>
-                  희망 거래방식
+                  매수유형
                   <span style={{fontWeight:400,color:C.txP,marginLeft:6,fontSize:11}}>복수 선택</span>
                 </div>
                 <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
-                  {CUSTOMER_TRADE_OPTS.map((opt)=>(
-                    <div key={opt.id} onClick={()=>togglePreferredTrade(opt.id)} style={{padding:'6px 14px',borderRadius:20,border:'1.5px solid',borderColor:preferredTrades.includes(opt.id)?C.brand:C.bdr,background:preferredTrades.includes(opt.id)?C.brandL:'transparent',color:preferredTrades.includes(opt.id)?C.brand:C.txS,fontSize:13,cursor:'pointer',fontWeight:preferredTrades.includes(opt.id)?600:400,transition:'all .1s'}}>
+                  {CUSTOMER_BUY_TYPE_OPTS.map((opt)=>(
+                    <div key={opt.id} onClick={()=>toggleBuyType(opt.id)} style={{padding:'6px 14px',borderRadius:20,border:'1.5px solid',borderColor:buyTypes.includes(opt.id)?C.brand:C.bdr,background:buyTypes.includes(opt.id)?C.brandL:'transparent',color:buyTypes.includes(opt.id)?C.brand:C.txS,fontSize:13,cursor:'pointer',fontWeight:buyTypes.includes(opt.id)?600:400,transition:'all .1s'}}>
                       {opt.label}
                     </div>
                   ))}
                 </div>
+              </div>
+              <div style={{minWidth:0,gridColumn:'1 / -1'}}>
+                <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>매수시기</div>
+                <input className="inp" value={buyTiming} onChange={e=>setBuyTiming(e.target.value)} placeholder="예: 즉시, 3개월 내"/>
               </div>
               <div style={{minWidth:0}}>
                 <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>매입가능액 최소 (만)</div>
@@ -5869,6 +6661,7 @@ const CustForm=({custData,onClose,onSaved})=>{
               </div>
             </div>
           </div>
+          )}
 
           {/* 메모 */}
           <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10}}>
@@ -5890,6 +6683,7 @@ const CustForm=({custData,onClose,onSaved})=>{
 
 /* ═══ CUSTOMER DETAIL ═══ */
 const CustDetail=({cust,onClose,onOpen,onDelete,onDeleteCall})=>{
+  const { companyRole }=useAuth();
   const P=useProperties();
   const CALLS=useOwnerCallLogs();
   const CU=useOwnerCustomers();
@@ -5920,17 +6714,41 @@ const CustDetail=({cust,onClose,onOpen,onDelete,onDeleteCall})=>{
               <InfoRow k="회사" v={c.co}/>
               <InfoRow k="직함" v={c.title||'—'}/>
               <InfoRow k="고객 유형" v={customerTypeLabelOf(c)}/>
-              <InfoRow k="진행 상태" v={<CustStatusBdg s={c.status}/>}/>
+              <InfoRow k="등급" v={<CustStatusBdg s={c.status}/>}/>
               <InfoRow k="최초 통화일" v={fmtCallDate(callDates.first)}/>
               <InfoRow k="마지막 통화일" v={fmtCallDate(callDates.last)}/>
             </div>
+            {inferCustomerDealMode(c)===DEAL_MODE_RENT?(
+            <>
+            <SecLabel ch="임차조건"/>
+            <div>
+              {(()=>{
+                const leaseRows=serializeLeaseConditions(leaseConditionsFromCustomer(c));
+                if(!leaseRows.length) return <InfoRow k="임차조건" v="—"/>;
+                return leaseRows.flatMap((row,i)=>[
+                  leaseRows.length>1?(
+                    <div key={`h-${i}`} style={{padding:'8px 14px',fontSize:11,fontWeight:700,color:C.txM,background:C.surf2,borderBottom:`1px solid ${C.bdr}`}}>조건 {i+1}</div>
+                  ):null,
+                  <InfoRow key={`a-${i}`} k="필요 전용면적" v={fmtLeaseAreaRange(row.exclusiveAreaPyMin,row.exclusiveAreaPyMax)}/>,
+                  <InfoRow key={`b-${i}`} k="예산" v={fmtLeaseBudgetRange(row.budgetManMin,row.budgetManMax)} vc={C.ok}/>,
+                  <InfoRow key={`r-${i}`} k="선호지역" v={row.region||'—'}/>,
+                  <InfoRow key={`m-${i}`} k="이전시기" v={row.moveTiming||'—'}/>,
+                ].filter(Boolean));
+              })()}
+            </div>
+            </>
+            ):(
+            <>
             <SecLabel ch="투자 조건"/>
             <div style={{padding:'2px 0'}}>
               <InfoRow k="현금 가용금액" v={fmtCustomerMoney(c.cash)} vc={C.ok}/>
               <InfoRow k="매입가능액 범위" v={fmtCustomerBudgetRange(c.buyMin,c.buyMax)} vc={C.ok}/>
               <InfoRow k="선호 지역" v={c.region||'—'}/>
-              <InfoRow k="희망 거래방식" v={customerTradeLabelOf(c)}/>
+              <InfoRow k="매수유형" v={customerBuyLabelOf(c)}/>
+              <InfoRow k="매수시기" v={c.buyTiming||'—'}/>
             </div>
+            </>
+            )}
             {c.memo&&<><SecLabel ch="메모"/>
               <div style={{padding:'14px 16px',fontSize:13,color:C.txS,lineHeight:1.7,maxHeight:120,overflowY:'auto'}}>{c.memo}</div>
             </>}
@@ -5940,12 +6758,13 @@ const CustDetail=({cust,onClose,onOpen,onDelete,onDeleteCall})=>{
               calls={calls}
               onOpen={onOpen}
               onDeleteCall={onDeleteCall}
+              callsManage={canManageCallLogs(companyRole)}
               renderCallLink={(cl)=>{
-                const prop=cl.pid?P.find(p=>p.id===cl.pid):null;
+                const prop=cl.pid?findPropertyByPid(P,cl.pid):null;
                 return prop?(
                   <div onClick={e=>{e.stopPropagation();onOpen('pd',prop);}}
                     style={{fontSize:12,color:C.info,cursor:'pointer',fontWeight:500,marginTop:3,lineHeight:1.4}}>
-                    {prop.bldg||propDisplayAddr(prop)}
+                    {propCallIdentLabel(prop)}
                   </div>
                 ):null;
               }}
@@ -5965,7 +6784,7 @@ const CustDetail=({cust,onClose,onOpen,onDelete,onDeleteCall})=>{
                 setPropSearch('');
               }}
               linkPicker={
-                <div style={{position:'relative',marginBottom:8}}>
+                <div style={{position:'relative',marginBottom:0}}>
                   {selCallProp?(
                     <div style={{display:'flex',alignItems:'center',gap:8,height:34,border:`1.5px solid ${C.brand}`,borderRadius:7,background:C.brandL,padding:'0 10px'}}>
                       <div style={{width:22,height:22,borderRadius:'50%',background:C.brand,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -5973,7 +6792,7 @@ const CustDetail=({cust,onClose,onOpen,onDelete,onDeleteCall})=>{
                       </div>
                       <span className="cell-wrap" style={{fontSize:13,fontWeight:600,color:C.brand,flex:1}}>{propDisplayAddr(selCallProp)}</span>
                       <span onClick={()=>{setSelCallProp(null);setPropSearch('');setPropDropOpen(false);}}
-                        style={{width:20,height:20,borderRadius:'50%',background:'rgba(200,16,46,.2)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,color:C.brand,fontSize:13,fontWeight:700}}>×</span>
+                        style={{width:20,height:20,borderRadius:'50%',background:'rgba(var(--ln-brand-rgb),.2)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,color:C.brand,fontSize:13,fontWeight:700}}>×</span>
                     </div>
                   ):(
                     <div style={{display:'flex',alignItems:'center',gap:0,height:34,border:`1.5px solid ${C.bdr}`,borderRadius:7,background:'#fff',overflow:'hidden'}}>
@@ -6391,16 +7210,29 @@ const SchedDetail=({sched,onClose,onOpen,onDelete})=>{
 };
 /* ═══ PROPERTY EDIT ═══ */
 const PropEdit=({prop,onClose,onDelete,onSaved})=>{
-  const { accountDefaults }=useAuth();
+  const { accountDefaults, teamMembers }=useAuth();
+  const { setDealMode }=useDealMode();
   const RENTALS=useRentals(prop.id);
   const [showRental,setShowRental]=useState(false);
-  const [trade,setTrade]=useState(prop.trade||'SALE');
+  const [trade,setTrade]=useState(()=>{
+    const t=normalizePropTrade(prop.trade||'SALE');
+    return isSaleTrade(t)?t:'MONTHLY';
+  });
+  useEffect(()=>{
+    const next=dealModeFromProperty(prop);
+    if(next) setDealMode(next);
+  },[prop.id, prop.trade, setDealMode]);
   const [mainType,setMainType]=useState(prop.main||'COMMERCIAL');
   const [subType,setSubType]=useState(prop.sub||'WHOLE_BUILDING');
+  const [saleKind,setSaleKind]=useState(()=>saleKindFromProp(prop));
   const [status,setStatus]=useState(prop.status||'ACTIVE');
   const [pub,setPub]=useState(prop.pub?'true':'false');
   const [photoSlots,setPhotoSlots]=useState(()=>normalizePhotoSlots(prop.photos));
-  const [priceForm,setPriceForm]=useState(()=>priceFormFromProperty(prop));
+  const [priceForm,setPriceForm]=useState(()=>{
+    const pf=priceFormFromProperty(prop);
+    if(!isSaleTrade(prop.trade) && !pf.mDep && pf.jDep) return {...pf, mDep: pf.jDep};
+    return pf;
+  });
   const [detailForm,setDetailForm]=useState(()=>detailFormFromProperty(prop,accountDefaults));
   useEffect(()=>{
     setPhotoSlots(normalizePhotoSlots(prop.photos));
@@ -6412,58 +7244,99 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
       agentTel:prop.agentTel||f.agentTel||accountDefaults.phone,
     }));
   },[prop.id,accountDefaults.displayName,accountDefaults.phone]);
-  const [landEdit,setLandEdit]=useState(()=>landFromProperty(prop));
+  const [landEdit,setLandEdit]=useState(()=>landFromPropertyPrimary(prop));
   const [buildingEdit,setBuildingEdit]=useState(()=>buildingFromProperty(prop));
   const [roadSearch,setRoadSearch]=useState(propDisplayAddr(prop));
   const [addressModalOpen,setAddressModalOpen]=useState(false);
+  const [addressModalMode,setAddressModalMode]=useState('primary');
+  const [saving,setSaving]=useState(false);
   const {
     lookup, addressKeys, locationForm, setLocationForm,
     landForm, setLandForm, buildingForm, setBuildingForm,
-    handleAddressFetchSuccess, refetchPublicData, isLoading,
+    extraParcels, addExtraParcelFromAddress, removeExtraParcel, updateExtraParcelLand, extraParcelLoading, refetchExtraParcel,
+    handleAddressFetchSuccess, resetAddressLookup, isLoading,
+    restoreAddressLookupDraft,
   }=usePropertyAddressLookup({ mode:'edit' });
-  const subOpts=PROP_SUB[mainType]||{};
   useEffect(()=>{
-    if(lookup.status==='success'){
-      setLandEdit(landForm);
-      setBuildingEdit(buildingForm);
-    }
-  },[lookup.status, lookup.fetchedAt, landForm, buildingForm]);
-  const onAddressSearch=()=>setAddressModalOpen(true);
+    const hydrated=hydrateEditLandFromProperty(prop);
+    restoreAddressLookupDraft({
+      addressKeys: hydrated.addressKeys,
+      locationForm: {
+        jibunAddr: prop.jibunAddr || prop.addr || '',
+        roadAddr: prop.roadAddr || '',
+        ownerName: prop.ownerName || '',
+        ownerTel: prop.ownerTel || '',
+        roadInfo: prop.roadInfo || '',
+      },
+      landForm: hydrated.landEdit,
+      buildingForm: hydrated.buildingEdit,
+      extraParcels: prop.extraParcels,
+      lookup: hydrated.lookup,
+    });
+    setLandEdit(hydrated.landEdit);
+    setBuildingEdit(hydrated.buildingEdit);
+    setRoadSearch(propDisplayAddr(prop));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 매물 전환 시에만 복원
+  }, [prop.id, restoreAddressLookupDraft]);
+  useEffect(()=>{
+    setLandEdit((prevLand)=>applyLookupToLandEditState(prevLand, null, lookup, landForm, buildingForm).landEdit);
+    setBuildingEdit((prevBuilding)=>applyLookupToLandEditState(null, prevBuilding, lookup, landForm, buildingForm).buildingEdit);
+  },[lookup.status, lookup.fetchedAt, lookup.parcelChanged, landForm, buildingForm]);
+  const onAddressSearch=()=>{ setAddressModalMode('primary'); setAddressModalOpen(true); };
+  const onAddParcelSearch=()=>{ setAddressModalMode('extra'); setAddressModalOpen(true); };
+  const onResetAddress=()=>{
+    setRoadSearch('');
+    resetAddressLookup();
+    setLandEdit(emptyLandForm());
+    setBuildingEdit(emptyBuildingForm());
+  };
   const onAddressSelected=async (addr)=>{
+    if(addressModalMode==='extra'){
+      await addExtraParcelFromAddress(addr);
+      return;
+    }
     setRoadSearch(addr.jibunAddr||addr.roadAddr||'');
     await handleAddressFetchSuccess(addr);
   };
-  const apiBadge=lookup.status==='loading'?'조회중…'
-    :lookup.status==='success'?'API완료'
-    :lookup.status==='error'?'API오류'
-    :lookup.status==='address_confirmed'?'코드대기':'API';
+  const apiBadge=lookupApiBadge(lookup);
   const handleSave=async()=>{
+    if(saving) return;
+    if(lookupBlocksPropertySave(lookup, extraParcelLoading)){
+      window.alert(propertySaveBlockedTitle(lookup, extraParcelLoading));
+      return;
+    }
+    setSaving(true);
+    try{
     const addressFields=buildPropertyAddressFields({
-      jibunAddr: locationForm.jibunAddr || prop.jibunAddr || prop.addr,
-      roadAddr: locationForm.roadAddr || prop.roadAddr || propRoadAddr(prop),
+      jibunAddr: locationForm.jibunAddr,
+      roadAddr: locationForm.roadAddr,
     });
     const mapCoordFields=await resolveMapCoordFieldsForSave(prop, {
       ...addressFields,
       bldg: detailForm.title || '',
     });
+    const typeCodes=typeCodesForSave({isSale:isSaleTrade(trade),saleKind,main:mainType,sub:subType});
     const changes={
-      trade,main:mainType,sub:subType,status,pub:pub==='true',photos:photoSlotsToSave(photoSlots),
-      tag:PROP_SUB[mainType]?.[subType]||'',
+      trade,main:typeCodes.main,sub:typeCodes.sub,status,pub:pub==='true',photos:photoSlotsToSave(photoSlots),
+      tag:typeCodes.tag,
       ...addressFields,
       ...mapCoordFields,
-      ownerTel: normalizePhone(locationForm.ownerTel ?? prop.ownerTel ?? ''),
-      roadInfo: locationForm.roadInfo ?? prop.roadInfo ?? '',
+      ownerName: locationForm.ownerName ?? '',
+      ownerTel: normalizePhone(locationForm.ownerTel ?? ''),
+      roadInfo: locationForm.roadInfo ?? '',
       bldg: detailForm.title || '',
       promo: detailForm.promo || '',
       memo: detailForm.memo || '',
       discoUrl: normalizeDiscoUrl(detailForm.discoUrl) || '',
+      folderUrl: normalizeHttpUrl(detailForm.folderUrl) || '',
       agentName: detailForm.agentName || '',
       agentTel: normalizePhone(detailForm.agentTel || ''),
       ...buildPriceFields(trade, priceForm),
-      ...landToPropertyFields(landEdit),
-      ...buildingToPropertyFields(buildingEdit),
+      ...buildEditSaveLandPayload({
+        lookup, landForm, buildingForm, landEdit, buildingEdit, extraParcels, addressKeys,
+      }),
     };
-    if(trade==='SALE'||trade==='PRESALE'){
+    if(isSaleTrade(trade)){
       const price=parseFormNum(priceForm.price)??prop.price??0;
       const metrics=buildSaleInvestmentMetrics(price, RENTALS, {
         ...prop,
@@ -6471,12 +7344,21 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
         maintenance: parseFormNum(priceForm.maintenance),
       });
       changes.roi=metrics.yieldLabel;
-      changes.realInvest=metrics.realInvest!=null?String(metrics.realInvest):'';
     }
-    await updateProperty(prop.id,changes);
-    showNotification('수정되었습니다.','info');
+    const check=validatePropertyForSave({...prop,...changes});
+    if(!check.ok){
+      window.alert(check.message);
+      return;
+    }
+    const sync=await updateProperty(prop.id,changes);
+    showNotification(propertySaveToastMessage(sync),'info');
     if(onSaved) onSaved({...prop,...changes});
     else onClose();
+    }catch(err){
+      window.alert(err instanceof Error?err.message:String(err));
+    }finally{
+      setSaving(false);
+    }
   };
   const FL=({label,req,hint})=>(
     <div style={{fontSize:12,color:C.txM,fontWeight:600,marginBottom:6}}>
@@ -6493,74 +7375,89 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
         open={addressModalOpen}
         onClose={()=>setAddressModalOpen(false)}
         onSelect={onAddressSelected}
-        initialKeyword={roadSearch}
+        initialKeyword={addressModalMode==='extra'?'':roadSearch}
+        initialMode={addressModalMode==='extra'?'jibun':'all'}
       />
-      <PH title="매물 수정" sub={propDisplayAddr(prop)}
+      <PH title="매물 수정" lead={propDetailWinTitle({
+        jibunAddr: locationForm.jibunAddr || prop.jibunAddr,
+        addr: prop.addr,
+        bldg: (detailForm.title || '').trim(),
+      })}
         acts={<Btn role="page-secondary" ch="상세로" ic="ti-arrow-left" on={onClose}/>}
       />
       <div style={{flex:1,minHeight:0,overflow:'auto',padding:'16px 28px 0'}}>
-            <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05)',marginBottom:20}}>
-
-              {/* 1. 매물종류 · 상태 */}
-              <SecLabel ch="매물종류 · 상태"/>
-              <div style={{padding:'14px 20px',display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,borderBottom:`1px solid ${C.bdr}`}}>
-                <div><FL label="매물 대분류" req/>
-                  <select className="sel" value={mainType} onChange={e=>{setMainType(e.target.value);setSubType(Object.keys(PROP_SUB[e.target.value]||{})[0]||'');}}>
-                    {Object.entries(PROP_MAIN).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
+        <PropFormSplit>
+          <PropFormCol>
+              <SecLabel ch="매물종류 · 상태" formSection/>
+              <div className="prop-form-sec-body" style={{padding:'14px 20px',display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:14}}>
+                {isSaleTrade(trade)?(
+                <div><FL label="매물 종류" req/>
+                  <select className="sel" value={saleKind} onChange={e=>{
+                    const k=normalizeSalePropKind(e.target.value);
+                    setSaleKind(k);
+                    if(!k) return;
+                    const t=typeCodesForSave({isSale:true,saleKind:k});
+                    setMainType(t.main);setSubType(t.sub);
+                  }}>
+                    {!saleKind&&<option value="">선택</option>}
+                    {SALE_PROP_KIND_OPTS.map(({id,label})=>(<option key={id} value={id}>{label}</option>))}
                   </select></div>
-                <div><FL label="매물 소분류" req/>
-                  <select className="sel" value={subType} onChange={e=>setSubType(e.target.value)}>
-                    {Object.entries(subOpts).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
+                ):(
+                <div><FL label="매물 분류" req/>
+                  <select className="sel" value={subType} onChange={e=>{
+                    const v=e.target.value;
+                    setSubType(v);
+                    const nextMain=findPropMainForSub(v);
+                    if(nextMain) setMainType(nextMain);
+                  }}>
+                    {visibleAllPropSubEntries(mainType, subType).map(({id,label})=>(<option key={id} value={id}>{label}</option>))}
                   </select></div>
+                )}
                 <div><FL label="진행 상태" req/>
                   <select className="sel" value={status} onChange={e=>setStatus(e.target.value)}>
-                    <option value="NEW">신규</option><option value="ACTIVE">진행중</option>
-                    <option value="HOLD">보류</option><option value="COMPLETED">계약완료</option>
+                    {propStatusOpts(isSaleTrade(trade)?false:true).map(({id,label})=>(<option key={id} value={id}>{label}</option>))}
                   </select></div>
                 <div><FL label="공개 여부" req/>
                   <select className="sel" value={pub} onChange={e=>setPub(e.target.value)}>
                     <option value="true">공개</option><option value="false">비공개</option>
                   </select></div>
               </div>
-
-              {/* 2. 소재지 */}
-              <SecLabel ch="소재지" badge={apiBadge}/>
-              <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bdr}`,display:'flex',flexDirection:'column',gap:12}}>
-                {lookup.error&&<div style={{fontSize:12,color:C.err,padding:'8px 12px',background:C.errBg,borderRadius:7}}>{lookup.error}</div>}
-                {lookup.warnings?.length>0&&lookup.status!=='idle'&&(
-                  <div style={{fontSize:12,color:C.warn,padding:'8px 12px',background:C.warnBg,borderRadius:7}}>
-                    {lookup.warnings.join(' · ')}
-                  </div>
-                )}
-                <div style={{display:'flex',gap:10}}>
-                  <input className="inp" value={roadSearch} onChange={e=>setRoadSearch(e.target.value)}
-                    onKeyDown={e=>{ if(e.key==='Enter') onAddressSearch(); }}
-                    placeholder="주소 검색 — 도로명·지번·건물명 (예: 상계동 737, 동일로215길 48)" style={{flex:1}} disabled={isLoading}/>
-                  <Btn role="page-primary" ch={isLoading?'조회중…':'주소 검색'} ic="ti-search" on={onAddressSearch}/>
-                  <Btn role="page-secondary" ch="재조회" ic="ti-refresh" on={refetchPublicData}/>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-                  <div><FL label="지번주소"/>
-                    <input className="inp" value={locationForm.jibunAddr||prop.jibunAddr||prop.addr||''} readOnly style={{background:C.surf2}}/></div>
-                  <div><FL label="도로명주소"/>
-                    <input className="inp" value={locationForm.roadAddr||prop.roadAddr||propRoadAddr(prop)||''} readOnly style={{background:C.surf2}}/></div>
-                  <div><FL label="소유주 연락처"/>
-                    <PhoneInput value={locationForm.ownerTel||prop.ownerTel||''} onChange={e=>setLocationForm(f=>({...f,ownerTel:e.target.value}))} placeholder="예: 010-0000-0000"/></div>
-                  <div><FL label="도로상황"/>
-                    <input className="inp" value={locationForm.roadInfo||prop.roadInfo||''} onChange={e=>setLocationForm(f=>({...f,roadInfo:e.target.value}))} placeholder="예: 8m × 4m"/></div>
-                </div>
+          </PropFormCol>
+          <PropFormCol>
+              <SecLabel ch={isSaleTrade(trade)?'거래방식 · 가격':'임대조건'} formSection end={isSaleTrade(trade)?<TradeModeChips trade={trade} setTrade={setTrade}/>:null}/>
+              <div className="prop-form-sec-body" style={{padding:'14px 20px'}}>
+                <PropPriceSection trade={isSaleTrade(trade)?trade:'MONTHLY'} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" subType={subType} collectMoveInDate/>
               </div>
-
-              {/* 3. 거래방식 · 가격 */}
-              <SecLabel ch="거래방식 · 가격"/>
-              <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bdr}`}}>
-                <PropPriceSection trade={trade} setTrade={setTrade} priceForm={priceForm} setPriceForm={setPriceForm} idPrefix="edit_" mainType={mainType} subType={subType} collectMoveInDate/>
+          </PropFormCol>
+        </PropFormSplit>
+        <PropFormSplit>
+          <PropFormCol>
+              <PropLocationBlock
+                lookup={lookup} isLoading={isLoading} extraParcelLoading={extraParcelLoading}
+                roadSearch={roadSearch}
+                onAddressSearch={onAddressSearch} onResetAddress={onResetAddress} onAddParcelSearch={onAddParcelSearch}
+                setLocationForm={setLocationForm}
+                extraParcels={extraParcels} onRemoveExtra={removeExtraParcel}
+                jibunValue={locationForm.jibunAddr}
+                roadValue={locationForm.roadAddr}
+                ownerNameValue={locationForm.ownerName}
+                ownerTelValue={locationForm.ownerTel}
+                roadInfoValue={locationForm.roadInfo}
+              />
+              <PropLandSection
+                apiBadge={apiBadge} extraParcels={extraParcels}
+                landForm={landEdit} setLandForm={setLandEdit}
+                lookupSuccess={lookup.status==='success'}
+                onChangeLand={updateExtraParcelLand} onRemove={removeExtraParcel} onRefetch={refetchExtraParcel}
+              />
+              <SecLabel ch="건물정보" badge={apiBadge} formSection/>
+              <div style={{padding:'14px 20px'}}>
+                <PropBuildingFields buildingForm={buildingEdit} setBuildingForm={setBuildingEdit} readOnlyStyle={lookup.status==='success'?{background:C.surf2}:undefined}/>
               </div>
-
-              {/* 3-1. 임대차관리 (매매·분양) */}
-              {(trade==='SALE'||trade==='PRESALE')&&<>
-                <SecLabel ch="임대차관리"/>
-                <div style={{padding:'14px 20px',borderBottom:`1px solid ${C.bdr}`}}>
+              <SecLabel ch="임대차관리" formSection/>
+              <div style={{padding:'14px 20px'}}>
+                {isSaleTrade(trade)?(
+                  <>
                   {RENTALS.length>0?(()=>{
                     const totalDep=saleInvest.existingDeposit;
                     const totalRent=RENTALS.reduce((s,r)=>s+(parseFloat(r.rent)||0),0);
@@ -6571,7 +7468,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                     };
                     return(
                       <div style={{border:`1px solid ${C.bdr}`,borderRadius:8,overflow:'hidden',marginBottom:12}}>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))'}}>
                           {[
                             ['등록 호실',`${RENTALS.length}건`,C.tx],
                             ['공실',vacantCount>0?`${vacantCount}개층`:'없음',vacantCount>0?C.warn:C.ok],
@@ -6583,7 +7480,7 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                             </div>
                           ))}
                         </div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))'}}>
                           {[
                             ['총 보증금',formatKoreanAmountFromMan(totalDep),C.tx],
                             ['총 임대료',formatKoreanAmountFromMan(totalRent),C.tx],
@@ -6603,44 +7500,43 @@ const PropEdit=({prop,onClose,onDelete,onSaved})=>{
                     </div>
                   )}
                   <Btn role="block-link" ch={RENTALS.length>0?'임대차 내역 관리':'임대차 등록 · 관리'} ic="ti-table" full on={()=>setShowRental(true)}/>
-                </div>
-              </>}
-
-              {/* 4. 토지정보 */}
-              <SecLabel ch="토지정보" badge={apiBadge}/>
-              <div style={{padding:'14px 20px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,borderBottom:`1px solid ${C.bdr}`}}>
-                <PropLandFields landForm={landEdit} setLandForm={setLandEdit} readOnlyStyle={lookup.status==='success'?{background:C.surf2}:undefined}/>
+                  </>
+                ):(
+                  <div style={{fontSize:13,color:C.txM,lineHeight:1.6}}>
+                    임대 거래는 위 임대조건에서 보증금·월세 등을 입력합니다.
+                  </div>
+                )}
               </div>
-
-              {/* 5. 건물정보 */}
-              <SecLabel ch="건물정보" badge={apiBadge}/>
-              <div style={{padding:'14px 20px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,borderBottom:`1px solid ${C.bdr}`}}>
-                <PropBuildingFields buildingForm={buildingEdit} setBuildingForm={setBuildingEdit} readOnlyStyle={lookup.status==='success'?{background:C.surf2}:undefined}/>
-              </div>
-
-              {/* 6. 사진 */}
-              <SecLabel ch="사진 (선택, 최대 3장)"/>
-              <PropertyPhotoPicker slots={photoSlots} onChange={setPhotoSlots} compact/>
-
-              {/* 7. 세부내용 */}
-              <SecLabel ch="세부내용"/>
+          </PropFormCol>
+          <PropFormCol>
+              <SecLabel ch="세부내용" formSection/>
               <div style={{padding:'14px 20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
                 <div style={{gridColumn:'1/-1'}}><FL label="게시글 제목" req/>
                   <input className="inp" value={detailForm.title} onChange={e=>setDetailForm(f=>({...f,title:e.target.value}))} placeholder="예: 영등포 핵심 상권 상가건물 매매"/></div>
-                <div><FL label="담당자 이름"/>
-                  <input className="inp" value={detailForm.agentName} onChange={e=>setDetailForm(f=>({...f,agentName:e.target.value}))} placeholder="담당자 이름"/></div>
-                <div><FL label="담당자 연락처"/>
-                  <PhoneInput value={detailForm.agentTel} onChange={e=>setDetailForm(f=>({...f,agentTel:e.target.value}))} placeholder="010-0000-0000"/></div>
+                <PropAgentFields
+                  detailForm={detailForm}
+                  setDetailForm={setDetailForm}
+                  teamMembers={teamMembers}
+                  accountDefaults={accountDefaults}
+                  Label={({children})=><FL label={children}/>}
+                />
                 <div style={{gridColumn:'1/-1'}}><FL label="홍보문구 (공개)"/>
                   <textarea className="ta" rows={9} value={detailForm.promo} onChange={e=>setDetailForm(f=>({...f,promo:e.target.value}))} placeholder="외부에 공개되는 홍보문구"/></div>
                 <div style={{gridColumn:'1/-1'}}><FL label="내부 메모 (비공개)"/>
                   <textarea className="ta" rows={3} value={detailForm.memo} onChange={e=>setDetailForm(f=>({...f,memo:e.target.value}))} placeholder="내부 참고 사항 (공개 안 됨)"/></div>
+                <div style={{gridColumn:'1/-1'}}><FL label="저장폴더 바로가기" hint="선택"/>
+                  <input className="inp" value={detailForm.folderUrl||''} onChange={e=>setDetailForm(f=>({...f,folderUrl:e.target.value}))} placeholder="구글 드라이브, 원드라이브 등 폴더 주소"/></div>
+                {!isSaleTrade(trade)&&(
                 <div style={{gridColumn:'1/-1'}}><FL label="디스코 상세 링크" hint="선택"/>
                   <input className="inp" value={detailForm.discoUrl||''} onChange={e=>setDetailForm(f=>({...f,discoUrl:e.target.value}))} placeholder="디스코에서 복사한 주소 링크가 있다면 입력해주세요 (선택)"/></div>
+                )}
               </div>
-            </div>
+              <SecLabel ch="사진 (선택, 최대 3장)" formSection/>
+              <PropertyPhotoPicker slots={photoSlots} onChange={setPhotoSlots} compact/>
+          </PropFormCol>
+        </PropFormSplit>
         </div>
-        <ActionBar saveLabel="저장" onSave={handleSave} onDelete={onDelete?()=>onDelete(prop):null} onCancel={onClose}/>
+        <ActionBar saveLabel={saving?'저장 중…':'저장'} onSave={handleSave} onDelete={onDelete?()=>onDelete(prop):null} onCancel={onClose} saveDisabled={saving||lookupBlocksPropertySave(lookup,extraParcelLoading)} saveDisabledTitle={saving?'저장 중입니다.':propertySaveBlockedTitle(lookup,extraParcelLoading)}/>
       </div>
     );
   };
@@ -6713,7 +7609,7 @@ const PropEditRoute=({softDelete,onOpen})=>{
 };
 
 /* ═══ GLOBAL APP STYLES (메인 + 팝업 공통) ═══ */
-const APP_STYLES_ID='landnote-app-styles-v2';
+const APP_STYLES_ID='landnote-app-styles-v5';
 function useInjectAppStyles(){
   useEffect(()=>{
     if(document.getElementById(APP_STYLES_ID)) return undefined;
@@ -6723,7 +7619,7 @@ function useInjectAppStyles(){
     document.head.appendChild(link);
     const s=document.createElement('style');
     s.id=APP_STYLES_ID;
-    s.textContent=`*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{width:100%;height:100%;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1A2332;text-align:left}#root{width:100%;height:100%;font-family:inherit;text-align:left}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}input,textarea,select{font-family:inherit;text-align:left}button{font-family:inherit;cursor:pointer}input:focus,textarea:focus,select:focus{outline:none}.tbl{width:100%;border-collapse:collapse;table-layout:auto}.tbl th{background:#F8F9FB;color:#6B7280;font-size:12px;font-weight:600;padding:0 16px;height:49px;text-align:left;border-bottom:1.5px solid #E8EAED;white-space:nowrap;letter-spacing:.03em;text-transform:uppercase;position:sticky;top:0;z-index:1}.tbl td{padding:0 16px;height:57px;border-bottom:1px solid #E8EAED;color:#0F172A;font-size:14px;vertical-align:middle;white-space:normal;text-align:left;word-break:keep-all}.tbl tbody tr:hover td{background:#FAFBFF;cursor:pointer}.tbl-fixed{table-layout:fixed;width:100%}.tbl-fixed td,.tbl-fixed th{overflow:hidden}.cell-ellipsis{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;max-width:100%}.cell-wrap{display:block;white-space:normal;word-break:keep-all;overflow-wrap:break-word;line-height:1.35;min-width:0}.inp{height:36px;min-height:36px;line-height:1.25;border:1.5px solid #E2E8F0;border-radius:7px;padding:0 12px;font-size:14px;color:#0F172A;background:#fff;width:100%;display:block;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}.inp:focus{border-color:#C8102E;box-shadow:0 0 0 3px rgba(200,16,46,.09)}.inp::placeholder{color:#94A3B8;font-size:13px}.sel{height:36px;min-height:36px;line-height:1.25;border:1.5px solid #E2E8F0;border-radius:7px;padding:0 10px;font-size:14px;color:#0F172A;background:#fff;cursor:pointer;width:100%;display:block;box-sizing:border-box}.sel:focus{border-color:#C8102E}.ta{display:block;width:100%;box-sizing:border-box;border:1.5px solid #E2E8F0;border-radius:7px;padding:10px 12px;font-size:14px;color:#0F172A;background:#fff;resize:vertical;min-height:72px}.ta:focus{border-color:#C8102E;box-shadow:0 0 0 3px rgba(200,16,46,.09)}.ta::placeholder{color:#94A3B8;font-size:13px}.nav-item{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:8px;cursor:pointer;color:rgba(255,255,255,.52);font-size:14px;transition:background .1s,color .1s;margin-bottom:2px;text-align:left}.nav-item:hover{background:rgba(255,255,255,.07);color:rgba(255,255,255,.85)}.nav-item.active{background:rgba(200,16,46,.16);color:#fff;font-weight:600}@keyframes spin{to{transform:rotate(360deg)}}`;
+    s.textContent=`*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body{width:100%;height:100%;font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1A2332;text-align:left}#root{width:100%;height:100%;font-family:inherit;text-align:left}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}input,textarea,select{font-family:inherit;text-align:left}button{font-family:inherit;cursor:pointer}input:focus,textarea:focus,select:focus{outline:none}.tbl{width:100%;border-collapse:collapse;table-layout:auto}.tbl th{background:#F8F9FB;color:#6B7280;font-size:12px;font-weight:600;padding:0 16px;height:49px;text-align:left;border-bottom:1.5px solid #E8EAED;white-space:nowrap;letter-spacing:.03em;text-transform:uppercase;position:sticky;top:0;z-index:1}.tbl td{padding:0 16px;height:57px;border-bottom:1px solid #E8EAED;color:#0F172A;font-size:14px;vertical-align:middle;white-space:normal;text-align:left;word-break:keep-all}.tbl tbody tr:hover td{background:#FAFBFF;cursor:pointer}.tbl-fixed{table-layout:fixed;width:100%}.tbl-fixed td,.tbl-fixed th{overflow:hidden}.cell-ellipsis{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;max-width:100%}.cell-wrap{display:block;white-space:normal;word-break:keep-all;overflow-wrap:break-word;line-height:1.35;min-width:0}.inp{height:36px;min-height:36px;line-height:1.25;border:1.5px solid #E2E8F0;border-radius:7px;padding:0 12px;font-size:14px;color:#0F172A;background:#fff;width:100%;display:block;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}.inp:focus{border-color:var(--ln-brand);box-shadow:0 0 0 3px rgba(var(--ln-brand-rgb),.09)}.inp::placeholder{color:#94A3B8;font-size:13px}.sel{height:36px;min-height:36px;line-height:1.25;border:1.5px solid #E2E8F0;border-radius:7px;padding:0 10px;font-size:14px;color:#0F172A;background:#fff;cursor:pointer;width:100%;display:block;box-sizing:border-box}.sel:focus{border-color:var(--ln-brand)}.ta{display:block;width:100%;box-sizing:border-box;border:1.5px solid #E2E8F0;border-radius:7px;padding:10px 12px;font-size:14px;color:#0F172A;background:#fff;resize:vertical;min-height:72px}.ta:focus{border-color:var(--ln-brand);box-shadow:0 0 0 3px rgba(var(--ln-brand-rgb),.09)}.ta::placeholder{color:#94A3B8;font-size:13px}.nav-item{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:8px;cursor:pointer;color:rgba(255,255,255,.52);font-size:14px;transition:background .1s,color .1s;margin-bottom:2px;text-align:left}.nav-item:hover{background:rgba(255,255,255,.07);color:rgba(255,255,255,.85)}.nav-item.active{background:rgba(var(--ln-brand-rgb),.16);color:#fff;font-weight:600}@keyframes spin{to{transform:rotate(360deg)}}.prop-form-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:stretch;margin-bottom:16px}.prop-form-col{background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04);min-width:0;display:flex;flex-direction:column;height:100%}.prop-form-col .prop-form-sec-body{flex:1}.prop-form-col .prop-form-sec{margin-top:14px;border-top:2px solid #CBD5E1}.prop-form-col .prop-form-sec:first-child{margin-top:0;border-top:none}@media (max-width:1100px){.prop-form-split{grid-template-columns:1fr}}`;
     document.head.appendChild(s);
     return ()=>{};
   },[]);
@@ -6776,6 +7672,7 @@ function AuthPublicRoutes({ onLegacyLogin }) {
 /* ═══ MAIN APP ═══ */
 function AppShell(){
   const { user, loading: authLoading, profileLoading, profilePending, needsSignupCompletion, signOut, passwordRecovery, sessionCloudSyncStatus } = useAuth();
+  const [cloudWaitTimedOut, setCloudWaitTimedOut] = useState(false);
   const isMobile = useIsMobile();
   const isMobileDevice = useIsMobileDevice();
   const [forceDesktop, setForceDesktopState] = useState(getForceDesktop);
@@ -6789,6 +7686,24 @@ function AppShell(){
   useLayoutEffect(() => {
     captureCurrentAppPathFromWindow();
   }, []);
+
+  useEffect(() => {
+    const waiting = isSupabaseConfigured
+      && !!user?.id
+      && user.id !== 'dev-local'
+      && (sessionCloudSyncStatus === 'idle' || sessionCloudSyncStatus === 'syncing');
+    let sessionReady = false;
+    try { sessionReady = sessionStorage.getItem(`landnote.sessionCloudReady.${user?.id}`) === '1'; } catch { /* ignore */ }
+    if (!waiting || sessionReady) {
+      setCloudWaitTimedOut(false);
+      return undefined;
+    }
+    const t = window.setTimeout(() => {
+      console.warn('[auth] login bootstrap timed out — continue with local data');
+      setCloudWaitTimedOut(true);
+    }, 12000);
+    return () => window.clearTimeout(t);
+  }, [user?.id, sessionCloudSyncStatus]);
 
   // 로그인 시 seed만 — prepareLocalStore는 Auth 세션 sync가 pull 직전에 수행 (경합 방지)
   useEffect(()=>{
@@ -6866,7 +7781,6 @@ function AppShell(){
   },[showNotification]);
 
   const menuId=pathToMenuId(location.pathname);
-  const titleLabel=resolveTitle(location.pathname, {}, properties);
   const navTo=(id)=>{
     const path=MENU_PATHS[id]||'/dashboard';
     if(path==='/register'){
@@ -6876,7 +7790,12 @@ function AppShell(){
     navigate(path);
   };
 
-  const softDelete=(type,item,label,afterFn)=>setGlobalConfirm({
+  const softDelete=(type,item,label,afterFn)=>{
+    if(type==='calls'&&isLockedCallLog(item)){
+      showNotification(LOCKED_CALL_LOG_MSG,'warning');
+      return;
+    }
+    setGlobalConfirm({
     msg:'휴지통으로 이동하시겠습니까?',
     subMsg:`"${label}"이(가) 휴지통으로 이동됩니다. 언제든지 복구할 수 있습니다.`,
     confirmLabel:'이동',
@@ -6891,6 +7810,8 @@ function AppShell(){
       }catch(err){
         if(err?.message==='FORBIDDEN'){
           showNotification(PERMISSION_DENIED_TOOLTIP,'warning');
+        }else if(err?.message==='LOCKED_CALL_LOG'){
+          showNotification(LOCKED_CALL_LOG_MSG,'warning');
         }else{
           console.error('[softDelete]',err);
           showNotification('삭제에 실패했습니다.','error');
@@ -6900,8 +7821,13 @@ function AppShell(){
       if(afterFn) afterFn();
     }
   });
+  };
 
   const openWin=useCallback((type,data)=>{
+    if(type==='ce'&&data&&isLockedCallLog(data)){
+      showNotification(LOCKED_CALL_LOG_MSG,'warning');
+      return;
+    }
     if(type==='pd'){
       setWins(prev=>{
         const filtered=prev.filter(w=>w.type!=='cd'&&!(w.type==='pd'&&w.data?.id===data?.id));
@@ -6919,7 +7845,7 @@ function AppShell(){
       const filtered=prev.filter(w=>!(w.type===type&&w.data?.id===data?.id));
       return[...filtered,{type,data,wid:`${type}-${Date.now()}`}];
     });
-  },[navigate]);
+  },[navigate,showNotification]);
   const closeWin=useCallback((wid)=>setWins(prev=>prev.filter(w=>w.wid!==wid)),[]);
   const closeCustomerWins=useCallback((custId)=>{
     setWins(prev=>prev.filter(w=>!((w.type==='cd'||w.type==='cf')&&w.data?.id===custId)));
@@ -6974,7 +7900,7 @@ function AppShell(){
   const bootstrapping = authLoading
     || profilePending
     || (user?.id && user.id !== 'dev-local' && profileLoading)
-    || waitCloudBootstrap;
+    || (waitCloudBootstrap && !cloudWaitTimedOut);
   if(bootstrapping){
     return (
       <RouteLoading
@@ -6995,7 +7921,7 @@ function AppShell(){
   }
 
   const appRoutes=(
-    <RouteErrorBoundary>
+    <RouteErrorBoundary key={menuId}>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path={AUTH_PATHS.login} element={<AuthPathRedirect />} />
@@ -7005,11 +7931,11 @@ function AppShell(){
         <Route path="/properties" element={<PropList onOpen={openWin} onNav={navTo} folders={folders} propFolders={propFolders} setPropFolders={setPropFolders} onDeleteProperty={(p,after)=>softDelete('props',p,propDisplayAddr(p)||p.bldg,after||(()=>{}))}/>} />
         <Route path="/properties/:id/edit" element={<PropEditRoute softDelete={softDelete} onOpen={openWin}/>} />
         <Route path="/properties/:id" element={<PropDetailRedirect onOpen={openWin}/>} />
-        <Route path="/mapview" element={<MapView onOpen={openWin} Btn={Btn} PH={PH}/>} />
+        <Route path="/mapview" element={<MapView onOpen={openWin} onNav={navTo} Btn={Btn} PH={PH}/>} />
         <Route path="/register/bulk" element={<PropertyBulkUploadPage onNav={navTo}/>} />
         <Route path="/register" element={<PropRegister key={registerFormKey} onNav={navTo}/>} />
         <Route path="/customers/bulk" element={<CustomerBulkUploadPage onNav={navTo}/>} />
-        <Route path="/customers" element={<CustList onOpen={openWin} onNav={navTo} onDeleteCustomer={(c,after)=>softDelete('custs',c,c.name,()=>{if(after)after();closeCustomerWins(c.id);})} onCustomersDeleted={(ids)=>ids.forEach((id)=>closeCustomerWins(id))}/>} />
+        <Route path="/customers" element={<CustList onOpen={openWin} onNav={navTo}/>} />
         <Route path="/calls" element={<CallLogs onOpen={openWin} onDelete={(item)=>softDelete('calls',item,item.content?.slice(0,20)||'통화기록',()=>{})}/>} />
         <Route path="/calendar" element={<Calendar onOpen={openWin}/>} />
         <Route path="/backup" element={<Backup/>} />
@@ -7084,8 +8010,8 @@ function AppShell(){
 
   if(isMobileDevice&&!forceDesktop){
     return(
-      <>
-        <MobileShell screenTitle={titleLabel} menuId={menuId}
+      <DealModeAppFrame style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <MobileShell menuId={menuId}
           onSettings={()=>setShowSet(true)} onViewDesktop={viewDesktop}>
           <MobileSyncGate background={C.bg}>
             {mobileRoutes}
@@ -7093,14 +8019,14 @@ function AppShell(){
         </MobileShell>
         {showSet&&<Settings onClose={()=>setShowSet(false)} onSignOut={handleSignOut}/>}
         <ToastPopup toast={toast} onClose={dismissToast}/>
-      </>
+      </DealModeAppFrame>
     );
   }
 
   return(
-    <>
+    <DealModeAppFrame style={{width:'100%',height:'100%'}}>
       <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',overflow:'hidden',fontFamily:'inherit',background:C.sidebar}}>
-        <TitleBar screen={titleLabel} onSignOut={handleSignOut} onHome={()=>navTo('dashboard')}/>
+        <TitleBar onSignOut={handleSignOut} onHome={()=>navTo('dashboard')}/>
         <div style={{flex:1,display:'flex',overflow:'hidden',position:'relative'}}>
           <Sidebar screen={menuId} onNav={(id)=>{navTo(id);setSidebarExpanded(false);}} onSettings={()=>setShowSet(true)} trash={trashCount}
             expanded={false} onToggle={()=>setSidebarExpanded(true)}/>
@@ -7127,7 +8053,7 @@ function AppShell(){
       )}
       {overlays}
       <ToastPopup toast={toast} onClose={dismissToast}/>
-    </>
+    </DealModeAppFrame>
   );
 }
 
@@ -7145,7 +8071,9 @@ const CallEditWin=({callData,onClose,onSaved,onDelete})=>{
   const P=useProperties();
   const CU=useOwnerCustomers();
   const isNew=!callData;
-  const canEdit=isNew||canWriteRecord(callData,user?.id,companyRole,memberPermissions,'call_logs');
+  const locked=isLockedCallLog(callData);
+  const canManageCalls=canManageCallLogs(companyRole);
+  const canEdit=!locked&&(isNew||(canManageCalls&&canWriteRecord(callData,user?.id,companyRole,memberPermissions,'call_logs')));
   const [date,setDate]=useState(callData?.date||new Date().toISOString().slice(0,10));
   const [time,setTime]=useState(callData?.time||'09:00');
   const [content,setContent]=useState(callData?.content||'');
@@ -7179,22 +8107,35 @@ const CallEditWin=({callData,onClose,onSaved,onDelete})=>{
       cid:isFreePhoneSel(selCust)?null:(selCust?.id||null),
       contactPhone:contactPhone||'',
     };
-    if(isNew){
-      await saveCallLog(payload);
-      showNotification('저장하였습니다.','success');
-    }else{
-      await saveCallLog(payload, callData.id);
-      showNotification('수정되었습니다.','info');
+    try{
+      if(isNew){
+        await saveCallLog(payload);
+        showNotification('저장하였습니다.','success');
+      }else{
+        await saveCallLog(payload, callData.id);
+        showNotification('수정되었습니다.','info');
+      }
+    }catch(err){
+      if(err?.message==='LOCKED_CALL_LOG'){
+        showNotification(LOCKED_CALL_LOG_MSG,'warning');
+        return;
+      }
+      throw err;
     }
     if(onSaved) onSaved({...callData,...payload});
     onClose();
   };
 
   return(
-    <Win title={isNew?'통화 기록 등록':'통화 기록 수정'} ic={isNew?'ti-phone-plus':'ti-phone-edit'} onClose={onClose} w={760}
+    <Win title={locked?'변경기록':(isNew?'통화 기록 등록':'통화 기록 수정')} ic={isNew?'ti-phone-plus':'ti-phone-edit'} onClose={onClose} w={760}
       ch={<>
-        <div style={{...WIN_BODY_SCROLL,padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}
+        <div style={{...WIN_BODY_SCROLL,padding:'20px 24px',display:'flex',flexDirection:'column',gap:14,pointerEvents:locked?'none':undefined}}
           onClick={()=>{setPropOpen(false);setCustOpen(false);}}>
+          {locked&&(
+            <div style={{padding:'10px 12px',background:C.surf2,border:`1px solid ${C.bdr}`,borderRadius:8,fontSize:13,color:C.txM}}>
+              {LOCKED_CALL_LOG_MSG}
+            </div>
+          )}
 
           {/* 기본 정보 */}
           <div style={{background:C.surf,border:`1px solid ${C.bdr}`,borderRadius:10,overflow:'hidden'}}>
@@ -7275,12 +8216,12 @@ const CallEditWin=({callData,onClose,onSaved,onDelete})=>{
         </div>
         <ActionBar
           saveLabel={isNew?'저장하기':'저장'}
-          onSave={handleSave}
+          onSave={locked?null:handleSave}
           saveDisabled={!canEdit}
-          saveDisabledTitle={PERMISSION_DENIED_TOOLTIP}
-          onDelete={!isNew&&onDelete?()=>onDelete(callData):null}
+          saveDisabledTitle={locked?LOCKED_CALL_LOG_MSG:PERMISSION_DENIED_TOOLTIP}
+          onDelete={!locked&&!isNew&&onDelete?()=>onDelete(callData):null}
           deleteDisabled={!canEdit}
-          deleteDisabledTitle={PERMISSION_DENIED_TOOLTIP}
+          deleteDisabledTitle={locked?LOCKED_CALL_LOG_MSG:PERMISSION_DENIED_TOOLTIP}
           onCancel={onClose}/>
       </>}/>
   );

@@ -3,12 +3,30 @@ import { normalizeCustomerRecord } from './utils/customerTypes.js';
 import { looksLikeEokStored, EOK_TO_MAN, parseMoneyManOrNull } from './utils/formatMoney.js';
 import { DEV_LOCAL_OWNER, getActiveOwnerId, withOwnerId, canMutateRecord, matchesOwner } from './services/sync/ownerScope.js';
 import { getSyncCompanyId, getSyncCompanyRole } from './services/sync/syncContext.js';
-import { COMPANY_ROLES, normalizeCompanyRole } from './data/companyRoles.js';
+import { COMPANY_ROLES, isAdminRole, normalizeCompanyRole } from './data/companyRoles.js';
 import { customerPhoneKey } from './utils/formatPhone.js';
+import { inferCustomerDealMode, normalizeDealMode } from './utils/dealModeMatch.js';
+import { nextDirtyPatch, SYNC_STATUS } from './utils/recordSyncState.js';
+import { rememberPropListLatestActivity } from './navigation/propListPersist.js';
+import { validatePropertyForSave } from './utils/propertySaveValidate.js';
+import { isPersistedRentalLocalId } from './services/sync/rentalSyncLogic.js';
+import {
+  isLockedCallLog,
+  nowCallStamp,
+  propertyRegisterAuditContent,
+  rentalChangeAuditContent,
+  summarizePropertyChanges,
+  LOCKED_CALL_KIND,
+} from './utils/propertyAuditLog.js';
+
+async function afterRentalChange(propertyId) {
+  const { syncRentalsAfterChange } = await import('./services/sync/rentalSync.js');
+  return syncRentalsAfterChange(propertyId);
+}
 
 async function afterPropertyChange(id) {
   const { syncPropertyAfterChange } = await import('./services/sync/propertySync.js');
-  await syncPropertyAfterChange(id);
+  return syncPropertyAfterChange(id);
 }
 
 async function afterCustomerChange(id) {
@@ -23,7 +41,7 @@ async function removeCustomerFromCloud(id) {
 
 async function removePropertyFromCloud(id) {
   const { deletePropertyFromCloud } = await import('./services/sync/propertySync.js');
-  await deletePropertyFromCloud(id);
+  return deletePropertyFromCloud(id);
 }
 
 async function removeScheduleFromCloud(id) {
@@ -77,10 +95,10 @@ const SEED_PROPERTIES = withDevOwner(withDeletedAt([
 ]));
 
 const SEED_CUSTOMERS = withDevOwner(withDeletedAt([
-  { id: 1, name: '김태영', phone: '010-1234-5678', type: 'BUYER', status: 'ACTIVE', fav: true, co: '태영인베스트', cash: 500000, buyMin: 200000, buyMax: 500000, memo: '강남 상권 관심, 현금 50억 보유', created: '2026.06.01' },
-  { id: 2, name: '이지현', phone: '010-9876-5432', type: 'SELLER', status: 'ACTIVE', fav: false, co: '개인', cash: 0, buyMin: 0, buyMax: 0, memo: '영등포 건물 매도 희망 430억', created: '2026.06.10' },
-  { id: 3, name: '박준호', phone: '010-5555-7890', type: 'TENANT', status: 'HOLD', fav: false, co: '㈜스마트오피스', cash: 0, buyMin: 0, buyMax: 0, memo: '사무실 100평 이상 임차', created: '2026.05.15' },
-  { id: 4, name: '최민아', phone: '010-3333-4444', type: 'BUYER', status: 'COMPLETED', fav: false, co: '개인', cash: 150000, buyMin: 100000, buyMax: 250000, memo: '강남권 아파트 매수 희망', created: '2026.06.20' },
+  { id: 1, name: '김태영', phone: '010-1234-5678', type: 'BUYER', dealMode: 'sale', status: 'URGENT', fav: true, co: '태영인베스트', cash: 500000, buyMin: 200000, buyMax: 500000, buyTypes: ['INCOME'], buyTiming: '3개월 내', memo: '강남 상권 관심, 현금 50억 보유', created: '2026.06.01' },
+  { id: 2, name: '이지현', phone: '010-9876-5432', type: 'SELLER', dealMode: 'sale', status: 'NORMAL', fav: false, co: '개인', cash: 0, buyMin: 0, buyMax: 0, buyTypes: ['REMODEL'], buyTiming: '', memo: '영등포 건물 매도 희망 430억', created: '2026.06.10' },
+  { id: 3, name: '박준호', phone: '010-5555-7890', type: 'TENANT', dealMode: 'rent', status: 'HOLD', fav: false, co: '㈜스마트오피스', cash: 0, buyMin: 0, buyMax: 0, region: '강남', leaseConditions: [{ exclusiveAreaPyMin: 80, exclusiveAreaPyMax: 120, budgetManMin: 5000, budgetManMax: 8000, region: '강남', moveTiming: '즉시' }], memo: '사무실 100평 이상 임차', created: '2026.05.15' },
+  { id: 4, name: '최민아', phone: '010-3333-4444', type: 'BUYER', dealMode: 'sale', status: 'MANAGE', fav: false, co: '개인', cash: 150000, buyMin: 100000, buyMax: 250000, buyTypes: ['NEW_BUILD', 'HQ'], buyTiming: '즉시', memo: '강남권 아파트 매수 희망', created: '2026.06.20' },
 ]));
 
 const SEED_CALL_LOGS = withDevOwner(withDeletedAt([
@@ -287,6 +305,26 @@ db.version(14).stores({
   });
 });
 
+/** 매물·임대차 클라우드 재시도 인덱스 */
+db.version(15).stores({
+  properties: '++id, status, main, trade, fav, favAt, created, deletedAt, cloudId, ownerId, companyId, syncStatus',
+  customers: '++id, type, status, name, phone, fav, created, deletedAt, cloudId, ownerId, companyId',
+  call_logs: '++id, pid, cid, date, deletedAt, schedId, ownerId, cloudId, companyId',
+  schedules: '++id, date, pri, pid, deletedAt, callId, ownerId, cloudId, companyId, icsKey',
+  rentals: '++id, pid, ownerId, companyId, cloudId, deletedAt, syncStatus',
+});
+
+/** 고객 매매/임대 분리 */
+db.version(16).stores({
+  properties: '++id, status, main, trade, fav, favAt, created, deletedAt, cloudId, ownerId, companyId, syncStatus',
+  customers: '++id, type, status, name, phone, fav, created, deletedAt, cloudId, ownerId, companyId, dealMode',
+  call_logs: '++id, pid, cid, date, deletedAt, schedId, ownerId, cloudId, companyId',
+  schedules: '++id, date, pri, pid, deletedAt, callId, ownerId, cloudId, companyId, icsKey',
+  rentals: '++id, pid, ownerId, companyId, cloudId, deletedAt, syncStatus',
+}).upgrade((tx) => tx.table('customers').toCollection().modify((rec) => {
+  rec.dealMode = inferCustomerDealMode(rec);
+}));
+
 export const isActive = (item) => item != null && (item.deletedAt == null || item.deletedAt === '');
 
 export function formatCreatedDate() {
@@ -361,14 +399,14 @@ export function formatFavAt() {
 }
 
 export async function softDeleteProperty(id) {
-  await assertOwned(db.properties, id);
-  await db.properties.update(id, { deletedAt: formatDeletedAt() });
+  const rec = await assertOwned(db.properties, id);
+  await db.properties.update(id, { deletedAt: formatDeletedAt(), ...nextDirtyPatch(rec) });
   await afterPropertyChange(id);
 }
 
 export async function setPropertyFav(id, fav) {
-  await assertOwned(db.properties, id);
-  await db.properties.update(id, { fav: !!fav, favAt: fav ? formatFavAt() : null });
+  const rec = await assertOwned(db.properties, id);
+  await db.properties.update(id, { fav: !!fav, favAt: fav ? formatFavAt() : null, ...nextDirtyPatch(rec) });
   await afterPropertyChange(id);
 }
 
@@ -384,8 +422,14 @@ export async function softDeleteCustomer(id) {
   await afterCustomerChange(id);
 }
 
+function assertCallLogAdmin() {
+  if (!isAdminRole(getSyncCompanyRole())) throw new Error('FORBIDDEN_CALL_LOG_MANAGE');
+}
+
 export async function softDeleteCallLog(id) {
   const call = await assertOwned(db.call_logs, id, 'call_logs');
+  if (isLockedCallLog(call)) throw new Error('LOCKED_CALL_LOG');
+  assertCallLogAdmin();
   if (call?.schedId) await softDeleteSchedule(call.schedId);
   await db.call_logs.update(id, { deletedAt: formatDeletedAt() });
   await afterCallLogChange(id);
@@ -403,8 +447,8 @@ export async function softDeleteSchedule(id) {
 }
 
 export async function restoreProperty(id) {
-  await assertOwned(db.properties, id);
-  await db.properties.update(id, { deletedAt: null });
+  const rec = await assertOwned(db.properties, id);
+  await db.properties.update(id, { deletedAt: null, ...nextDirtyPatch(rec) });
   await afterPropertyChange(id);
 }
 
@@ -427,21 +471,48 @@ export async function restoreSchedule(id) {
 }
 
 export async function hardDeleteProperty(id) {
-  const rec = await assertOwned(db.properties, id);
-  const cloudId = rec.cloudId;
+  let rec;
   try {
-    await removePropertyFromCloud(id);
+    rec = await assertOwned(db.properties, id);
+  } catch (err) {
+    if (err instanceof Error && err.message === 'FORBIDDEN') {
+      return { ok: false, reason: 'forbidden', keptLocal: true };
+    }
+    throw err;
+  }
+  const snapshot = { ...rec };
+  await db.properties.update(id, { deleteIntent: true });
+
+  if (!snapshot.cloudId) {
+    await db.properties.delete(id);
+    return { ok: true, localOnly: true };
+  }
+
+  let cloudResult;
+  try {
+    cloudResult = await removePropertyFromCloud(id);
   } catch (err) {
     console.error('[hardDeleteProperty]', err);
+    await db.properties.update(id, {
+      deleteIntent: true,
+      syncStatus: SYNC_STATUS.FAILED,
+      syncError: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, reason: 'network', keptLocal: true };
   }
-  if (cloudId) {
-    try {
-      const { rememberPurgedCloudId } = await import('./services/sync/purgedCloudIds.js');
-      const { getSyncUserId } = await import('./services/sync/syncContext.js');
-      rememberPurgedCloudId('properties', cloudId, getSyncUserId());
-    } catch { /* ignore */ }
+
+  if (!cloudResult?.ok) {
+    if (cloudResult?.reason === 'no_cloud_id') {
+      await db.properties.delete(id);
+      return { ok: true, localOnly: true };
+    }
+    return { ok: false, ...cloudResult, keptLocal: true };
   }
+
+  const { finalizePropertyCloudDelete } = await import('./services/sync/propertySync.js');
+  const photos = await finalizePropertyCloudDelete(snapshot);
   await db.properties.delete(id);
+  return { ok: true, photosFailed: !!photos?.photosFailed };
 }
 
 async function activeCustomersInScope() {
@@ -453,25 +524,77 @@ async function activeCustomersInScope() {
   return list.filter((c) => !c.deletedAt);
 }
 
-/** @param {string} phone @param {number|null} [excludeId] */
-export async function findCustomerByPhone(phone, excludeId = null) {
+/** @param {string} phone @param {number|null} [excludeId] @param {string} [dealMode] */
+export async function findCustomerByPhone(phone, excludeId = null, dealMode = null) {
   const key = customerPhoneKey(phone);
   if (!key) return null;
   const list = await activeCustomersInScope();
-  return list.find((c) => c.id !== excludeId && customerPhoneKey(c.phone) === key) || null;
+  const mode = dealMode != null && dealMode !== '' ? normalizeDealMode(dealMode) : null;
+  return list.find((c) => {
+    if (c.id === excludeId) return false;
+    if (customerPhoneKey(c.phone) !== key) return false;
+    if (mode && inferCustomerDealMode(c) !== mode) return false;
+    return true;
+  }) || null;
 }
 
-/** @returns {Promise<Set<string>>} */
-export async function loadCustomerPhoneKeySet() {
+/** @param {string} [dealMode] @returns {Promise<Set<string>>} */
+export async function loadCustomerPhoneKeySet(dealMode = null) {
   const list = await activeCustomersInScope();
-  return new Set(list.map((c) => customerPhoneKey(c.phone)).filter(Boolean));
+  const mode = dealMode != null && dealMode !== '' ? normalizeDealMode(dealMode) : null;
+  return new Set(
+    list
+      .filter((c) => !mode || inferCustomerDealMode(c) === mode)
+      .map((c) => customerPhoneKey(c.phone))
+      .filter(Boolean),
+  );
+}
+
+async function appendLockedPropertyAuditCall(pid, content) {
+  if (pid == null || pid === '' || !content) return;
+  const { date, time } = nowCallStamp();
+  const id = await db.call_logs.add(withOwnerId({
+    pid,
+    cid: null,
+    date,
+    time,
+    content,
+    next: null,
+    nDate: null,
+    schedId: null,
+    deletedAt: null,
+    locked: true,
+    lockedKind: LOCKED_CALL_KIND,
+  }));
+  afterCallLogChange(id).catch((err) => {
+    console.error('[appendLockedPropertyAuditCall] sync', err);
+  });
+}
+
+async function touchPropertyUpdatedAt(id) {
+  const rec = await db.properties.get(id);
+  if (!rec) return;
+  await db.properties.update(id, { updatedAt: new Date().toISOString(), ...nextDirtyPatch(rec) });
+  rememberPropListLatestActivity();
+  afterPropertyChange(id).catch((err) => {
+    console.error('[touchPropertyUpdatedAt] sync', err);
+  });
 }
 
 /** @param {Record<string, unknown>} data */
 export async function addProperty(data) {
-  const id = await db.properties.add(withOwnerId(data));
-  await afterPropertyChange(id);
-  return id;
+  const payload = withOwnerId({
+    ...data,
+    updatedAt: new Date().toISOString(),
+    ...nextDirtyPatch(null),
+  });
+  const check = validatePropertyForSave(payload);
+  if (!check.ok) throw new Error(check.message);
+  const id = await db.properties.add(payload);
+  await appendLockedPropertyAuditCall(id, propertyRegisterAuditContent());
+  rememberPropListLatestActivity();
+  const sync = await afterPropertyChange(id);
+  return { id, sync };
 }
 
 /** 복사 시 제외할 식별·동기화·메타 필드 */
@@ -481,6 +604,13 @@ const PROPERTY_COPY_OMIT = new Set([
   'cloudLocalId',
   'ownerId',
   'companyId',
+  'syncStatus',
+  'syncRev',
+  'syncPushedRev',
+  'syncDirtyAt',
+  'syncError',
+  'syncConflictRemoteAt',
+  'cloudUpdatedAt',
   'fav',
   'favAt',
   'deletedAt',
@@ -529,22 +659,41 @@ export async function duplicateProperty(sourceIdOrProp) {
   payload.created = formatCreatedDate();
   // 임대차·통화이력은 pid 기준 별도 테이블 — 복사하지 않음
 
-  const id = await addProperty(payload);
+  const { id } = await addProperty(payload);
   const record = await db.properties.get(id);
   return { id, record: record || { ...payload, id } };
 }
 
+const PROPERTY_ACTIVITY_SKIP_KEYS = new Set(['mapLat', 'mapLng', 'mapGeocodedAt', 'mapLevel', 'lastCall', 'fav', 'favAt']);
+
+/** @param {Record<string, unknown>} changes */
+function shouldBumpPropertyActivity(changes) {
+  return Object.keys(changes || {}).some((k) => changes[k] !== undefined && !PROPERTY_ACTIVITY_SKIP_KEYS.has(k));
+}
+
 /** @param {number} id @param {Record<string, unknown>} changes */
 export async function updateProperty(id, changes) {
-  await assertOwned(db.properties, id);
-  await db.properties.update(id, changes);
-  await afterPropertyChange(id);
+  const rec = await assertOwned(db.properties, id);
+  const next = { ...rec, ...changes };
+  const check = validatePropertyForSave(next);
+  if (!check.ok) throw new Error(check.message);
+  const patch = shouldBumpPropertyActivity(changes)
+    ? { ...changes, updatedAt: new Date().toISOString(), ...nextDirtyPatch(rec) }
+    : { ...changes, ...nextDirtyPatch(rec) };
+  await db.properties.update(id, patch);
+  if (shouldBumpPropertyActivity(changes)) {
+    rememberPropListLatestActivity();
+    const summary = summarizePropertyChanges(rec, next);
+    if (summary) await appendLockedPropertyAuditCall(id, summary);
+  }
+  return afterPropertyChange(id);
 }
 
 /** @param {Record<string, unknown>} data */
 export async function addCustomer(data) {
   const payload = normalizeCustomerRecord(data);
-  const dup = await findCustomerByPhone(payload.phone);
+  payload.dealMode = inferCustomerDealMode(payload);
+  const dup = await findCustomerByPhone(payload.phone, null, payload.dealMode);
   if (dup) {
     throw new Error('이미 등록된 연락처입니다.');
   }
@@ -562,12 +711,16 @@ export async function bulkAddCustomers(dataList) {
   if (!dataList?.length) return [];
 
   const created = formatCreatedDate();
-  const prepared = dataList.map((data) => withOwnerId(normalizeCustomerRecord({
-    ...data,
-    fav: data.fav ?? false,
-    deletedAt: data.deletedAt ?? null,
-    created: data.created ?? created,
-  })));
+  const prepared = dataList.map((data) => {
+    const rec = normalizeCustomerRecord({
+      ...data,
+      fav: data.fav ?? false,
+      deletedAt: data.deletedAt ?? null,
+      created: data.created ?? created,
+    });
+    rec.dealMode = inferCustomerDealMode(rec);
+    return withOwnerId(rec);
+  });
 
   /** @type {number[]} */
   const ids = await db.transaction('rw', db.customers, async () => {
@@ -588,16 +741,18 @@ export async function bulkAddCustomers(dataList) {
 
 /** @param {number} id @param {Record<string, unknown>} changes */
 export async function updateCustomer(id, changes) {
-  await assertOwned(db.customers, id);
+  const rec = await assertOwned(db.customers, id);
   if (changes.phone != null) {
-    const dup = await findCustomerByPhone(String(changes.phone), id);
+    const nextMode = inferCustomerDealMode({ ...rec, ...changes });
+    const dup = await findCustomerByPhone(String(changes.phone), id, nextMode);
     if (dup) {
       throw new Error('이미 등록된 연락처입니다.');
     }
   }
   const needsNormalize = changes.customer_types != null || changes.type != null
     || changes.cash != null || changes.buyMin != null || changes.buyMax != null
-    || changes.preferred_trades != null;
+    || changes.preferred_trades != null || changes.dealMode != null
+    || changes.leaseConditions != null || changes.buyTypes != null || changes.buyTiming != null;
   const payload = needsNormalize ? normalizeCustomerRecord(changes) : changes;
   await db.customers.update(id, payload);
   await afterCustomerChange(id);
@@ -623,6 +778,8 @@ export async function hardDeleteCustomer(id) {
 
 export async function hardDeleteCallLog(id) {
   const rec = await assertOwned(db.call_logs, id, 'call_logs');
+  if (isLockedCallLog(rec)) throw new Error('LOCKED_CALL_LOG');
+  assertCallLogAdmin();
   const cloudId = rec.cloudId;
   try {
     await removeCallLogFromCloud(id);
@@ -670,7 +827,9 @@ export async function saveCallLog(payload, id) {
   return db.transaction('rw', [db.call_logs, db.schedules], async () => {
     let callId;
     if (id != null) {
-      await assertOwned(db.call_logs, id, 'call_logs');
+      const existing = await assertOwned(db.call_logs, id, 'call_logs');
+      if (isLockedCallLog(existing)) throw new Error('LOCKED_CALL_LOG');
+      assertCallLogAdmin();
       await db.call_logs.update(id, payload);
       callId = id;
     } else {
@@ -683,6 +842,10 @@ export async function saveCallLog(payload, id) {
     await syncCallNextActionSchedule(callId, { ...payload, id: callId });
     return callId;
   }).then(async (callId) => {
+    const rec = await db.call_logs.get(callId);
+    if (rec?.pid && !isLockedCallLog(rec) && !isLockedCallLog(payload)) {
+      await touchPropertyUpdatedAt(rec.pid);
+    }
     await afterCallLogChange(callId);
     return callId;
   });
@@ -695,6 +858,9 @@ export async function addCallLogDirect(data) {
     schedId: data.schedId ?? null,
     deletedAt: null,
   }));
+  if (data?.pid && !isLockedCallLog(data)) {
+    await touchPropertyUpdatedAt(data.pid);
+  }
   await afterCallLogChange(id);
   return id;
 }
@@ -1249,8 +1415,9 @@ export async function saveRentalsForProperty(pid, rows) {
   const prop = await db.properties.get(normalizedPid);
   if (prop && !canMutateRecord(prop)) throw new Error('FORBIDDEN');
   const ownerId = prop?.ownerId ?? getActiveOwnerId();
+  const existing = await db.rentals.where('pid').equals(normalizedPid).toArray();
+  const keepIds = new Set();
   await db.transaction('rw', db.rentals, async () => {
-    await db.rentals.where('pid').equals(normalizedPid).delete();
     for (const row of rows) {
       const { status, id: rowId, ...rest } = row;
       const dep = status === 'vacant' ? null : parseMoneyManOrNull(rest.dep);
@@ -1258,6 +1425,8 @@ export async function saveRentalsForProperty(pid, rows) {
       const maint = status === 'vacant' ? null : parseMoneyManOrNull(rest.maint);
       const payload = withOwnerId({
         pid: normalizedPid,
+        cloudPid: prop?.cloudId ?? rest.cloudPid ?? null,
+        cloudPidLocal: prop?.cloudLocalId ?? prop?.id ?? normalizedPid,
         floor: rest.floor || '',
         tenant: rest.tenant || '',
         purpose: rest.purpose || '',
@@ -1267,12 +1436,37 @@ export async function saveRentalsForProperty(pid, rows) {
         maint,
         leaseEnd: rest.leaseEnd || '',
         memo: rest.memo || '',
+        deletedAt: null,
       }, ownerId);
-      if (rowId && typeof rowId === 'number' && rowId < 1e10) {
-        await db.rentals.add({ ...payload, id: rowId });
-      } else {
-        await db.rentals.add(payload);
+      if (isPersistedRentalLocalId(rowId)) {
+        const prev = existing.find((e) => e.id === rowId);
+        if (prev) {
+          keepIds.add(rowId);
+          await db.rentals.update(rowId, {
+            ...payload,
+            cloudId: prev.cloudId,
+            cloudLocalId: prev.cloudLocalId,
+            ...nextDirtyPatch(prev),
+          });
+          continue;
+        }
       }
+      const newId = await db.rentals.add({ ...payload, ...nextDirtyPatch(null) });
+      keepIds.add(newId);
+    }
+    for (const prev of existing) {
+      if (keepIds.has(prev.id) || prev.deletedAt) continue;
+      await db.rentals.update(prev.id, {
+        deletedAt: formatDeletedAt(),
+        ...nextDirtyPatch(prev),
+      });
     }
   });
+  const rec = await db.properties.get(normalizedPid);
+  if (rec) {
+    await db.properties.update(normalizedPid, { updatedAt: new Date().toISOString(), ...nextDirtyPatch(rec) });
+    rememberPropListLatestActivity();
+    await appendLockedPropertyAuditCall(normalizedPid, rentalChangeAuditContent());
+  }
+  return afterRentalChange(normalizedPid);
 }

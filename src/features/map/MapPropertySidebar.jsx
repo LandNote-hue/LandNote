@@ -1,56 +1,80 @@
-import React from 'react';
-import { fmtLandPyUnit, fmtPropPrice as propPrice } from '../../utils/formatMoney.js';
-import { propDisplayAddr } from '../../utils/propAddress.js';
-import { MAP_STATUS, TL } from './MapInfoCard.jsx';
-import { KR_GU, KR_SIDO } from './regions.js';
-import { MoneyInput } from '../../components/MoneyInput.jsx';
+import React, { useEffect, useRef, useState } from 'react';
+import { PROP_STATUS_OPTS, PROP_STATUS_STYLE, propStatusLabel } from '../../utils/propStatus.js';
+import { TL } from './MapInfoCard.jsx';
+import { isRentalListProperty } from '../../utils/propListKind.js';
+import { useMapPlaceSearchResults } from './useMapPlaceSearchResults.js';
+import { typeTheme, kindLabel, compactPrice, landPyLabel, floorPyLabel, formatArea } from './mapCardMeta.js';
+
+const KAKAO_BLUE = '#3396FF';
+
+import { BRAND_CSS } from '../../theme/dealModeTheme.js';
 
 const C = {
-  brand: '#C8102E',
-  brandL: '#FBE9EC',
+  brand: BRAND_CSS.brand,
+  brandL: BRAND_CSS.brandL,
   surf: '#FFFFFF',
   surf2: '#F8F9FB',
   bdr: '#E8EAED',
   tx: '#0F172A',
-  txS: '#374151',
+  txD: '#374151',
+  txS: '#4B5563',
   txM: '#6B7280',
   txP: '#94A3B8',
-  info: '#2563EB',
 };
 
 const STATUS_OPTIONS = [
   ['', '전체'],
-  ['NEW', '신규'],
-  ['ACTIVE', '진행중'],
-  ['HOLD', '보류'],
-  ['COMPLETED', '완료'],
+  ...PROP_STATUS_OPTS.map(({ id, label }) => [id, id === 'COMPLETED' ? '완료' : label]),
 ];
 
-const lbl = { fontSize: 11, color: C.txM, fontWeight: 600, marginBottom: 4 };
+function floorScale(p) {
+  const above = Number(p.floorsAbove) || 0;
+  const below = Number(p.floorsBelow) || 0;
+  if (above && below) return `${above}F / B${below}`;
+  if (above) return `${above}F`;
+  if (below) return `B${below}`;
+  return '';
+}
+
+function specLine(p, areaUnit = 'py') {
+  const parts = [];
+  if (isRentalListProperty(p)) {
+    const excl = formatArea(p.exclusiveArea, areaUnit);
+    const cont = formatArea(p.contractArea, areaUnit);
+    if (excl) parts.push(`전용 ${excl}`);
+    if (cont) parts.push(`계약 ${cont}`);
+    const unit = String(p.unitFloor || '').trim();
+    if (unit) parts.push(unit);
+  } else {
+    const land = formatArea(p.land, areaUnit);
+    const gfa = formatArea(p.floor, areaUnit);
+    if (land) parts.push(`대지 ${land}`);
+    if (gfa) parts.push(`연 ${gfa}`);
+    const fl = floorScale(p);
+    if (fl) parts.push(fl);
+  }
+  return parts.join(' · ');
+}
+
+function statusLabel(p) {
+  if (!p?.status || !PROP_STATUS_STYLE[p.status]) return '';
+  return propStatusLabel(p.status, isRentalListProperty(p));
+}
+
+function typeTag(p) {
+  const use = String(p?.mainUse || '').trim().replace(/\s+/g, '');
+  if (!use) return '';
+  const kind = kindLabel(p).replace(/[\s,·/()]/g, '');
+  if (kind && use.replace(/[\s,·/()]/g, '') === kind) return '';
+  return `#${use}`;
+}
 
 /**
  * @param {{
  *   propSearch: string,
  *   setPropSearch: (v: string) => void,
- *   advOpen: boolean,
- *   setAdvOpen: (v: boolean | ((v: boolean) => boolean)) => void,
  *   statusFilter: string,
  *   setStatusFilter: (v: string) => void,
- *   selSido: string, setSelSido: (v: string) => void,
- *   selGu: string, setSelGu: (v: string) => void,
- *   advTag: string, setAdvTag: (v: string) => void,
- *   advTrade: string, setAdvTrade: (v: string) => void,
- *   advStatus: string, setAdvStatus: (v: string) => void,
- *   advPriceMin: string, setAdvPriceMin: (v: string) => void,
- *   advPriceMax: string, setAdvPriceMax: (v: string) => void,
- *   advLandMin: string, setAdvLandMin: (v: string) => void,
- *   advLandMax: string, setAdvLandMax: (v: string) => void,
- *   advFloorMin: string, setAdvFloorMin: (v: string) => void,
- *   advFloorMax: string, setAdvFloorMax: (v: string) => void,
- *   advRoiMin: string, setAdvRoiMin: (v: string) => void,
- *   filterResetKey: number,
- *   onApplyAdv: () => void,
- *   onResetAdv: () => void,
  *   listP: object[],
  *   listMode: 'search' | 'viewport',
  *   visibleCount: number,
@@ -58,88 +82,127 @@ const lbl = { fontSize: 11, color: C.txM, fontWeight: 600, marginBottom: 4 };
  *   setSelectedId: (id: string|number) => void,
  *   onOpenDetail: (p: object) => void,
  *   loadingCoords: boolean,
- *   Btn: React.ComponentType<{ch?: string, on?: () => void, role?: string, ic?: string, sx?: object}>,
+ *   onPlaceSelect?: (item: import('../../services/kakao/kakaoMaps.js').MapSearchResult) => void,
  * }} props
  */
 export function MapPropertySidebar({
   propSearch, setPropSearch,
-  advOpen, setAdvOpen,
   statusFilter, setStatusFilter,
-  selSido, setSelSido, selGu, setSelGu,
-  advTag, setAdvTag, advTrade, setAdvTrade, advStatus, setAdvStatus,
-  advPriceMin, setAdvPriceMin, advPriceMax, setAdvPriceMax,
-  advLandMin, setAdvLandMin, advLandMax, setAdvLandMax,
-  advFloorMin, setAdvFloorMin, advFloorMax, setAdvFloorMax,
-  advRoiMin, setAdvRoiMin,
-  filterResetKey, onApplyAdv, onResetAdv,
   listP, listMode, visibleCount,
   selectedId, setSelectedId, onOpenDetail,
-  loadingCoords, Btn,
+  loadingCoords,
+  onPlaceSelect,
+  areaUnit = 'py',
 }) {
+  const [placeOpen, setPlaceOpen] = useState(false);
+  const [placeActiveIdx, setPlaceActiveIdx] = useState(-1);
+  const placeBoxRef = useRef(null);
+  const { results: placeResults, loading: placeLoading } = useMapPlaceSearchResults(propSearch);
+
+  useEffect(() => {
+    if (!propSearch.trim()) {
+      setPlaceOpen(false);
+      return;
+    }
+    setPlaceOpen(true);
+    setPlaceActiveIdx(placeResults.length ? 0 : -1);
+  }, [propSearch, placeResults]);
+
+  useEffect(() => {
+    if (!placeOpen) return undefined;
+    const onDoc = (e) => {
+      if (placeBoxRef.current && !placeBoxRef.current.contains(e.target)) setPlaceOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [placeOpen]);
+
+  const pickPlace = (item) => {
+    setPlaceOpen(false);
+    setPropSearch('');
+    onPlaceSelect?.(item);
+  };
+
+  const onPropSearchKeyDown = (e) => {
+    if (!onPlaceSelect) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setPlaceActiveIdx((i) => Math.min(placeResults.length - 1, i + 1));
+      setPlaceOpen(true);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setPlaceActiveIdx((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Enter') {
+      if (placeActiveIdx >= 0 && placeResults[placeActiveIdx]) {
+        e.preventDefault();
+        pickPlace(placeResults[placeActiveIdx]);
+      }
+    } else if (e.key === 'Escape') {
+      setPlaceOpen(false);
+    }
+  };
+
   return (
     <div style={{ width: 280, borderRight: `1px solid ${C.bdr}`, background: C.surf, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ padding: '12px 12px 10px', borderBottom: `1px solid ${C.bdr}`, background: C.surf2, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: C.brand, letterSpacing: '-.02em' }}>매물 검색</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 36, background: '#fff', border: `1.5px solid ${C.bdr}`, borderRadius: 8, padding: '0 10px' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.txP} strokeWidth="2">
-            <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input type="search" value={propSearch} onChange={(e) => setPropSearch(e.target.value)} placeholder="건물명·주소·메모" autoComplete="off"
-            style={{ border: 'none', background: 'transparent', flex: 1, minWidth: 0, fontSize: 13, color: C.tx }} />
-        </div>
-        <button type="button" onClick={() => setAdvOpen((v) => !v)}
-          style={{ marginTop: 8, width: '100%', height: 32, border: `1px solid ${advOpen ? C.brand : C.bdr}`, borderRadius: 6, background: advOpen ? C.brandL : '#fff', color: advOpen ? C.brand : C.txS, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontFamily: 'inherit' }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
-          상세검색 {advOpen ? '닫기' : '열기'}
-        </button>
-        {advOpen && (
-          <div key={filterResetKey} style={{ marginTop: 10, padding: 10, background: '#fff', borderRadius: 8, border: `1px solid ${C.bdr}` }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div><div style={lbl}>시·도</div>
-                  <select className="sel" style={{ height: 30, fontSize: 12, width: '100%' }} value={selSido} onChange={(e) => { setSelSido(e.target.value); setSelGu(''); }}>
-                    <option value="">전체</option>{KR_SIDO.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select></div>
-                <div><div style={lbl}>구·군</div>
-                  <select className="sel" style={{ height: 30, fontSize: 12, width: '100%' }} value={selGu} onChange={(e) => setSelGu(e.target.value)}>
-                    <option value="">전체</option>
-                    {(selSido ? KR_GU[selSido] || [] : [...new Set(KR_SIDO.flatMap((s) => KR_GU[s] || []))]).slice().sort((a, b) => a.localeCompare(b, 'ko')).map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select></div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div><div style={lbl}>매물종류</div>
-                  <select className="sel" style={{ height: 30, fontSize: 12, width: '100%' }} value={advTag} onChange={(e) => setAdvTag(e.target.value)}>
-                    <option value="">전체</option>{['상가건물', '아파트', '오피스텔', '사무실', '빌라', '토지', '원룸/투룸'].map((t) => <option key={t}>{t}</option>)}
-                  </select></div>
-                <div><div style={lbl}>거래방식</div>
-                  <select className="sel" style={{ height: 30, fontSize: 12, width: '100%' }} value={advTrade} onChange={(e) => setAdvTrade(e.target.value)}>
-                    <option value="">전체</option>
-                    {Object.entries(TL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select></div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div><div style={lbl}>가격 최소(만)</div><MoneyInput style={{ height: 30, fontSize: 12 }} value={advPriceMin} onChange={(e) => setAdvPriceMin(e.target.value)} /></div>
-                <div><div style={lbl}>가격 최대(만)</div><MoneyInput style={{ height: 30, fontSize: 12 }} value={advPriceMax} onChange={(e) => setAdvPriceMax(e.target.value)} /></div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <div><div style={lbl}>대지 최소(평)</div><MoneyInput style={{ height: 30, fontSize: 12 }} value={advLandMin} onChange={(e) => setAdvLandMin(e.target.value)} /></div>
-                <div><div style={lbl}>대지 최대(평)</div><MoneyInput style={{ height: 30, fontSize: 12 }} value={advLandMax} onChange={(e) => setAdvLandMax(e.target.value)} /></div>
-              </div>
-              <div>
-                <div style={lbl}>진행상태</div>
-                <select className="sel" style={{ height: 30, fontSize: 12, width: '100%' }} value={advStatus} onChange={(e) => setAdvStatus(e.target.value)}>
-                  <option value="">전체</option>{['신규', '진행중', '보류', '계약완료'].map((s) => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <Btn role="toolbar-primary" ch="적용" ic="ti-search" on={onApplyAdv} sx={{ flex: 1, justifyContent: 'center' }} />
-              <Btn role="toolbar-secondary" ch="초기화" ic="ti-refresh" on={onResetAdv} sx={{ flex: 1, justifyContent: 'center' }} />
-            </div>
+        <div ref={placeBoxRef} style={{ position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 36, background: '#fff', border: `1.5px solid ${C.bdr}`, borderRadius: 7, padding: '0 12px' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 15, height: 15, flexShrink: 0, color: C.txP }} aria-hidden>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </span>
+            <input type="search" value={propSearch} onChange={(e) => setPropSearch(e.target.value)}
+              onFocus={() => { if (propSearch.trim() && placeResults.length) setPlaceOpen(true); }}
+              onKeyDown={onPropSearchKeyDown}
+              placeholder="건물명·주소·메모·장소·지하철역 검색..." autoComplete="off"
+              style={{ border: 'none', background: 'transparent', fontSize: 14, color: C.tx, flex: 1, height: '100%', minWidth: 0 }} />
           </div>
-        )}
+          {onPlaceSelect && placeOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 60,
+              background: '#fff', borderRadius: 8, border: `1px solid ${C.bdr}`,
+              boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 280, overflowY: 'auto',
+            }}>
+              {placeLoading && placeResults.length === 0 && (
+                <div style={{ padding: '12px 14px', fontSize: 12, color: C.txM }}>장소 검색 중…</div>
+              )}
+              {!placeLoading && placeResults.length === 0 && (
+                <div style={{ padding: '12px 14px', fontSize: 12, color: C.txM }}>일치하는 장소·주소가 없습니다.</div>
+              )}
+              {placeResults.map((item, idx) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => pickPlace(item)}
+                  onMouseEnter={() => setPlaceActiveIdx(idx)}
+                  style={{
+                    width: '100%', border: 'none',
+                    borderBottom: idx < placeResults.length - 1 ? `1px solid ${C.bdr}` : 'none',
+                    background: placeActiveIdx === idx ? '#F0F7FF' : '#fff',
+                    textAlign: 'left', padding: '9px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', gap: 8, alignItems: 'flex-start',
+                  }}
+                >
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, marginTop: 2, flexShrink: 0, borderRadius: 4, padding: '2px 6px',
+                    color: item.kind === 'place' ? KAKAO_BLUE : C.txM,
+                    background: item.kind === 'place' ? '#E8F3FF' : '#F3F4F6',
+                  }}>
+                    {item.kind === 'place' ? '장소' : '주소'}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.tx, lineHeight: 1.35 }}>{item.title}</div>
+                    <div style={{ fontSize: 11, color: C.txP, marginTop: 1, lineHeight: 1.3 }}>{item.subtitle}</div>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 10 }}>
           {STATUS_OPTIONS.map(([code, label]) => (
             <button key={code || 'all'} type="button" onClick={() => setStatusFilter(code)}
@@ -155,11 +218,11 @@ export function MapPropertySidebar({
             ? <>검색 결과 {listP.length}건<span style={{ fontWeight: 400, color: C.txM }}> · 전체 {visibleCount}건</span></>
             : <>화면 내 {listP.length}건<span style={{ fontWeight: 400, color: C.txM }}> · 전체 {visibleCount}건</span></>}
         </div>
-        <div style={{ fontSize: 10, color: C.txP, marginTop: 2 }}>
-          {listMode === 'search'
-            ? '전체 매물에서 검색 · 클릭 시 해당 위치로 이동'
-            : '클릭 → 상세카드 줌 · 더블클릭 → 상세'}
-        </div>
+        {listMode === 'search' && (
+          <div style={{ fontSize: 10, color: C.txP, marginTop: 2 }}>
+            전체 매물에서 검색 · 클릭 시 해당 위치로 이동
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {listP.length === 0 && (
@@ -172,21 +235,56 @@ export function MapPropertySidebar({
           </div>
         )}
         {listP.map((p) => {
-          const landPy2 = p.land > 0 && p.price > 0 ? fmtLandPyUnit(p.price, p.land) : null;
           const selected = selectedId === p.id;
+          const theme = typeTheme(p);
+          const price = compactPrice(p);
+          const priceText = price ? [TL[p.trade], price].filter(Boolean).join(' ') : '';
+          const specs = specLine(p, areaUnit);
+          const kind = kindLabel(p);
+          const tag = typeTag(p);
+          const status = statusLabel(p);
+          const landPy = landPyLabel(p, areaUnit);
+          const floorPy = floorPyLabel(p, areaUnit);
+          const hasRates = Boolean(landPy || floorPy);
+          const hasTitle = Boolean(priceText || kind || status);
           return (
             <div key={p.id} onClick={() => setSelectedId(p.id)} onDoubleClick={() => onOpenDetail(p)}
-              style={{ padding: '10px 12px', borderBottom: `1px solid ${C.bdr}`, cursor: 'pointer', background: selected ? C.brandL : 'transparent', borderLeft: selected ? `3px solid ${C.brand}` : '3px solid transparent' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.brand }}>{p.tag}</div>
-              <div style={{ fontSize: 12, color: C.tx, fontWeight: 600, marginTop: 3, lineHeight: 1.35 }}>{propDisplayAddr(p)}</div>
-              {p.bldg && <div style={{ fontSize: 11, color: C.txS, marginTop: 2 }}>{p.bldg}</div>}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <span style={{ fontSize: 11, color: C.txM }}>{TL[p.trade]}</span>
-                <span style={{ fontSize: 12, color: C.info, fontWeight: 700 }}>{propPrice(p)}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-                <span style={{ fontSize: 10, color: MAP_STATUS[p.status]?.c || C.txS, fontWeight: 600 }}>{MAP_STATUS[p.status]?.l || '—'}</span>
-                {landPy2 && <span style={{ fontSize: 10, color: C.txM }}>대지 {landPy2}</span>}
+              style={{ display: 'flex', borderBottom: `1px solid ${C.bdr}`, cursor: 'pointer', background: selected ? C.brandL : 'transparent' }}>
+              <div style={{ width: 5, flexShrink: 0, background: theme.pin }} />
+              <div style={{ minWidth: 0, flex: 1, padding: '10px 12px' }}>
+                {hasTitle && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, lineHeight: 1.3, flexWrap: 'wrap' }}>
+                    {priceText && (
+                      <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>{priceText}</span>
+                    )}
+                    {kind && (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.txD }}>{kind}</span>
+                    )}
+                    {status && (
+                      <span style={{ fontSize: 11, fontWeight: 400, color: C.txP }}>{status}</span>
+                    )}
+                  </div>
+                )}
+                {specs && (
+                  <div style={{ fontSize: 11, fontWeight: 400, color: C.txM, marginTop: hasTitle ? 3 : 0, lineHeight: 1.35 }}>{specs}</div>
+                )}
+                {hasRates && (
+                  <div style={{
+                    fontSize: 11, fontWeight: 600, color: C.txS, marginTop: (hasTitle || specs) ? 3 : 0,
+                    lineHeight: 1.35, display: 'flex', flexWrap: 'wrap', gap: '0 8px',
+                  }}>
+                    {landPy && <span>{landPy}</span>}
+                    {floorPy && <span>{floorPy}</span>}
+                  </div>
+                )}
+                {tag && (
+                  <div style={{ marginTop: (hasTitle || specs || hasRates) ? 6 : 0 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, color: theme.chipFg, background: theme.chipBg,
+                      borderRadius: 999, padding: '2px 8px', lineHeight: 1.4,
+                    }}>{tag}</span>
+                  </div>
+                )}
               </div>
             </div>
           );

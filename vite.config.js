@@ -17,6 +17,9 @@ export default defineConfig(({ mode }) => {
       port: 5175,
       strictPort: true,
       host: true,
+      watch: {
+        ignored: ['**/.tmp-pptx/**'],
+      },
       proxy: useBff ? {
         '/api': { target: BFF_TARGET, changeOrigin: true },
         '/juso-return.html': { target: BFF_TARGET, changeOrigin: true },

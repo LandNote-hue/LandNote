@@ -33,7 +33,20 @@ export async function fetchCompanyTeam() {
   if (!isSupabaseConfigured) return [];
   const { data, error } = await supabase.rpc('list_company_team');
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((row) => ({
+    ...row,
+    phone: row.phone || '',
+  }));
+}
+
+/** @param {string} userId @param {string} phone */
+export async function updateCompanyMemberContact(userId, phone) {
+  const { data, error } = await supabase.rpc('update_company_member_contact', {
+    p_user_id: userId,
+    p_phone: String(phone || '').trim(),
+  });
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchPendingInvites() {
@@ -146,6 +159,10 @@ export function mapInviteError(error) {
   if (msg.includes('CANNOT_REMOVE_SELF')) return '본인은 팀에서 제거할 수 없습니다.';
   if (msg.includes('CANNOT_REMOVE_CEO')) return '대표 계정은 제거할 수 없습니다.';
   if (msg.includes('MEMBER_NOT_FOUND')) return '팀원을 찾을 수 없습니다.';
+  if (msg.includes('CANNOT_EDIT_CEO')) return '대표 연락처는 내 정보에서 변경하세요.';
+  if (msg.includes('COULD NOT FIND THE FUNCTION') && msg.includes('UPDATE_COMPANY_MEMBER_CONTACT')) {
+    return '직원 연락처 저장을 위해 DB 마이그레이션(034)을 실행해 주세요.';
+  }
   return error?.message || '요청을 처리하지 못했습니다.';
 }
 

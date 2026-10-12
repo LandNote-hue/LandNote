@@ -1,16 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { GANGNAM_GU_CENTER, MAP_PROPERTY_DETAIL_LEVEL_100M } from '../features/map/mapDefaults.js';
+import { GANGNAM_GU_CENTER, MAP_CADASTRAL_MAX_ZOOM_LEVEL, MAP_PROPERTY_DETAIL_LEVEL_100M } from '../features/map/mapDefaults.js';
+import { useNaverMaps } from '../hooks/useNaverMaps.js';
 import {
   propGeocodeQueries,
   propJibunAddr,
   propJibunGeocodeQueries,
 } from '../utils/propAddress.js';
-import { coordsFromProperty } from '../services/kakao/propertyGeocode.js';
+import { coordsFromProperty } from '../services/naver/propertyGeocode.js';
 import {
+  createNaverMap,
   geocodeAddressVariants,
-  getKakaoMapJsKey,
-  loadKakaoMaps,
-} from '../services/kakao/kakaoMaps.js';
+  latLng,
+} from '../services/naver/naverMaps.js';
+import { setMapOverlayLayer } from '../features/map/mapLayers.js';
 
 const DETAIL_MAP_LEVEL = MAP_PROPERTY_DETAIL_LEVEL_100M;
 const C = { bdr: '#E8EAED', txM: '#6B7280', txP: '#94A3B8', surf2: '#F8F9FB' };
@@ -40,13 +42,20 @@ function buildDetailGeocodePlan(property) {
 
 /**
  * 매물 상세 — 사진 옆 지번 지도 (매물별 독립 인스턴스, 지번 지오코딩 + 핀)
- * KakaoMap.jsx 인프라는 사용하지 않고 kakaoMaps.js 서비스만 활용.
- * @param {{ property: { id?: number, jibunAddr?: string, addr?: string, roadAddr?: string, bldg?: string, mapLat?: number, mapLng?: number }|null|undefined }} props
+ * @param {{
+ *   property: { id?: number, jibunAddr?: string, addr?: string, roadAddr?: string, bldg?: string, mapLat?: number, mapLng?: number }|null|undefined,
+ *   useDistrict?: boolean,
+ *   level?: number,
+ * }} props
  */
-export function PropertyDetailMap({ property }) {
+export function PropertyDetailMap({ property, useDistrict = false, level }) {
+  const mapLevel = Number.isFinite(level)
+    ? level
+    : (useDistrict ? MAP_CADASTRAL_MAX_ZOOM_LEVEL : DETAIL_MAP_LEVEL);
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+  const { naver, status: sdkStatus } = useNaverMaps();
 
   const [status, setStatus] = useState('loading');
   const [hint, setHint] = useState('');
@@ -56,13 +65,31 @@ export function PropertyDetailMap({ property }) {
     () => propJibunAddr(property)?.trim() || '',
     [propertyId, property?.jibunAddr, property?.addr],
   );
+  const mapLat = property?.mapLat;
+  const mapLng = property?.mapLng;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
 
+    if (sdkStatus === 'no-key') {
+      setStatus('no-key');
+      setHint('네이버 지도 API 키가 설정되지 않았습니다.');
+      return undefined;
+    }
+    if (sdkStatus === 'error') {
+      setStatus('error');
+      setHint('지도를 불러오지 못했습니다.');
+      return undefined;
+    }
+    if (sdkStatus !== 'ready' || !naver) {
+      setStatus('loading');
+      setHint('');
+      return undefined;
+    }
+
     let cancelled = false;
-    /** @type {import('../services/kakao/kakaoMaps.js').GeoPoint|null} */
+    /** @type {import('../services/naver/naverMaps.js').GeoPoint|null} */
     let resolvedPoint = null;
 
     const destroyMap = () => {
@@ -70,20 +97,21 @@ export function PropertyDetailMap({ property }) {
         try { markerRef.current.setMap(null); } catch { /* ignore */ }
         markerRef.current = null;
       }
+      try { mapRef.current?.destroy?.(); } catch { /* ignore */ }
       mapRef.current = null;
       try { container.replaceChildren(); } catch { /* ignore */ }
     };
 
-    const placePin = (kakao, map, point, title) => {
+    const placePin = (map, point, title) => {
       if (!isValidPoint(point)) return;
-      const coords = new kakao.maps.LatLng(point.lat, point.lng);
+      const coords = latLng(point.lat, point.lng);
       map.setCenter(coords);
-      map.setLevel(DETAIL_MAP_LEVEL);
+      map.setLevel(mapLevel);
       if (markerRef.current) {
         markerRef.current.setPosition(coords);
-        markerRef.current.setTitle(title || '');
+        markerRef.current.setTitle?.(title || '');
       } else {
-        markerRef.current = new kakao.maps.Marker({
+        markerRef.current = new naver.maps.Marker({
           map,
           position: coords,
           title: title || '',
@@ -98,24 +126,14 @@ export function PropertyDetailMap({ property }) {
 
     (async () => {
       try {
-        if (!getKakaoMapJsKey()) {
-          if (!cancelled) {
-            setStatus('no-key');
-            setHint('카카오맵 API 키가 설정되지 않았습니다.');
-          }
-          return;
-        }
-
-        const kakao = await loadKakaoMaps(['services']);
-        if (cancelled) return;
-
-        const map = new kakao.maps.Map(container, {
-          center: new kakao.maps.LatLng(GANGNAM_GU_CENTER.lat, GANGNAM_GU_CENTER.lng),
-          level: DETAIL_MAP_LEVEL,
-          draggable: true,
-          scrollwheel: true,
+        const map = createNaverMap(container, {
+          lat: GANGNAM_GU_CENTER.lat,
+          lng: GANGNAM_GU_CENTER.lng,
+          level: mapLevel,
+          interactive: true,
         });
         mapRef.current = map;
+        if (useDistrict) setMapOverlayLayer(map, 'useDistrict', true);
 
         if (!jibunAddr || jibunAddr === '—') {
           if (!cancelled) {
@@ -127,8 +145,8 @@ export function PropertyDetailMap({ property }) {
 
         const { primary, fallbacks } = buildDetailGeocodePlan(property);
 
-        if (primary && kakao?.maps?.services?.Geocoder) {
-          resolvedPoint = await geocodeAddressVariants(kakao, primary, fallbacks);
+        if (primary) {
+          resolvedPoint = await geocodeAddressVariants(primary, fallbacks);
         }
 
         if (!isValidPoint(resolvedPoint)) {
@@ -139,7 +157,7 @@ export function PropertyDetailMap({ property }) {
         if (cancelled) return;
 
         if (isValidPoint(resolvedPoint)) {
-          placePin(kakao, map, resolvedPoint, jibunAddr);
+          placePin(map, resolvedPoint, jibunAddr);
           setStatus('ready');
           setHint('');
           return;
@@ -159,7 +177,7 @@ export function PropertyDetailMap({ property }) {
       cancelled = true;
       destroyMap();
     };
-  }, [propertyId, jibunAddr, property]);
+  }, [propertyId, jibunAddr, mapLat, mapLng, property, naver, sdkStatus, useDistrict, mapLevel]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: C.surf2 }}>

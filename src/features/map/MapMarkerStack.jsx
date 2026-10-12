@@ -1,44 +1,37 @@
 import React from 'react';
 import { MapInfoCard } from './MapInfoCard.jsx';
 import { MapPropertyPin } from './MapPropertyPin.jsx';
+import { typeTheme } from './mapCardMeta.js';
 
-/**
- * 카드 + 핀을 하나의 DOM 트리로 묶어 CustomOverlay 앵커(yAnchor:1) = 핀 끝
- */
+/** 핀 끝이 좌표. 카드는 스팟 북쪽 정중앙. */
 export function MapMarkerStack({
-  p, mode, selected, onSelect, onOpenDetail, landPy,
+  p, mode, selected, onSelect, onOpenDetail, areaUnit = 'py',
 }) {
-  const wrapStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    boxSizing: 'border-box',
-    cursor: onSelect ? 'pointer' : 'default',
-  };
-
-  if (mode === 'none') {
-    return (
-      <div onClick={onSelect} style={wrapStyle}>
-        <MapPropertyPin selected={selected} />
-      </div>
-    );
-  }
+  const theme = typeTheme(p);
 
   return (
     <div
       onClick={onSelect}
-      style={wrapStyle}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        boxSizing: 'border-box',
+        cursor: onSelect ? 'pointer' : 'default',
+      }}
     >
-      <MapInfoCard
-        p={p}
-        inline
-        mode={mode}
-        selected={selected}
-        onSelect={onSelect}
-        onOpenDetail={onOpenDetail}
-        landPy={landPy}
-      />
-      <MapPropertyPin selected={selected} />
+      <div style={{ marginBottom: 2 }}>
+        <MapInfoCard
+          p={p}
+          inline
+          mode={mode}
+          selected={selected}
+          onSelect={onSelect}
+          onOpenDetail={onOpenDetail}
+          areaUnit={areaUnit}
+        />
+      </div>
+      <MapPropertyPin selected={selected} fill={theme.pin} />
     </div>
   );
 }

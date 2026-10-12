@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { addMapListener, removeMapListener } from './mapEvents.js';
 import {
   MAP_CONTROL_RIGHT,
-  MAP_ZOOM_RAIL_TOP,
+  MAP_CONTROL_BOTTOM,
   MAP_ZOOM_RAIL_WIDTH,
   MAP_MOBILE_INSET,
   MAP_MOBILE_ZOOM_TOP,
@@ -15,31 +16,29 @@ const C = {
   surf2: '#F8F9FB',
 };
 
-const KAKAO_MIN_LEVEL = 1;
-const KAKAO_MAX_LEVEL = 14;
+const MAP_MIN_LEVEL = 1;
+const MAP_MAX_LEVEL = 14;
 
 /** @param {{ map: object | null, mapReady: boolean, onZoom?: (level: number) => void }} props */
 export function MapZoomRail({ map, mapReady, onZoom }) {
   const isMobile = useIsMobile();
-  const [level, setLevel] = useState(KAKAO_MAX_LEVEL);
+  const [level, setLevel] = useState(MAP_MAX_LEVEL);
 
   useEffect(() => {
     if (!mapReady || !map || !map.getLevel) return;
     const sync = () => setLevel(map.getLevel());
     sync();
-    const kakao = window.kakao;
-    if (!kakao?.maps?.event) return;
-    kakao.maps.event.addListener(map, 'zoom_changed', sync);
-    return () => kakao.maps.event.removeListener(map, 'zoom_changed', sync);
+    const listener = addMapListener(map, 'zoom_changed', sync);
+    return () => removeMapListener(listener);
   }, [map, mapReady]);
 
   if (!mapReady || !map) return null;
 
-  const canZoomIn = level > KAKAO_MIN_LEVEL;
-  const canZoomOut = level < KAKAO_MAX_LEVEL;
+  const canZoomIn = level > MAP_MIN_LEVEL;
+  const canZoomOut = level < MAP_MAX_LEVEL;
 
   const step = (delta) => {
-    const next = Math.min(KAKAO_MAX_LEVEL, Math.max(KAKAO_MIN_LEVEL, map.getLevel() + delta));
+    const next = Math.min(MAP_MAX_LEVEL, Math.max(MAP_MIN_LEVEL, map.getLevel() + delta));
     if (next === map.getLevel()) return;
     map.setLevel(next);
     setLevel(next);
@@ -76,7 +75,8 @@ export function MapZoomRail({ map, mapReady, onZoom }) {
     <div
       style={{
         position: 'absolute',
-        top: isMobile ? MAP_MOBILE_ZOOM_TOP : MAP_ZOOM_RAIL_TOP,
+        top: isMobile ? MAP_MOBILE_ZOOM_TOP : 'auto',
+        bottom: isMobile ? 'auto' : MAP_CONTROL_BOTTOM,
         right: isMobile ? MAP_MOBILE_INSET : MAP_CONTROL_RIGHT,
         zIndex: 110,
         display: 'flex',

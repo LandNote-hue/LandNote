@@ -202,7 +202,7 @@ Project → **Settings → Environment Variables** 에 `.env.example` 값을 넣
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | 필수 |
 | `VITE_AUTH_DEV_BYPASS` | **`false`** |
 | `VITE_GOOGLE_CLIENT_ID` | Google 로그인 |
-| `VITE_KAKAO_MAP_JS_KEY` | 카카오 SDK 도메인에 Vercel URL 등록 |
+| `VITE_NAVER_MAP_CLIENT_ID` | 네이버 지도 ncpKeyId. Web 서비스 URL에 호스트 등록 (포트 제외) |
 | `VITE_JUSO_SEARCH_KEY` | 주소 검색 (BFF가 서버에서 주입) |
 | `VITE_DATA_GO_KR_SERVICE_KEY` | 건축물대장 등 |
 | `VITE_VWORLD_API_KEY` | 공시지가 등 |
@@ -220,7 +220,7 @@ Project → **Settings → Environment Variables** 에 `.env.example` 값을 넣
 |--------|------|
 | Supabase Auth Site URL / Redirect | `https://….vercel.app` , `https://….vercel.app/**` |
 | Google OAuth | JS origins + Supabase 콜백 |
-| 카카오 JS 키 도메인 | 배포 호스트 |
+| 네이버 지도 Web 서비스 URL | 배포 호스트 (포트 없이, 예: https://landnote.vercel.app) |
 | juso 팝업 returnUrl | `https://….vercel.app/juso-return.html` |
 | vworld domain | `VITE_VWORLD_DOMAIN`과 동일 |
 

@@ -18,6 +18,7 @@ import {
 import { CustomerBulkFailedRetryTable } from '../components/CustomerBulkFailedRetryTable.jsx';
 import { PageHeader } from '../components/PageHeader.jsx';
 import { BTN_SIZE } from '../theme/buttonLayout.js';
+import { useDealMode } from '../contexts/DealModeContext.jsx';
 
 const C = {
   surf: '#fff',
@@ -185,6 +186,7 @@ function CustomerBulkResultModal({
 /** @param {{ onNav?: (id: string) => void }} props */
 export function CustomerBulkUploadPage({ onNav }) {
   const navigate = useNavigate();
+  const { mode } = useDealMode();
   const fileRef = useRef(null);
   const importLockRef = useRef(false);
   const [fileName, setFileName] = useState('');
@@ -299,6 +301,7 @@ export function CustomerBulkUploadPage({ onNav }) {
     try {
       const result = await runBulkCustomerImportFromFile(file, {
         onProgress: setProgressPercent,
+        dealMode: mode,
       });
       setSuccessCount(result.successCount);
       setFailedItems(result.failedItems || []);

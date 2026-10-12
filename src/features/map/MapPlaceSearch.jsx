@@ -1,13 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { loadKakaoMaps, searchMapLocations } from '../../services/kakao/kakaoMaps.js';
-import { ZOOM_PLACE_SEARCH_PERCENT } from './mapZoom.js';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   MAP_MOBILE_INSET,
   MAP_MOBILE_PLACE_SEARCH_HEIGHT,
   MAP_MOBILE_PLACE_SEARCH_TOP,
 } from './mapSiteLayout.js';
+import { useMapPlaceSearchResults } from './useMapPlaceSearchResults.js';
 
-const KAKAO_BLUE = '#3396FF';
+const MAP_BLUE = '#3396FF';
 const C = {
   bdr: '#E8EAED',
   tx: '#0F172A',
@@ -15,50 +14,22 @@ const C = {
   txP: '#94A3B8',
 };
 
-/** @param {{ onSelect: (item: import('../../services/kakao/kakaoMaps.js').MapSearchResult) => void, isMobile?: boolean }} props */
+/** @param {{ onSelect: (item: import('../../services/naver/naverMaps.js').MapSearchResult) => void, isMobile?: boolean }} props */
 export function MapPlaceSearch({ onSelect, isMobile = false }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(/** @type {import('../../services/kakao/kakaoMaps.js').MapSearchResult[]} */ ([]));
   const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef(null);
-  const debounceRef = useRef(null);
-
-  const runSearch = useCallback(async (text) => {
-    const q = text.trim();
-    if (!q) {
-      setResults([]);
-      setOpen(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const kakao = await loadKakaoMaps(['services']);
-      const found = await searchMapLocations(kakao, q);
-      setResults(found);
-      setOpen(true);
-      setActiveIdx(found.length ? 0 : -1);
-    } catch {
-      setResults([]);
-      setOpen(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { results, loading } = useMapPlaceSearchResults(query);
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
-      setResults([]);
       setOpen(false);
       return;
     }
-    debounceRef.current = setTimeout(() => runSearch(query), 320);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query, runSearch]);
+    setOpen(true);
+    setActiveIdx(results.length ? 0 : -1);
+  }, [query, results]);
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -85,7 +56,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (activeIdx >= 0 && results[activeIdx]) pick(results[activeIdx]);
-      else runSearch(query);
+      else if (results.length) pick(results[0]);
     } else if (e.key === 'Escape') {
       setOpen(false);
     }
@@ -121,11 +92,11 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
           background: '#fff',
           borderRadius: 8,
           boxShadow: '0 2px 12px rgba(0,0,0,.14)',
-          border: `1px solid ${open ? KAKAO_BLUE : C.bdr}`,
+          border: `1px solid ${open ? MAP_BLUE : C.bdr}`,
           overflow: 'hidden',
         }}
       >
-        <span style={{ padding: isMobile ? '0 10px' : '0 12px', color: KAKAO_BLUE, display: 'flex' }} aria-hidden>
+        <span style={{ padding: isMobile ? '0 10px' : '0 12px', color: MAP_BLUE, display: 'flex' }} aria-hidden>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
             <circle cx="11" cy="11" r="7" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -152,10 +123,10 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
         />
         <button
           type="button"
-          onClick={() => runSearch(query)}
+          onClick={() => { if (results.length) setOpen(true); }}
           style={{
             border: 'none',
-            background: KAKAO_BLUE,
+            background: MAP_BLUE,
             color: '#fff',
             height: inputH,
             padding: isMobile ? '0 12px' : '0 16px',
@@ -212,7 +183,7 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
                 style={{
                   fontSize: 10,
                   fontWeight: 700,
-                  color: item.kind === 'place' ? KAKAO_BLUE : C.txM,
+                  color: item.kind === 'place' ? MAP_BLUE : C.txM,
                   background: item.kind === 'place' ? '#E8F3FF' : '#F3F4F6',
                   borderRadius: 4,
                   padding: '2px 6px',
@@ -228,11 +199,6 @@ export function MapPlaceSearch({ onSelect, isMobile = false }) {
               </span>
             </button>
           ))}
-        </div>
-      )}
-      {!isMobile && (
-        <div style={{ fontSize: 10, color: C.txP, textAlign: 'center', marginTop: 4 }}>
-          카카오맵 지도검색 · 선택 시 해당 위치로 이동 (줌 {ZOOM_PLACE_SEARCH_PERCENT}%)
         </div>
       )}
     </div>

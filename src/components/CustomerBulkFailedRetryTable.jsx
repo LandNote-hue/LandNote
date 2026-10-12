@@ -5,6 +5,7 @@ import { rowToCustomerBulkInput } from '../services/bulk/mapCustomerBulkRow.js';
 import { retryBulkCustomerRow } from '../services/bulk/bulkCustomerImportService.js';
 import { PhoneInput } from './PhoneInput.jsx';
 import { BTN_SIZE } from '../theme/buttonLayout.js';
+import { useDealMode } from '../contexts/DealModeContext.jsx';
 
 const C = {
   surf2: '#F8F9FB',
@@ -36,6 +37,7 @@ const inp = {
  * }} props
  */
 export function CustomerBulkFailedRetryTable({ failedItems, onRetrySuccess, onUpdateItem }) {
+  const { mode } = useDealMode();
   const [retryBusy, setRetryBusy] = useState(null);
   const [retryError, setRetryError] = useState('');
 
@@ -53,7 +55,7 @@ export function CustomerBulkFailedRetryTable({ failedItems, onRetrySuccess, onUp
     try {
       const input = rowToCustomerBulkInput(item.row);
       input._rowIndex = String(item.rowIndex);
-      const result = await retryBulkCustomerRow(input);
+      const result = await retryBulkCustomerRow(input, { dealMode: mode });
       onRetrySuccess(item.rowIndex, result.reportKey);
     } catch (err) {
       setRetryError(err?.message || '재등록 실패');

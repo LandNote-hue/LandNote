@@ -157,11 +157,40 @@ export function calcPyUnitPriceMan(priceMan, areaM2) {
   return price / pyung;
 }
 
+/**
+ * 단가(만) 표시 — 1억(10,000만) 이상이면 1.05억/{unit}, 미만이면 1,000만/{unit}
+ * @param {number} manVal
+ * @param {string} unit
+ */
+function fmtManPerUnit(manVal, unit) {
+  if (!Number.isFinite(manVal) || manVal <= 0) return '—';
+  if (manVal >= EOK_TO_MAN) {
+    const eok = manVal / EOK_TO_MAN;
+    return `${eok.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}억/${unit}`;
+  }
+  return `${fmtNum(Math.round(manVal))}만/${unit}`;
+}
+
 /** @param {number|string|null|undefined} priceMan @param {number|string|null|undefined} areaM2 */
 export function fmtLandPyUnit(priceMan, areaM2) {
   const pyVal = calcPyUnitPriceMan(priceMan, areaM2);
   if (pyVal == null) return '—';
-  return `${fmtNum(Math.round(pyVal))}만/평`;
+  return fmtManPerUnit(pyVal, '평');
+}
+
+/** ㎡단가(만/㎡) = 매각금액(만) ÷ 면적(㎡) */
+export function calcM2UnitPriceMan(priceMan, areaM2) {
+  const price = Number(priceMan);
+  const area = Number(areaM2);
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(area) || area <= 0) return null;
+  return price / area;
+}
+
+/** @param {number|string|null|undefined} priceMan @param {number|string|null|undefined} areaM2 */
+export function fmtLandM2Unit(priceMan, areaM2) {
+  const v = calcM2UnitPriceMan(priceMan, areaM2);
+  if (v == null) return '—';
+  return fmtManPerUnit(v, '㎡');
 }
 
 /** @param {{ trade?: string, price?: number, jDep?: number, mDep?: number, mRent?: number }} p */

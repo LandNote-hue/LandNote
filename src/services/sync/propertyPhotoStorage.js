@@ -2,6 +2,14 @@ import { isSupabaseConfigured, supabase } from '../../lib/supabase.js';
 import { getSyncCompanyId, getSyncUserId } from './syncContext.js';
 import { compressDataUrl } from '../../utils/readImageFile.js';
 
+/** @type {null | ((prop: Record<string, unknown>) => Promise<void>)} */
+let removePhotosOverride = null;
+
+/** @param {null | ((prop: Record<string, unknown>) => Promise<void>)} fn */
+export function setRemovePropertyPhotosForTests(fn) {
+  removePhotosOverride = fn;
+}
+
 export const PROPERTY_PHOTOS_BUCKET = 'property-photos';
 
 /** @param {unknown} value */
@@ -168,6 +176,7 @@ export async function ensurePropertyPhotosInCloud(prop) {
  * @param {Record<string, unknown>} prop
  */
 export async function removePropertyPhotosFromStorage(prop) {
+  if (removePhotosOverride) return removePhotosOverride(prop);
   if (!isSupabaseConfigured || !supabase) return;
   const companyId = prop.companyId || getSyncCompanyId() || 'solo';
   const ownerId = prop.ownerId || getSyncUserId();

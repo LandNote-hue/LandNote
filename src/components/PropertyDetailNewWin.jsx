@@ -1,8 +1,10 @@
 import React from 'react';
 
+import { BRAND_CSS } from '../theme/dealModeTheme.js';
+
 /** App.jsx C 토큰과 동일 — 레이아웃 전용 */
 const C = {
-  brand: '#C8102E',
+  brand: BRAND_CSS.brand,
   bg: '#F5F6FA',
   surf: '#FFFFFF',
   surf2: '#F8F9FB',
@@ -10,10 +12,10 @@ const C = {
 };
 
 /**
- * 매물 상세 Win — 30% / 45% / 25% 3분할 (레이아웃 전용)
- * - 좌: 사진·지도 고정 (내부 스크롤 없음)
- * - 중: 스펙 정보 (독립 세로 스크롤)
- * - 우: 통화 CRM (리스트만 내부 스크롤)
+ * 매물 상세 Win — 30% / 45% / 25% 3분할
+ * - 좌: 사진·지도
+ * - 중: 스펙 정보
+ * - 우: 통화 CRM
  */
 export function PropertyDetailNewWin({ leftTop, leftBottom, center, right, footer }) {
   return (
@@ -38,7 +40,6 @@ export function PropertyDetailNewWin({ leftTop, leftBottom, center, right, foote
           overflow: 'hidden',
         }}
       >
-        {/* ── 좌측 30%: 사진(70%) + 지도(30%) ── */}
         <aside
           style={{
             overflow: 'hidden',
@@ -73,8 +74,6 @@ export function PropertyDetailNewWin({ leftTop, leftBottom, center, right, foote
             {leftBottom}
           </div>
         </aside>
-
-        {/* ── 중앙 45%: 스펙 전체 연속 스크롤 ── */}
         <main
           style={{
             height: '100%',
@@ -87,8 +86,6 @@ export function PropertyDetailNewWin({ leftTop, leftBottom, center, right, foote
         >
           {center}
         </main>
-
-        {/* ── 우측 25%: 통화 CRM ── */}
         <aside
           style={{
             height: '100%',
@@ -96,7 +93,7 @@ export function PropertyDetailNewWin({ leftTop, leftBottom, center, right, foote
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            padding: 24,
+            padding: '4px 8px 2px',
             background: C.surf,
             boxSizing: 'border-box',
           }}

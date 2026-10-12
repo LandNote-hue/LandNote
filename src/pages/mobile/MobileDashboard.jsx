@@ -1,5 +1,7 @@
 import { useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDealMode } from '../../contexts/DealModeContext.jsx';
+import { propertyMatchesDealMode, customerMatchesDealMode, scheduleMatchesDealMode, callMatchesDealMode } from '../../utils/dealModeMatch.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { useOwnerCustomers, useOwnerCallLogs, useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -19,11 +21,28 @@ import {
 
 export function MobileDashboard() {
   const navigate = useNavigate();
+  const { mode } = useDealMode();
   const { user, companyRole, profile } = useAuth();
-  const properties = useProperties();
-  const customers = useOwnerCustomers();
-  const callLogs = useOwnerCallLogs();
-  const schedules = useOwnerSchedules();
+  const propertiesAll = useProperties();
+  const properties = useMemo(
+    () => propertiesAll.filter((p) => propertyMatchesDealMode(p, mode)),
+    [propertiesAll, mode],
+  );
+  const customersAll = useOwnerCustomers();
+  const customers = useMemo(
+    () => customersAll.filter((c) => customerMatchesDealMode(c, mode)),
+    [customersAll, mode],
+  );
+  const callLogsAll = useOwnerCallLogs();
+  const callLogs = useMemo(
+    () => callLogsAll.filter((c) => callMatchesDealMode(c, propertiesAll, mode)),
+    [callLogsAll, propertiesAll, mode],
+  );
+  const schedulesAll = useOwnerSchedules();
+  const schedules = useMemo(
+    () => schedulesAll.filter((s) => scheduleMatchesDealMode(s, propertiesAll, mode)),
+    [schedulesAll, propertiesAll, mode],
+  );
   const cloudBusy = useMobileCloudBusy();
 
   const onNotify = useCallback(() => {}, []);
@@ -77,8 +96,8 @@ export function MobileDashboard() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
         <MobileStatCard label="오늘 일정" value={cloudBusy ? '…' : todayCount} onClick={() => navigate('/calendar')} />
-        <MobileStatCard label="진행중 매물" value={cloudBusy ? '…' : activeCount} onClick={() => navigate('/properties')} />
-        <MobileStatCard label="신규 매물" value={cloudBusy ? '…' : newCount} onClick={() => navigate('/properties')} />
+        <MobileStatCard label="매각중 매물" value={cloudBusy ? '…' : activeCount} onClick={() => navigate('/properties')} />
+        <MobileStatCard label="준비중 매물" value={cloudBusy ? '…' : newCount} onClick={() => navigate('/properties')} />
         <MobileStatCard label="등록 고객" value={cloudBusy ? '…' : customers.length} onClick={() => navigate('/customers')} />
       </div>
 

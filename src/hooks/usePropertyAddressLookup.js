@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
-import { normalizeAddressKeys, toPublicDataQuery } from '../services/address/parseJibunAddress.js';
-import { buildPnu } from '../services/address/buildPnu.js';
+import { useCallback, useRef, useState } from 'react';
+import { toPublicDataQuery } from '../services/address/parseJibunAddress.js';
+import { isUsablePnu } from '../services/address/buildPnu.js';
 import { fetchAllBuildingLedger } from '../services/publicData/buildingLedger.js';
 import { fetchVworldLandBundle } from '../services/vworld/landData.js';
+import { fetchParcelLandForm } from '../services/publicData/fetchParcelLandForm.js';
 import { fetchRegulationForPrimaryZone } from '../services/eum/landUseRegulation.js';
 import {
   emptyBuildingForm,
@@ -11,8 +12,12 @@ import {
   mapPublicDataToPropertyForm,
   applyMeaningfulPatch,
 } from '../services/publicData/mapToPropertyForm.js';
+import { parcelIdentityKey, normalizeExtraParcels } from '../utils/propertyParcels.js';
+import { keysFromAddressData } from '../utils/addressLookupKeys.js';
+import { classifyParcelChange, shouldCommitLookupResult, lookupFailureFormPolicy } from '../utils/addressLookupSession.js';
+import { hydrateEditLandFromProperty } from '../utils/propEditAddressState.js';
 
-/** @typedef {'idle'|'address_confirmed'|'loading'|'success'|'error'} LookupStatus */
+/** @typedef {'idle'|'address_confirmed'|'loading'|'success'|'error'|'unverified'} LookupStatus */
 
 /** @typedef {import('../services/address/parseJibunAddress.js').PublicAddressKeys} PublicAddressKeys */
 
@@ -72,58 +77,52 @@ export function usePropertyAddressLookup(options = {}) {
   const [buildingForm, setBuildingForm] = useState(emptyBuildingForm);
   /** 원본 API 응답 보관 (디버그·재매핑) */
   const [apiRaw, setApiRaw] = useState({ building: null, land: null });
+  const [extraParcels, setExtraParcels] = useState(() => []);
+  const lookupGenRef = useRef(0);
+  const activeIdentRef = useRef('');
 
   /**
    * [주소 조회] 완료 콜백 — juso/카카오 등 주소 검색 UI에서 호출
    * @param {import('../services/address/parseJibunAddress.js').AddressSearchResult} addressData
    */
   const handleAddressFetchSuccess = useCallback(async (addressData) => {
-    setLookup(s => ({ ...s, status: 'loading', error: null, mode }));
+    const { keys, normalized } = keysFromAddressData(addressData);
+    const { parcelChanged, sameParcel, next: ident } = classifyParcelChange(addressKeys, keys);
+    lookupGenRef.current += 1;
+    const gen = lookupGenRef.current;
+    activeIdentRef.current = ident;
+
+    setLookup((s) => ({ ...s, status: 'loading', error: null, mode, parcelChanged }));
+
+    setAddressKeys(keys);
+    setLocationForm((prev) => ({
+      ...prev,
+      roadAddr: normalized.roadAddr,
+      jibunAddr: normalized.jibunAddr,
+    }));
+    if (ident) {
+      setExtraParcels((prev) => prev.filter((p) => parcelIdentityKey(p.addressKeys) !== ident));
+    }
+    if (parcelChanged) {
+      setLandForm(emptyLandForm());
+      setBuildingForm(emptyBuildingForm());
+      setApiRaw({ building: null, land: null });
+    }
 
     try {
-      const normalized = normalizeAddressKeys(addressData);
-      const keys = {
-        roadAddr: normalized.roadAddr,
-        jibunAddr: normalized.jibunAddr,
-        sigunguCd: normalized.sigunguCd,
-        bjdongCd: normalized.bjdongCd,
-        bun: normalized.bun,
-        ji: normalized.ji,
-        platGbCd: normalized.platGbCd,
-        pnu: buildPnu({
-          admCd: addressData.admCd,
-          sigunguCd: normalized.sigunguCd,
-          bjdongCd: normalized.bjdongCd,
-          bun: normalized.bun,
-          ji: normalized.ji,
-          platGbCd: normalized.platGbCd,
-        }),
-      };
-      if (addressData.pnu) {
-        keys.pnu = String(addressData.pnu);
-      }
-
-      setAddressKeys(keys);
-      setLocationForm(prev => ({
-        ...prev,
-        roadAddr: normalized.roadAddr,
-        jibunAddr: normalized.jibunAddr,
-      }));
-
       if (!keys.sigunguCd || !keys.bjdongCd) {
-        setLandForm(emptyLandForm());
-        setBuildingForm(emptyBuildingForm());
-        setLookup(s => ({
+        if (!shouldCommitLookupResult(lookupGenRef.current, gen, activeIdentRef.current, ident)) {
+          return { keys, skippedApi: true, stale: true };
+        }
+        setLookup((s) => ({
           ...s,
-          status: 'address_confirmed',
+          status: parcelChanged ? 'unverified' : 'address_confirmed',
           warnings: normalized.warnings,
           fetchedAt: new Date().toISOString(),
+          parcelChanged,
         }));
         return { keys, building: null, land: null, skippedApi: true };
       }
-
-      setLandForm(emptyLandForm());
-      setBuildingForm(emptyBuildingForm());
 
       const queryKeys = toPublicDataQuery(keys);
       const pnu = keys.pnu;
@@ -141,6 +140,10 @@ export function usePropertyAddressLookup(options = {}) {
         return { building: nextBuilding, vworld: nextVworld, regulation: nextRegulation };
       });
 
+      if (!shouldCommitLookupResult(lookupGenRef.current, gen, activeIdentRef.current, ident)) {
+        return { keys: queryKeys, stale: true };
+      }
+
       setApiRaw({ building, land: { vworld, regulation } });
 
       const { landForm: nextLand, buildingForm: nextBuilding } = mapPublicDataToPropertyForm(
@@ -148,8 +151,13 @@ export function usePropertyAddressLookup(options = {}) {
         { vworld, regulation },
       );
 
-      setLandForm(prev => applyMeaningfulPatch(prev, nextLand));
-      setBuildingForm(prev => applyMeaningfulPatch(prev, nextBuilding));
+      if (parcelChanged || !sameParcel) {
+        setLandForm({ ...emptyLandForm(), ...nextLand });
+        setBuildingForm({ ...emptyBuildingForm(), ...nextBuilding });
+      } else {
+        setLandForm((prev) => applyMeaningfulPatch(prev, nextLand));
+        setBuildingForm((prev) => applyMeaningfulPatch(prev, nextBuilding));
+      }
 
       setLookup({
         status: 'success',
@@ -157,27 +165,145 @@ export function usePropertyAddressLookup(options = {}) {
         warnings: normalized.warnings,
         fetchedAt: new Date().toISOString(),
         mode,
+        parcelChanged: false,
       });
 
       return { keys: queryKeys, pnu, building, vworld, regulation, skippedApi: false };
     } catch (err) {
+      if (!shouldCommitLookupResult(lookupGenRef.current, gen, activeIdentRef.current, ident)) {
+        return { keys: addressData, stale: true, ok: false };
+      }
       const message = err instanceof Error ? err.message : '공공데이터 조회 실패';
-      setLookup(s => ({ ...s, status: 'error', error: message }));
+      const policy = lookupFailureFormPolicy(parcelChanged);
+      if (policy.clearLandBuilding) {
+        setLandForm(emptyLandForm());
+        setBuildingForm(emptyBuildingForm());
+      }
+      setLookup((s) => ({
+        ...s,
+        status: policy.status,
+        error: message,
+        parcelChanged: policy.parcelChanged,
+      }));
       window.alert(LOOKUP_FAIL_ALERT);
-      return { keys: addressData, skippedApi: true, error: message };
+      return { keys: addressData, skippedApi: false, error: message, ok: false };
     }
-  }, [mode, includeExpos, dongNm, hoNm]);
+  }, [mode, includeExpos, dongNm, hoNm, addressKeys]);
 
-  /** [재조회] — 동일 키로 API만 다시 호출 */
+  /** [재조회] — 대표 필지 + 추가 필지 */
   const refetchPublicData = useCallback(async () => {
-    if (!addressKeys.sigunguCd || !addressKeys.jibunAddr) return;
-    return handleAddressFetchSuccess({
-      ...addressKeys,
-      roadAddr: locationForm.roadAddr,
-      jibunAddr: addressKeys.jibunAddr,
-      admCd: addressKeys.sigunguCd + addressKeys.bjdongCd,
-    });
-  }, [addressKeys, locationForm.roadAddr, handleAddressFetchSuccess]);
+    if (addressKeys.sigunguCd || addressKeys.jibunAddr) {
+      await handleAddressFetchSuccess({
+        ...addressKeys,
+        roadAddr: locationForm.roadAddr,
+        jibunAddr: addressKeys.jibunAddr,
+        admCd: addressKeys.sigunguCd + addressKeys.bjdongCd,
+      });
+    }
+    const extras = extraParcels.filter((p) => p.addressKeys);
+    await Promise.all(extras.map(async (p) => {
+      try {
+        const landFormNext = await fetchParcelLandForm(p.addressKeys);
+        setExtraParcels((prev) => prev.map((row) => (
+          row.id === p.id ? { ...row, landForm: landFormNext, status: 'success', error: null } : row
+        )));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '토지정보 조회 실패';
+        setExtraParcels((prev) => prev.map((row) => (
+          row.id === p.id ? { ...row, status: 'error', error: message } : row
+        )));
+      }
+    }));
+  }, [addressKeys, locationForm.roadAddr, handleAddressFetchSuccess, extraParcels]);
+
+  const addExtraParcelFromAddress = useCallback(async (addressData) => {
+    const { keys, normalized } = keysFromAddressData(addressData);
+    const ident = parcelIdentityKey(keys);
+    const primaryIdent = parcelIdentityKey(addressKeys)
+      || parcelIdentityKey({ jibunAddr: locationForm.jibunAddr, pnu: addressKeys.pnu });
+    if (ident && primaryIdent && ident === primaryIdent) {
+      window.alert('대표 필지와 같은 주소입니다.');
+      return null;
+    }
+    if (ident && extraParcels.some((p) => parcelIdentityKey(p.addressKeys) === ident)) {
+      window.alert('이미 추가된 필지입니다.');
+      return null;
+    }
+
+    const id = keys.pnu || `extra-${Date.now()}`;
+    const row = {
+      id,
+      jibunAddr: normalized.jibunAddr,
+      roadAddr: normalized.roadAddr,
+      addressKeys: keys,
+      landForm: emptyLandForm(),
+      status: 'loading',
+      error: null,
+    };
+    setExtraParcels((prev) => [...prev, row]);
+
+    if (!isUsablePnu(keys.pnu)) {
+      setExtraParcels((prev) => prev.map((p) => (
+        p.id === id
+          ? { ...p, status: 'error', error: '필지번호를 확인하지 못했습니다. 지번으로 다시 검색해 주세요.' }
+          : p
+      )));
+      window.alert('추가 필지 주소를 지번으로 다시 선택해 주세요.');
+      return row;
+    }
+
+    try {
+      const landFormNext = await fetchParcelLandForm(keys);
+      const done = { ...row, landForm: landFormNext, status: 'success', error: null };
+      setExtraParcels((prev) => prev.map((p) => (p.id === id ? done : p)));
+      return done;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '토지정보 조회 실패';
+      setExtraParcels((prev) => prev.map((p) => (
+        p.id === id ? { ...p, status: 'error', error: message } : p
+      )));
+      window.alert(message);
+      return null;
+    }
+  }, [addressKeys, extraParcels, locationForm.jibunAddr]);
+
+  const removeExtraParcel = useCallback((id) => {
+    setExtraParcels((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const updateExtraParcelLand = useCallback((id, patchOrFn) => {
+    setExtraParcels((prev) => prev.map((p) => {
+      if (p.id !== id) return p;
+      const next = typeof patchOrFn === 'function'
+        ? patchOrFn(p.landForm)
+        : { ...p.landForm, ...patchOrFn };
+      return { ...p, landForm: next };
+    }));
+  }, []);
+
+  const refetchExtraParcel = useCallback(async (id) => {
+    const target = extraParcels.find((p) => p.id === id);
+    if (!target?.addressKeys) return;
+    setExtraParcels((prev) => prev.map((p) => (
+      p.id === id ? { ...p, status: 'loading', error: null } : p
+    )));
+    try {
+      const landFormNext = await fetchParcelLandForm(target.addressKeys);
+      setExtraParcels((prev) => prev.map((p) => (
+        p.id === id ? { ...p, landForm: landFormNext, status: 'success', error: null } : p
+      )));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '토지정보 조회 실패';
+      setExtraParcels((prev) => prev.map((p) => (
+        p.id === id ? { ...p, status: 'error', error: message } : p
+      )));
+      window.alert(message);
+    }
+  }, [extraParcels]);
+
+  const restoreExtraParcels = useCallback((raw) => {
+    setExtraParcels(normalizeExtraParcels(raw));
+  }, []);
 
   const resetAddressLookup = useCallback(() => {
     setLookup(initialLookupMeta());
@@ -186,23 +312,49 @@ export function usePropertyAddressLookup(options = {}) {
     setLandForm(emptyLandForm());
     setBuildingForm(emptyBuildingForm());
     setApiRaw({ building: null, land: null });
+    setExtraParcels([]);
   }, []);
 
   /** 매물 등록 임시 저장 복원 */
   const restoreAddressLookupDraft = useCallback((draft) => {
     if (!draft || typeof draft !== 'object') return;
-    if (draft.addressKeys) setAddressKeys({ ...initialAddressKeys(), ...draft.addressKeys });
+    lookupGenRef.current += 1;
+    if (draft.addressKeys) {
+      const keys = { ...initialAddressKeys(), ...draft.addressKeys };
+      setAddressKeys(keys);
+      activeIdentRef.current = parcelIdentityKey(keys);
+    }
     if (draft.locationForm) setLocationForm({ ...emptyLocationForm(), ...draft.locationForm });
     if (draft.landForm) setLandForm({ ...emptyLandForm(), ...draft.landForm });
     if (draft.buildingForm) setBuildingForm({ ...emptyBuildingForm(), ...draft.buildingForm });
+    if (draft.extraParcels) setExtraParcels(normalizeExtraParcels(draft.extraParcels));
     if (draft.lookup) {
       setLookup((s) => ({
         ...initialLookupMeta(),
         ...draft.lookup,
         mode,
+        parcelChanged: false,
       }));
     }
   }, [mode]);
+
+  const hydrateFromExistingProperty = useCallback((prop) => {
+    const h = hydrateEditLandFromProperty(prop);
+    restoreAddressLookupDraft({
+      addressKeys: h.addressKeys,
+      lookup: h.lookup,
+      landForm: h.landEdit,
+      buildingForm: h.buildingEdit,
+      extraParcels: prop?.extraParcels,
+      locationForm: {
+        jibunAddr: h.addressKeys.jibunAddr,
+        roadAddr: h.addressKeys.roadAddr,
+      },
+    });
+    return h;
+  }, [restoreAddressLookupDraft]);
+
+  const extraParcelLoading = extraParcels.some((p) => p.status === 'loading');
 
   return {
     lookup,
@@ -213,11 +365,19 @@ export function usePropertyAddressLookup(options = {}) {
     setLandForm,
     buildingForm,
     setBuildingForm,
+    extraParcels,
+    addExtraParcelFromAddress,
+    removeExtraParcel,
+    updateExtraParcelLand,
+    restoreExtraParcels,
+    refetchExtraParcel,
+    extraParcelLoading,
     apiRaw,
     handleAddressFetchSuccess,
     refetchPublicData,
     resetAddressLookup,
     restoreAddressLookupDraft,
+    hydrateFromExistingProperty,
     isLoading: lookup.status === 'loading',
   };
 }

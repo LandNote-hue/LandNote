@@ -2,6 +2,9 @@
 
 import { normalizeCustomerMoneyFields } from './customerMoney.js';
 import { normalizePreferredTradesField, preferredTradesOf } from './customerTradePreference.js';
+import { serializeLeaseConditions, leaseConditionsFromCustomer } from './customerLeaseConditions.js';
+import { buyTypesOf, normalizeBuyTypesField } from './customerBuyTypes.js';
+import { normalizeCustStatus } from './customerStatus.js';
 
 export const CUSTOMER_TYPE_HEADER = '고객구분(중복시 콤마나 슬래시로 구분)';
 export const CUSTOMER_TYPE_HEADER_LEGACY = '고객구분';
@@ -126,7 +129,22 @@ export function normalizeCustomerRecord(data) {
       ? /** @type {string[]} */ (data.preferred_trades)
       : preferredTradesOf(data),
   );
-  return normalizeCustomerMoneyFields({ ...data, customer_types, type, preferred_trades });
+  const next = { ...data, customer_types, type, preferred_trades };
+  if (data.status != null && data.status !== '') next.status = normalizeCustStatus(data.status);
+  if (data.buyTypes != null || data.buy_type != null || data.buyType != null) {
+    next.buyTypes = normalizeBuyTypesField(
+      data.buyTypes != null ? /** @type {string[]} */ (data.buyTypes) : buyTypesOf(data),
+    );
+  }
+  if (data.buyTiming != null) next.buyTiming = String(data.buyTiming || '').trim();
+  const rawMode = String(data.dealMode || '').toLowerCase();
+  if (rawMode === 'rent' || rawMode === 'sale') next.dealMode = rawMode;
+  if (data.leaseConditions != null || rawMode === 'rent') {
+    next.leaseConditions = serializeLeaseConditions(
+      data.leaseConditions != null ? data.leaseConditions : leaseConditionsFromCustomer(data),
+    );
+  }
+  return normalizeCustomerMoneyFields(next);
 }
 
 /** @param {string[]} types */

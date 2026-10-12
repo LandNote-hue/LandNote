@@ -16,6 +16,12 @@ export function buildPnu(keys) {
   return `${ldCode}${mountFlag}${bun}${ji}`;
 }
 
+export function isUsablePnu(pnu) {
+  const s = String(pnu || '').replace(/\D/g, '');
+  if (s.length !== 19) return false;
+  return !/^0+$/.test(s.slice(0, 10));
+}
+
 /**
  * PNU 19자리 → 행정코드·본번·부번
  * @param {string} pnu e.g. 4113310500150830000

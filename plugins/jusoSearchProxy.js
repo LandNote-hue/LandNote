@@ -4,6 +4,7 @@
  */
 
 import { loadEnv } from 'vite';
+import { fetchJusoLinkApi, jusoErrorBody } from '../server/lib/jusoUpstream.js';
 
 const SEARCH_PATHS = new Set([
   '/api/juso-search',
@@ -13,7 +14,8 @@ const SEARCH_PATHS = new Set([
 
 function getSearchKey(env) {
   return (
-    env.VITE_JUSO_SEARCH_KEY
+    env.JUSO_SEARCH_KEY
+    || env.VITE_JUSO_SEARCH_KEY
     || env.VITE_JUSO_CONFIRM_KEY
     || ''
   ).trim();
@@ -39,18 +41,10 @@ export function jusoSearchProxyPlugin() {
         if (!searchKey) {
           res.statusCode = 503;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({
-            results: {
-              common: {
-                errorCode: 'E0001',
-                errorMessage: 'VITE_JUSO_SEARCH_KEY가 설정되지 않았습니다. juso.go.kr에서 도로명주소 검색 API 승인키를 신청하세요.',
-                totalCount: '0',
-                currentPage: '1',
-                countPerPage: '0',
-              },
-              juso: null,
-            },
-          }));
+          res.end(jusoErrorBody(
+            'E0001',
+            'VITE_JUSO_SEARCH_KEY가 설정되지 않았습니다. juso.go.kr에서 도로명주소 검색 API 승인키를 신청하세요.',
+          ));
           return;
         }
 
@@ -61,30 +55,15 @@ export function jusoSearchProxyPlugin() {
             incoming.searchParams.set('resultType', 'json');
           }
 
-          const upstream = `https://business.juso.go.kr/addrlink/addrLinkApi.do?${incoming.searchParams.toString()}`;
-          const upstreamRes = await fetch(upstream, {
-            headers: { Accept: 'application/json' },
-          });
-          const body = await upstreamRes.text();
-          res.statusCode = upstreamRes.status;
+          const { status, body } = await fetchJusoLinkApi(incoming.searchParams);
+          res.statusCode = status;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.end(body);
         } catch (err) {
           console.error('[juso-search-proxy]', err);
           res.statusCode = 502;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({
-            results: {
-              common: {
-                errorCode: 'E9999',
-                errorMessage: '주소 검색 서버 연결 실패',
-                totalCount: '0',
-                currentPage: '1',
-                countPerPage: '0',
-              },
-              juso: null,
-            },
-          }));
+          res.end(jusoErrorBody('E9999', '주소 검색 서버 연결 실패'));
         }
       });
     },
