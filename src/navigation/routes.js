@@ -34,7 +34,7 @@ export function resolveTitle(pathname, params, properties) {
     '/register/bulk': '매물 일괄 등록',
     '/customers': '고객 관리',
     '/customers/bulk': '고객 일괄 등록',
-    '/calls': '통화 내역',
+    '/calls': '업데이트 내역',
     '/calendar': '일정 관리',
     '/backup': '백업·복원',
     '/trash': '휴지통',

@@ -1,4 +1,4 @@
-import { isAdminRole, isCeoRole, isSoloRole } from '../data/companyRoles.js';
+import { isMasterRole, isCeoRole, isSoloRole } from '../data/companyRoles.js';
 import {
   CEO_FULL_PERMISSIONS,
   DEFAULT_MEMBER_PERMISSIONS,
@@ -85,11 +85,11 @@ export function displayPhone(phone, masked) {
 }
 
 export const PERMISSION_DENIED_TOOLTIP = '대표의 수정 권한 승인이 필요합니다';
-export const CALL_LOG_MANAGE_DENIED_TOOLTIP = '대표·팀장만 통화내역을 수정하거나 삭제할 수 있습니다';
+export const CALL_LOG_MANAGE_DENIED_TOOLTIP = '마스터(대표)만 통화내용을 수정하거나 삭제할 수 있습니다';
 
-/** 통화내역 수정·삭제. 추가는 직원도 가능 */
+/** 통화내용 수정·삭제. 추가는 직원도 가능. 마스터(대표·개인)만 수정·삭제 */
 export function canManageCallLogs(role) {
-  return isAdminRole(role);
+  return isMasterRole(role);
 }
 
 /** @param {string|null|undefined} ownerName @param {string|null|undefined} [ownerRole] */

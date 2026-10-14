@@ -47,6 +47,13 @@ export function isAdminRole(role) {
   return r === COMPANY_ROLES.SOLO || r === COMPANY_ROLES.CEO || r === COMPANY_ROLES.MANAGER;
 }
 
+/** 마스터 — 대표·개인(Solo). 역할 미설정(로컬)도 마스터로 본다. 팀장·직원은 해당 없음 */
+export function isMasterRole(role) {
+  if (role == null || role === '') return true;
+  const r = normalizeCompanyRole(role);
+  return r === COMPANY_ROLES.SOLO || r === COMPANY_ROLES.CEO;
+}
+
 /** 팀(회사) 계정만 클라우드 동기화 UI·로그인 자동동기화 대상 (개인 SOLO 제외) */
 /** @param {string|null|undefined} role */
 export function usesTeamCloudSync(role) {

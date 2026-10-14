@@ -16,7 +16,7 @@ export function MobileCallDetail() {
   if (!call) {
     return (
       <>
-        <MobileDetailHeader title="통화 상세" fallback="/calls" />
+        <MobileDetailHeader title="업데이트 상세" fallback="/calls" />
         <MobilePage><MobileEmptyState message="통화 기록을 찾을 수 없습니다" /></MobilePage>
       </>
     );
@@ -32,7 +32,7 @@ export function MobileCallDetail() {
       <MobilePage>
         <MobileCard>
           <div style={{ fontSize: 13, color: M.txM, marginBottom: 6 }}>{call.date} {call.time}</div>
-          <div style={{ fontSize: 15, color: M.tx, lineHeight: 1.6, whiteSpace: 'pre-line' }}>{call.content}</div>
+          <div style={{ fontSize: 15, color: M.tx, whiteSpace: 'nowrap', overflowX: 'auto' }}>{String(call.content || '').replace(/\s+/g, ' ').trim()}</div>
         </MobileCard>
 
         <MobileSectionTitle>관련 정보</MobileSectionTitle>

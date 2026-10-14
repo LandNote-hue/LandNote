@@ -89,7 +89,7 @@ export function MobilePropertyDetail() {
                 {propKindDisplayLabel(prop) || prop.tag}
               </span>
             )}
-            {prop.trade && <span style={{ fontSize: 12, color: M.txM }}>{TL[prop.trade] || prop.trade}</span>}
+            {!rent && prop.trade && <span style={{ fontSize: 12, color: M.txM }}>{TL[prop.trade] || prop.trade}</span>}
           </div>
           <div style={{ fontSize: 17, fontWeight: 700, color: M.tx, lineHeight: 1.4, marginBottom: 4 }}>
             {propDisplayAddr(prop)}

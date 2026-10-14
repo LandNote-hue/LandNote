@@ -43,7 +43,7 @@ const SM = BTN_SIZE.sm;
 const RESOURCE_GROUPS = [
   { key: 'properties', label: '매물', read: 'read_properties', write: 'write_properties' },
   { key: 'schedules', label: '일정', read: 'read_schedules', write: 'write_schedules' },
-  { key: 'calls', label: '통화내역', read: 'read_calls', write: 'write_calls' },
+  { key: 'calls', label: '업데이트 내역', read: 'read_calls', write: 'write_calls' },
 ];
 
 function UsersEmptyIcon() {

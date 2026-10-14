@@ -13,6 +13,11 @@ export function isLockedCallLog(call) {
   return String(call.content || '').startsWith('[변경기록]');
 }
 
+/** 변경기록·통화내용 — 줄바꿈 없이 한 줄 */
+export function fmtCallContentOneLine(content) {
+  return String(content ?? '').replace(/\s+/g, ' ').trim();
+}
+
 export function nowCallStamp() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -150,7 +155,7 @@ export function summarizePropertyChanges(prev, next) {
     lines.push(`· ${label}: ${formatFieldValue(key, before, rent)} → ${formatFieldValue(key, after, rent)}`);
   }
   if (!lines.length) return '';
-  return lines.join('\n');
+  return lines.join(' · ');
 }
 
 export function propertyRegisterAuditContent() {

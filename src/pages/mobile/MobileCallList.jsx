@@ -39,10 +39,9 @@ export function MobileCallList() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                     <div style={{
                       fontSize: 15, fontWeight: 700, color: M.tx, lineHeight: 1.45, minWidth: 0,
-                      overflow: 'hidden', textOverflow: 'ellipsis',
-                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {c.content || '내용 없음'}
+                      {String(c.content || '내용 없음').replace(/\s+/g, ' ').trim()}
                     </div>
                     <span style={{ fontSize: 12, color: M.txM, flexShrink: 0, textAlign: 'right', lineHeight: 1.4 }}>
                       {c.date}{c.time ? ` ${String(c.time).slice(0, 5)}` : ''}

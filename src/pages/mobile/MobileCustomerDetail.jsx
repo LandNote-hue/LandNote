@@ -110,7 +110,7 @@ export function MobileCustomerDetail() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: M.tx }}>{c.date} {c.time}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: M.txM, marginTop: 4 }}>{c.content}</div>
+                  <div style={{ fontSize: 13, color: M.txM, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(c.content || '').replace(/\s+/g, ' ').trim()}</div>
                 </div>
               ))}
             </MobileCard>

@@ -80,9 +80,9 @@ export function rentalAddrSortKey(p) {
   return `${a} ${bldg}`.trim();
 }
 
-/** 목록 기본(등록일)에서도 지번 묶음을 쓴다. 다른 열 정렬일 때만 끈다. */
+/** 등록일 열로 정렬할 때만 지번 묶음. 기본(최종수정일)은 최신 활동순. */
 export function rentalListUsesJibunGroups(sortKey) {
-  return !sortKey || sortKey === 'created';
+  return sortKey === 'created';
 }
 
 function normalizeJibunGroupText(s) {
@@ -179,7 +179,7 @@ export function sortRentalListByJibunGroups(items, opts = {}) {
 }
 
 export const RENT_LIST_SORT_KEYS = new Set([
-  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'noc', 'maintenance', 'lastCall', 'moveInDate', 'created', 'agentName',
+  'addr', 'contractArea', 'exclusiveArea', 'deposit', 'rent', 'noc', 'maintenance', 'moveInDate', 'created', 'updatedAt', 'agentName',
 ]);
 
 export const SALE_LIST_SORT_KEYS = new Set([

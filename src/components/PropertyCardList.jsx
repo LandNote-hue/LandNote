@@ -3,8 +3,11 @@ import { propStatusStyle, propStatusChipStyle } from '../utils/propStatus.js';
 import { fmtPropPrice as propPrice } from '../utils/formatMoney.js';
 import {
   rentalDepositMan, rentalRentMan, rentalMaintMan, fmtRentalMan, fmtRentalNoc, fmtRentalAreaCell,
-  fmtListDotDate, rentalTradeLabel,
+  fmtListDotDate,
 } from '../utils/propRentList.js';
+import { fmtPropUpdatedAt } from '../utils/propertyAuditLog.js';
+import { PropSyncHint } from './PropSyncHint.jsx';
+import { isSupabaseConfigured } from '../lib/supabase.js';
 
 import { BRAND_CSS } from '../theme/dealModeTheme.js';
 import { propKindDisplayLabel } from '../data/propertyTypes.js';
@@ -68,12 +71,16 @@ export function PropertyCardList({
           }}
         >
           <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 6,
             fontSize: 15, fontWeight: 600, color: '#0F172A', lineHeight: 1.4,
             wordBreak: 'keep-all', overflowWrap: 'anywhere',
             marginBottom: 10,
           }}>
-            {propDisplayAddr(p)}
-            {p.bldg ? ` · ${p.bldg}` : ''}
+            <PropSyncHint rec={p} cloudEnabled={isSupabaseConfigured} />
+            <span>
+              {propDisplayAddr(p)}
+              {p.bldg ? ` · ${p.bldg}` : ''}
+            </span>
           </div>
           {sharedLabel && <div style={{ marginBottom: 8 }}><SharedTag label={sharedLabel} /></div>}
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
@@ -98,9 +105,9 @@ export function PropertyCardList({
                   {propKindDisplayLabel(p) || p.tag}
                 </span>
               )}
-              {p.trade && (
+              {p.trade && variant !== 'rental' && (
                 <span style={{ fontSize: 12, color: '#6B7280' }}>
-                  {variant === 'rental' ? rentalTradeLabel(p.trade) : (TL[p.trade] || p.trade)}
+                  {TL[p.trade] || p.trade}
                 </span>
               )}
             </div>
@@ -128,10 +135,10 @@ export function PropertyCardList({
               <div>해당층 <strong style={{ color: '#0F172A' }}>{p.unitFloor || '—'}</strong></div>
               <div>보증금 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalDepositMan(p))}</strong></div>
               <div>임대료 <strong style={{ color: '#2563EB' }}>{fmtRentalMan(rentalRentMan(p))}</strong></div>
-              <div>NOC <strong style={{ color: '#0F172A' }}>{fmtRentalNoc(p)}</strong></div>
               <div>관리비 <strong style={{ color: '#0F172A' }}>{fmtRentalMan(rentalMaintMan(p))}</strong></div>
-              <div>최종통화일 {p.lastCall || '—'}</div>
+              <div>NOC <strong style={{ color: '#0F172A' }}>{fmtRentalNoc(p)}</strong></div>
               <div>입주가능일 {fmtListDotDate(p.moveInDate)}</div>
+              <div>최종수정일 {fmtPropUpdatedAt(p)}</div>
               <div>담당자 <strong style={{ color: '#0F172A' }}>{propAgentLabel(p)}</strong></div>
             </div>
           )}

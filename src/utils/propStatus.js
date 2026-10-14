@@ -1,10 +1,10 @@
 /** 매물 진행 상태 — 목록·등록·지도·일괄등록 공통 */
 
 export const PROP_STATUS_OPTS = [
-  { id: 'NEW', label: '준비중' },
+  { id: 'NEW', label: '컨택중' },
   { id: 'ACTIVE', label: '매각중' },
   { id: 'HOLD', label: '보류' },
-  { id: 'COMPLETED', label: '계약완료' },
+  { id: 'COMPLETED', label: '매각완료' },
 ];
 
 export const PROP_RENT_STATUS_OPTS = [
@@ -26,14 +26,15 @@ export const PROP_RENT_STATUS_LABEL = Object.fromEntries(
 
 /** 고급검색·지도 필터용 (구 라벨·임대 라벨 호환) */
 export const PROP_STATUS_LABEL_TO_CODE = {
-  준비중: 'NEW',
+  컨택중: 'NEW',
   매각중: 'ACTIVE',
   보류: 'HOLD',
+  매각완료: 'COMPLETED',
+  준비중: 'NEW',
   계약완료: 'COMPLETED',
   완료: 'COMPLETED',
   신규: 'NEW',
   진행중: 'ACTIVE',
-  컨택중: 'NEW',
   임대중: 'ACTIVE',
   임대완료: 'COMPLETED',
 };
@@ -58,14 +59,14 @@ export function propStatusFilterLabels(rent) {
 }
 
 /**
- * 목록·카드 상태 칩 — 준비중 회색 / 매각중 파랑 / 보류 빨강 / 계약완료 보라
+ * 목록·카드 상태 칩 — 컨택중 회색 / 매각중 파랑 / 보류 빨강 / 매각완료 보라
  * @type {Record<string, { label: string, bg: string, color: string, bd: string }>}
  */
 export const PROP_STATUS_STYLE = {
-  NEW: { label: '준비중', bg: '#E8EDF2', color: '#334155', bd: '#94A3B8' },
+  NEW: { label: '컨택중', bg: '#E8EDF2', color: '#334155', bd: '#94A3B8' },
   ACTIVE: { label: '매각중', bg: '#DBEAFE', color: '#1D4ED8', bd: '#3B82F6' },
   HOLD: { label: '보류', bg: '#FECACA', color: '#B91C1C', bd: '#EF4444' },
-  COMPLETED: { label: '계약완료', bg: '#EDE9FE', color: '#6D28D9', bd: '#8B5CF6' },
+  COMPLETED: { label: '매각완료', bg: '#EDE9FE', color: '#6D28D9', bd: '#8B5CF6' },
 };
 
 /** @param {string|undefined|null} status @param {{ rent?: boolean }} [opts] */

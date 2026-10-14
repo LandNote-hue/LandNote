@@ -11,7 +11,7 @@ export function hasRealPropertyAddress(record) {
 }
 
 /**
- * 준비중(NEW)은 미완성 초안 허용.
+ * 컨택중(NEW)은 미완성 초안 허용.
  * 매각중(ACTIVE) 저장·전환 시 실제 주소·종류·(매매면) 유효 매도호가 필수.
  * @param {Record<string, unknown>} record 저장될 최종 형태
  * @returns {{ ok: true }|{ ok: false, message: string }}

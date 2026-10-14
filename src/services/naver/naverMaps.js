@@ -15,14 +15,23 @@ export function getNaverMapClientId() {
   return (import.meta.env.VITE_NAVER_MAP_CLIENT_ID || '').trim();
 }
 
+function isNaverMapProdHost() {
+  if (typeof window === 'undefined') return Boolean(import.meta.env.PROD);
+  const host = window.location.hostname;
+  return host !== 'localhost' && host !== '127.0.0.1';
+}
+
 /** @returns {string} */
 export function getNaverMapSetupHint() {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5175';
+  const keyHint = isNaverMapProdHost()
+    ? '운영 빌드에는 Vercel 환경 변수 또는 .env.production의 VITE_NAVER_MAP_CLIENT_ID(ncpKeyId)가 들어가야 합니다.'
+    : '.env.local의 VITE_NAVER_MAP_CLIENT_ID는 ncpKeyId(Client ID)입니다. 변경 후 개발 서버를 재시작하세요.';
   return (
     `현재 접속 주소: ${origin}\n`
     + '네이버 클라우드 플랫폼 → Application → AI·NAVER API → Maps → Web 서비스 URL에 '
-    + `${origin} 을 등록하세요.\n`
-    + '.env.local의 VITE_NAVER_MAP_CLIENT_ID는 ncpKeyId(Client ID)입니다. 구버전 ncpClientId 파라미터는 사용하지 않습니다.'
+    + `${origin} 을 등록하세요 (포트 번호는 넣지 않습니다).\n`
+    + `${keyHint} 구버전 ncpClientId 파라미터는 사용하지 않습니다.`
   );
 }
 

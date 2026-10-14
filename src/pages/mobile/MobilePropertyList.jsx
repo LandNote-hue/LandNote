@@ -12,7 +12,7 @@ import {
 import { PROP_LIST_TABS, propertyBelongsToListTab, normalizePropListTab, isLegacyRentListTab } from '../../utils/propListKind.js';
 import { useDealMode } from '../../contexts/DealModeContext.jsx';
 import { DEAL_MODE_RENT } from '../../theme/dealModeTheme.js';
-import { comparePropListActivityDesc, sortRentalListByJibunGroups } from '../../utils/propRentList.js';
+import { comparePropListActivityDesc } from '../../utils/propRentList.js';
 import { SALE_PROP_KIND_OPTS, propertyMatchesSaleKind } from '../../data/propertyTypes.js';
 import { PROP_STATUS_FILTER_LABELS, PROP_STATUS_LABEL_TO_CODE, propStatusFilterLabels } from '../../utils/propStatus.js';
 import { uniquePropAgentNames, propertyMatchesAgentFilter, PROP_AGENT_NONE } from '../../utils/propAgent.js';
@@ -134,7 +134,6 @@ export function MobilePropertyList() {
       }))
       .filter((p) => (isRent ? matchesRentAdv(p) : matchesSaleAdv(p)))
       .filter((p) => matchesSearch(p, q));
-    if (isRent) return sortRentalListByJibunGroups(list);
     return [...list].sort(comparePropListActivityDesc);
   }, [properties, statusTab, search, propFolders, saleAdv, advAgent, mode, isRent]);
 
@@ -147,7 +146,7 @@ export function MobilePropertyList() {
         .filter((p) => propertyBelongsToListTab(p, 'FOLDER', { inFolder: true, dealMode: mode }))
         .filter((p) => (isRent ? matchesRentAdv(p) : matchesSaleAdv(p)))
         .filter((p) => matchesSearch(p, q))
-        .sort((a, b) => (isRent ? (b.created || '').localeCompare(a.created || '') : comparePropListActivityDesc(a, b)));
+        .sort(comparePropListActivityDesc);
       return { folder: f, items };
     });
   }, [statusTab, folders, propFolders, properties, search, saleAdv, advAgent, mode, isRent]);

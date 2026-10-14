@@ -167,23 +167,23 @@ export function propertySyncUiLabel(rec, opts = {}) {
 
 /** @param {{ ok?: boolean, reason?: string, stale?: boolean, skipped?: boolean, conflict?: boolean, failed?: number, conflicts?: number }|null|undefined} syncResult */
 export function propertySaveToastMessage(syncResult) {
-  const device = '기기 저장 완료';
+  const saved = '저장 완료';
   if (!syncResult || syncResult.reason === 'skip' || syncResult.skipped) {
-    return device;
+    return saved;
   }
   if (syncResult.conflict || (syncResult.conflicts || 0) > 0) {
-    return `${device} · 동기화 충돌`;
+    return `${saved} · 동기화 충돌`;
   }
   if ((syncResult.failed || 0) > 0 || syncResult.ok === false) {
-    return `${device} · 동기화 실패`;
+    return `${saved} · 동기화 실패`;
   }
   if (syncResult.ok && syncResult.stale) {
-    return `${device} · 동기화 대기`;
+    return `${saved} · 동기화 대기`;
   }
   if (syncResult.ok) {
-    return `${device} · 클라우드 반영 완료`;
+    return saved;
   }
-  return `${device} · 동기화 실패`;
+  return `${saved} · 동기화 실패`;
 }
 
 /** @param {{ failed?: number, conflicts?: number, pushed?: number, ok?: boolean }} parts */

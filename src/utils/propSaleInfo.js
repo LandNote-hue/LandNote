@@ -26,13 +26,16 @@ function fmtAreaM2Display(m2) {
   return py != null ? `${m2Label} (${fmtNum(py, { decimal: true })}평)` : m2Label;
 }
 
-/** 전세·월세·단기 공통 유닛 정보 */
-function rentalUnitInfoItems(prop) {
+/** 임대정보 상단 — 계약면적·전용면적 */
+function rentalAreaInfoItems(prop) {
   return [
-    { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
-    { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
     { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },
+    { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
   ];
+}
+
+function rentalFloorItem(prop) {
+  return { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' };
 }
 
 /**
@@ -148,14 +151,14 @@ export function buildPropSaleInfoRows(prop, rentals, fmt) {
   return null;
 }
 
-/** 거래방식별 매각정보 (매매·분양 외) — PropInfoGrid items */
-export function buildTradePriceInfoItems(prop, TL) {
+/** 임대정보 (전세·월세·단기) — PropInfoGrid items */
+export function buildTradePriceInfoItems(prop, _TL) {
   const trade = prop.trade;
   if (trade === 'JEONSE') {
     return [
-      { k: '거래방식', v: TL.JEONSE, c: '#2563EB' },
+      ...rentalAreaInfoItems(prop),
       { k: '전세보증금', v: fmtManwonDisplay(normalizeJDepToMan(prop.jDep)), c: 'var(--ln-brand)' },
-      ...rentalUnitInfoItems(prop),
+      rentalFloorItem(prop),
       ...(prop.moveInDate
         ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
         : []),
@@ -166,25 +169,24 @@ export function buildTradePriceInfoItems(prop, TL) {
   }
   if (trade === 'MONTHLY') {
     return [
-      { k: '거래방식', v: TL.MONTHLY, c: '#2563EB' },
+      ...rentalAreaInfoItems(prop),
       { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: 'var(--ln-brand)' },
-      { k: '월세', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
+      { k: '임대료', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
-      { k: '해당 층', v: prop.unitFloor ? String(prop.unitFloor) : '—' },
       { k: 'NOC', v: fmtRentalNoc(prop) },
+      rentalFloorItem(prop),
       { k: '입주가능일', v: prop.moveInDate ? fmtMoveInDate(prop.moveInDate) : '—' },
-      { k: '계약면적', v: fmtAreaM2Display(prop.contractArea) },
-      { k: '전용면적', v: fmtAreaM2Display(prop.exclusiveArea) },
       ...(prop.maintenanceDetail ? [{ k: '관리비 포함', v: prop.maintenanceDetail, full: true }] : []),
     ];
   }
   if (trade === 'SHORT_TERM') {
     return [
-      { k: '거래방식', v: TL.SHORT_TERM, c: '#2563EB' },
+      ...rentalAreaInfoItems(prop),
       { k: '보증금', v: fmtManwonDisplay(prop.mDep), c: 'var(--ln-brand)' },
       { k: '단기임대료', v: fmtManwonDisplay(prop.mRent), c: '#2563EB' },
       { k: '관리비', v: fmtManwonDisplay(prop.maintenance) },
-      ...rentalUnitInfoItems(prop),
+      { k: 'NOC', v: fmtRentalNoc(prop) },
+      rentalFloorItem(prop),
       ...(prop.moveInDate
         ? [{ k: '입주가능일', v: fmtMoveInDate(prop.moveInDate) }]
         : []),
@@ -192,7 +194,6 @@ export function buildTradePriceInfoItems(prop, TL) {
     ];
   }
   return [
-    { k: '거래방식', v: TL[trade] || '—', c: '#2563EB' },
     { k: '가격', v: prop.price ? fmtManwonDisplay(prop.price) : '—', c: 'var(--ln-brand)' },
   ];
 }

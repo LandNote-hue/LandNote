@@ -3,7 +3,7 @@ import { normalizeCustomerRecord } from './utils/customerTypes.js';
 import { looksLikeEokStored, EOK_TO_MAN, parseMoneyManOrNull } from './utils/formatMoney.js';
 import { DEV_LOCAL_OWNER, getActiveOwnerId, withOwnerId, canMutateRecord, matchesOwner } from './services/sync/ownerScope.js';
 import { getSyncCompanyId, getSyncCompanyRole } from './services/sync/syncContext.js';
-import { COMPANY_ROLES, isAdminRole, normalizeCompanyRole } from './data/companyRoles.js';
+import { COMPANY_ROLES, isMasterRole, normalizeCompanyRole } from './data/companyRoles.js';
 import { customerPhoneKey } from './utils/formatPhone.js';
 import { inferCustomerDealMode, normalizeDealMode } from './utils/dealModeMatch.js';
 import { nextDirtyPatch, SYNC_STATUS } from './utils/recordSyncState.js';
@@ -423,7 +423,7 @@ export async function softDeleteCustomer(id) {
 }
 
 function assertCallLogAdmin() {
-  if (!isAdminRole(getSyncCompanyRole())) throw new Error('FORBIDDEN_CALL_LOG_MANAGE');
+  if (!isMasterRole(getSyncCompanyRole())) throw new Error('FORBIDDEN_CALL_LOG_MANAGE');
 }
 
 export async function softDeleteCallLog(id) {
@@ -684,7 +684,7 @@ export async function updateProperty(id, changes) {
   if (shouldBumpPropertyActivity(changes)) {
     rememberPropListLatestActivity();
     const summary = summarizePropertyChanges(rec, next);
-    if (summary) await appendLockedPropertyAuditCall(id, summary);
+    if (summary) await appendLockedPropertyAuditCall(id, `[변경기록] ${summary}`);
   }
   return afterPropertyChange(id);
 }

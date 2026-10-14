@@ -42,10 +42,10 @@ export const PROP_LIST_TABS = [
 
 /** 목록 탭에서는 숨기지만 대시보드·URL·상태 필터는 유지 */
 export const PROP_LIST_STATUS_TAB_LABELS = {
-  NEW: '준비중',
+  NEW: '컨택중',
   ACTIVE: '매각중',
   HOLD: '보류',
-  COMPLETED: '계약완료',
+  COMPLETED: '매각완료',
 };
 
 export const PROP_LIST_VISIBLE_TAB_IDS = new Set(PROP_LIST_TABS.map((t) => t.id));

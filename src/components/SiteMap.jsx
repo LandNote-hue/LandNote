@@ -740,11 +740,16 @@ export function SiteMap({
   }, [selectedId, mapReady]);
 
   if (status === 'no-key') {
+    const prodHost = typeof window !== 'undefined'
+      && window.location.hostname !== 'localhost'
+      && window.location.hostname !== '127.0.0.1';
     return (
       <MapPlaceholder
         height={height}
         message="네이버 지도 API 키 미설정"
-        sub=".env.local에 VITE_NAVER_MAP_CLIENT_ID(ncpKeyId / Client ID)를 설정하세요."
+        sub={prodHost
+          ? '운영 빌드에 VITE_NAVER_MAP_CLIENT_ID가 없습니다. Vercel 환경 변수 또는 .env.production을 넣고 다시 배포하세요.'
+          : '.env.local에 VITE_NAVER_MAP_CLIENT_ID(ncpKeyId / Client ID)를 설정한 뒤 개발 서버를 재시작하세요.'}
       />
     );
   }
