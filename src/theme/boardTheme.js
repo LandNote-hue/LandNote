@@ -1,0 +1,52 @@
+/** 게시판 전용 토큰 — 거래모드와 무관하게 브랜드 레드 고정 */
+export const BOARD = {
+  brand: '#C8102E',
+  brandD: '#A00E25',
+  brandL: '#FBE9EC',
+  sidebar: '#1A2332',
+  bg: '#F5F6FA',
+  surf: '#FFFFFF',
+  surf2: '#F8F9FB',
+  bdr: '#E8EAED',
+  bdrSt: '#D1D5DB',
+  tx: '#0F172A',
+  txS: '#374151',
+  txM: '#6B7280',
+  txP: '#94A3B8',
+  inputH: 36,
+  radius: 7,
+  border: 1.5,
+  innerW: 248,
+};
+
+export const BOARD_INPUT = {
+  height: BOARD.inputH,
+  minHeight: BOARD.inputH,
+  border: `${BOARD.border}px solid ${BOARD.bdrSt}`,
+  borderRadius: BOARD.radius,
+  padding: '0 12px',
+  fontSize: 14,
+  color: BOARD.tx,
+  background: '#fff',
+  fontFamily: 'inherit',
+  boxSizing: 'border-box',
+};
+
+export const BOARD_BTN = {
+  height: BOARD.inputH,
+  minHeight: BOARD.inputH,
+  borderRadius: BOARD.radius,
+  border: `${BOARD.border}px solid ${BOARD.bdrSt}`,
+  padding: '0 14px',
+  fontSize: 13,
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  boxSizing: 'border-box',
+  background: '#fff',
+  color: BOARD.txS,
+};

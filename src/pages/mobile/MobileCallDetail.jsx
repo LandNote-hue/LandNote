@@ -3,6 +3,7 @@ import { useOwnerCallLogs, useOwnerCustomers } from '../../hooks/useOwnerScopedD
 import { useProperties } from '../../hooks/useProperties.js';
 import { propCallIdentLabel } from '../../utils/propAddress.js';
 import { formatPhone } from '../../utils/formatPhone.js';
+import { fmtCallContentOneLine } from '../../utils/propertyAuditLog.js';
 import { MobilePage, MobileDetailHeader, MobileCard, MobileSectionTitle, MobileInfoRow, MobileEmptyState, M } from './mobileUi.jsx';
 
 export function MobileCallDetail() {
@@ -32,7 +33,7 @@ export function MobileCallDetail() {
       <MobilePage>
         <MobileCard>
           <div style={{ fontSize: 13, color: M.txM, marginBottom: 6 }}>{call.date} {call.time}</div>
-          <div style={{ fontSize: 15, color: M.tx, whiteSpace: 'nowrap', overflowX: 'auto' }}>{String(call.content || '').replace(/\s+/g, ' ').trim()}</div>
+          <div style={{ fontSize: 15, color: M.tx, whiteSpace: 'nowrap', overflowX: 'auto' }}>{fmtCallContentOneLine(call.content)}</div>
         </MobileCard>
 
         <MobileSectionTitle>관련 정보</MobileSectionTitle>

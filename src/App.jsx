@@ -112,7 +112,9 @@ import { ResetPasswordScreen } from "./components/ResetPasswordScreen.jsx";
 import { PASSWORD_RESET_REDIRECT_PATH, validatePassword } from "./utils/authValidation.js";
 import {
   scheduleCoversDay, dateEndForSave, fmtSchedulePeriodKo, fmtSchedulePeriodDot,
+  weekDaysFrom, fmtDayTitleKo, fmtWeekTitleKo,
 } from "./utils/schedulePeriod.js";
+import { CalendarTimeGrid, CalendarViewTabs } from "./pages/calendar/CalendarTimeGrid.jsx";
 import { isBusinessRole, isCeoRole, isSoloRole, companyRoleLabel, usesTeamCloudSync } from "./data/companyRoles.js";
 import { visiblePropMainEntries, visiblePropSubEntries, visibleAllPropSubEntries, findPropMainForSub, SALE_PROP_KIND_OPTS, normalizeSalePropKind, propertyMatchesSaleKind, saleKindFromProp, typeCodesForSave, propKindDisplayLabel } from "./data/propertyTypes.js";
 import { matchesOwner } from "./services/sync/ownerScope.js";
@@ -147,6 +149,10 @@ import { MobileCallList } from "./pages/mobile/MobileCallList.jsx";
 import { MobileCallDetail } from "./pages/mobile/MobileCallDetail.jsx";
 import { MobileScheduleDetail } from "./pages/mobile/MobileScheduleDetail.jsx";
 import { MobileCalendar } from "./pages/mobile/MobileCalendar.jsx";
+import BoardListPage from "./pages/board/BoardListPage.jsx";
+import BoardWritePage from "./pages/board/BoardWritePage.jsx";
+import BoardPostPage from "./pages/board/BoardPostPage.jsx";
+import { MobileBoardList, MobileBoardPost, MobileBoardWrite } from "./pages/mobile/MobileBoardList.jsx";
 import { initialCloudSync, pushRestoredLocalData } from "./services/sync/cloudSync.js";
 import {
   useOwnerCustomers,
@@ -839,6 +845,7 @@ const MENU_ICONS={
   customers:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>),
   calls:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.27a2 2 0 0 1 2.11-.45c.74.34 1.53.58 2.34.7A2 2 0 0 1 22 16.92z"/></svg>),
   calendar:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>),
+  board:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="4" width="12" height="16" rx="2"/><path d="M16 4V3a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v1"/><path d="M11 10h6M11 14h6"/></svg>),
   backup:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16l-4-4-4 4"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>),
   trash:(<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>),
 };
@@ -849,6 +856,7 @@ const MENUS=[
   {id:'customers',icon:'ti-users',label:'고객 관리'},
   {id:'calls',icon:'ti-phone',label:'업데이트 내역'},
   {id:'calendar',icon:'ti-calendar',label:'일정 관리'},
+  {id:'board',icon:'ti-clipboard',label:'게시판'},
   {id:'trash',icon:'ti-trash',label:'휴지통'},
 ];
 const Sidebar=({screen,onNav,onSettings,trash=0,expanded,onToggle,overlay})=>{
@@ -3608,19 +3616,27 @@ const CallLogs=({onOpen,onDelete})=>{
   const [dateFrom,setDateFrom]=useState('');
   const [dateTo,setDateTo]=useState('');
   const [visibleCount,setVisibleCount]=useState(20);
+  const listScrollRef=useRef(null);
   const handleScroll=(e)=>{const el=e.currentTarget;if(el.scrollHeight-el.scrollTop-el.clientHeight<80)setVisibleCount(v=>v+20);};
-  const filtered=CALLS.filter(c=>{
-    if(dateFrom&&c.date<dateFrom) return false;
-    if(dateTo&&c.date>dateTo) return false;
-    if(!keyword) return true;
-    const kw=keyword.toLowerCase();
-    const prop=findPropertyByPid(P,c.pid);
-    const cust=CU.find(cu=>cu.id===c.cid);
-    return (c.content&&c.content.toLowerCase().includes(kw))||
-      (cust&&cust.name&&cust.name.includes(kw))||
-      (c.contactPhone&&String(c.contactPhone).includes(kw))||
-      (prop&&propMatchesSearch(prop,kw));
-  });
+  const filtered=useMemo(()=>{
+    const rows=CALLS.filter(c=>{
+      if(dateFrom&&c.date<dateFrom) return false;
+      if(dateTo&&c.date>dateTo) return false;
+      if(!keyword) return true;
+      const kw=keyword.toLowerCase();
+      const prop=findPropertyByPid(P,c.pid);
+      const cust=CU.find(cu=>cu.id===c.cid);
+      return (c.content&&c.content.toLowerCase().includes(kw))||
+        (cust&&cust.name&&cust.name.includes(kw))||
+        (c.contactPhone&&String(c.contactPhone).includes(kw))||
+        (prop&&propMatchesSearch(prop,kw));
+    });
+    return sortCallsNewestFirst(rows);
+  },[CALLS,P,CU,dateFrom,dateTo,keyword]);
+  useEffect(()=>{
+    setVisibleCount(20);
+    if(listScrollRef.current) listScrollRef.current.scrollTop=0;
+  },[keyword,dateFrom,dateTo,mode]);
   const visible=filtered.slice(0,visibleCount);
   const grouped=visible.reduce((a,c)=>{a[c.date]=a[c.date]||[];a[c.date].push(c);return a;},{});
   return(
@@ -3650,7 +3666,7 @@ const CallLogs=({onOpen,onDelete})=>{
           </div>
         </div>
       )}
-      <div style={{flex:1,overflow:'auto',padding:'16px 28px'}} onScroll={handleScroll}>
+      <div ref={listScrollRef} style={{flex:1,overflow:'auto',padding:'16px 28px'}} onScroll={handleScroll}>
         {Object.entries(grouped).sort((a,b)=>b[0].localeCompare(a[0])).map(([date,calls])=>(
           <div key={date} style={{marginBottom:20}}>
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
@@ -3659,7 +3675,7 @@ const CallLogs=({onOpen,onDelete})=>{
               <span style={{fontSize:12,color:C.txP}}>{calls.length}건</span>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {calls.map(c=>{
+              {sortCallsNewestFirst(calls).map(c=>{
                 const prop=findPropertyByPid(P,c.pid);
                 const cust=CU.find(cu=>cu.id===c.cid);
                 const propLabel=prop?propCallIdentLabel(prop):'';
@@ -3947,6 +3963,7 @@ const Calendar=({onOpen})=>{
   const [sel,setSel]=useState(todayRef.date);
   const [year,setYear]=useState(todayRef.year);
   const [month,setMonth]=useState(todayRef.month);
+  const [calView,setCalView]=useState('month');
   const icsInputRef=useRef(null);
   const [icsNotice,setIcsNotice]=useState('');
   const [googleCalOpen,setGoogleCalOpen]=useState(false);
@@ -4133,7 +4150,26 @@ const Calendar=({onOpen})=>{
     setIcsNotice(`'${label}' 캘린더 연동을 해제했습니다.`);
   };
   const isTodayCell=(d)=>d!=null&&year===todayRef.year&&month===todayRef.month&&d===todayRef.date;
+  const selectedDay=sel||(year===todayRef.year&&month===todayRef.month?todayRef.date:1);
   const goToday=()=>{setYear(todayRef.year);setMonth(todayRef.month);setSel(todayRef.date);};
+  const shiftCal=(dir)=>{
+    const d=new Date(year,month-1,selectedDay);
+    if(calView==='day') d.setDate(d.getDate()+dir);
+    else if(calView==='week') d.setDate(d.getDate()+dir*7);
+    else d.setMonth(d.getMonth()+dir);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth()+1);
+    setSel(d.getDate());
+  };
+  const headerDateLabel=(()=>{
+    const d=new Date(year,month-1,selectedDay);
+    if(calView==='day') return fmtDayTitleKo(d);
+    if(calView==='week'){
+      const daysOfWeek=weekDaysFrom(d);
+      return fmtWeekTitleKo(daysOfWeek[0],daysOfWeek[6]);
+    }
+    return `${year}년 ${month}월`;
+  })();
   const days=['일','월','화','수','목','금','토'];
   const daysInMonth=new Date(year,month,0).getDate();
   const firstDow=new Date(year,month-1,1).getDay();
@@ -4183,21 +4219,22 @@ const Calendar=({onOpen})=>{
         />
       )}
       <PH title="일정 관리" sub={fmtTodayKorean()}
-        ch={<div style={{display:'flex',alignItems:'center',gap:10,marginLeft:20}}>
-          <button onClick={()=>{if(month===1){setMonth(12);setYear(y=>y-1);}else setMonth(m=>m-1);setSel(null);}}
+        ch={<div style={{display:'flex',alignItems:'center',gap:10,marginLeft:20,flexWrap:'wrap'}}>
+          <button onClick={()=>shiftCal(-1)}
             style={{width:btnPx(28),height:btnPx(28),borderRadius:btnPx(6),border:`1.5px solid ${C.bdr}`,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}
             onMouseEnter={e=>e.currentTarget.style.background=C.surf3}
             onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0F172A" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
-          <span style={{fontSize:15,fontWeight:600,color:C.tx,minWidth:130,textAlign:'center'}}>{year}년 {month}월</span>
-          <button onClick={()=>{if(month===12){setMonth(1);setYear(y=>y+1);}else setMonth(m=>m+1);setSel(null);}}
+          <span style={{fontSize:15,fontWeight:600,color:C.tx,minWidth:calView==='month'?130:210,textAlign:'center'}}>{headerDateLabel}</span>
+          <button onClick={()=>shiftCal(1)}
             style={{width:btnPx(28),height:btnPx(28),borderRadius:btnPx(6),border:`1.5px solid ${C.bdr}`,background:'#fff',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}
             onMouseEnter={e=>e.currentTarget.style.background=C.surf3}
             onMouseLeave={e=>e.currentTarget.style.background='#fff'}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0F172A" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
           <Btn role="page-secondary" ch="오늘" on={goToday}/>
+          <CalendarViewTabs value={calView} onChange={(id)=>{setCalView(id);setSel((d)=>d??selectedDay);}}/>
         </div>}
         acts={<>
           <input ref={icsInputRef} type="file" accept=".ics,text/calendar" style={{display:'none'}} onChange={handleIcsFile}/>
@@ -4235,7 +4272,8 @@ const Calendar=({onOpen})=>{
         </div>
       )}
       <div style={{flex:1,minHeight:0,display:'flex',gap:16,padding:'20px 28px',overflow:'hidden'}} translate="no">
-        <div style={{flex:1,minWidth:0,overflow:'auto'}}>
+        <div style={{flex:1,minWidth:0,overflow:calView==='month'?'auto':'hidden',display:'flex',flexDirection:'column'}}>
+          {calView==='month'?(
           <div style={{background:C.surf,borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.05),0 0 0 1px rgba(0,0,0,.04)'}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:`1px solid ${C.bdr}`}}>
               {days.map((d,i)=><div key={i} style={{textAlign:'center',padding:'10px 0',fontSize:12,fontWeight:600,color:i===0?C.err:i===6?C.info:C.txM,letterSpacing:'.04em'}}>{d}</div>)}
@@ -4270,6 +4308,23 @@ const Calendar=({onOpen})=>{
               })}
             </div>
           </div>
+          ):(
+            <CalendarTimeGrid
+              mode={calView}
+              year={year}
+              month={month}
+              day={selectedDay}
+              schedules={SCHEDS}
+              gcalMeta={gcalMeta}
+              onSelectDay={(y,m,d)=>{setYear(y);setMonth(m);setSel(d);}}
+              onEventClick={(s)=>onOpen('sd',s)}
+              onSlotClick={({iso,time})=>{
+                const [y,m,d]=iso.split('-').map(Number);
+                if(y) { setYear(y); setMonth(m); setSel(d); }
+                onOpen('sf',{_newDate:iso,...(time?{_newTime:time}:{})});
+              }}
+            />
+          )}
         </div>
 
         <div style={{width:CAL_SIDEBAR_W,flexShrink:0,display:'flex',flexDirection:'column',minHeight:0}}>
@@ -6831,7 +6886,7 @@ const SchedForm=({schedData,onClose,onSaved,onDelete})=>{
   const [title,setTitle]=useState(schedData?.title||'');
   const [date,setDate]=useState(prefillDate);
   const [dateEnd,setDateEnd]=useState(schedData?.dateEnd||'');
-  const [time,setTime]=useState(schedData?.time||'09:00');
+  const [time,setTime]=useState(schedData?._newTime||schedData?.time||'09:00');
   const [pri,setPri]=useState(schedData?.pri||'NORMAL');
   const [selPropId,setSelPropId]=useState(schedData?.pid||null);
   const [propSearch,setPropSearch]=useState('');
@@ -7929,6 +7984,9 @@ function AppShell(){
         <Route path="/customers" element={<CustList onOpen={openWin} onNav={navTo}/>} />
         <Route path="/calls" element={<CallLogs onOpen={openWin} onDelete={(item)=>softDelete('calls',item,item.content?.slice(0,20)||'통화기록',()=>{})}/>} />
         <Route path="/calendar" element={<Calendar onOpen={openWin}/>} />
+        <Route path="/board/write" element={<BoardWritePage/>} />
+        <Route path="/board/:id" element={<BoardPostPage/>} />
+        <Route path="/board" element={<BoardListPage/>} />
         <Route path="/backup" element={<Backup/>} />
         <Route path="/trash" element={<Trash/>} />
         <Route path="/team/manage" element={<TeamManageRoute/>} />
@@ -7956,6 +8014,9 @@ function AppShell(){
         <Route path="/calls/:id" element={<MobileCallDetail/>} />
         <Route path="/calendar" element={<MobileCalendar/>} />
         <Route path="/calendar/:id" element={<MobileScheduleDetail/>} />
+        <Route path="/board/write" element={<MobileBoardWrite/>} />
+        <Route path="/board/:id" element={<MobileBoardPost/>} />
+        <Route path="/board" element={<MobileBoardList/>} />
         <Route path="*" element={<FallbackAppPath />} />
       </Routes>
     </RouteErrorBoundary>

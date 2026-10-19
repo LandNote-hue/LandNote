@@ -6,10 +6,11 @@ import { useOwnerSchedules } from '../../hooks/useOwnerScopedData.js';
 import { useProperties } from '../../hooks/useProperties.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { propDisplayAddr } from '../../utils/propAddress.js';
-import { scheduleCoversDay, fmtSchedulePeriodDot } from '../../utils/schedulePeriod.js';
+import { scheduleCoversDay, fmtSchedulePeriodDot, weekDaysFrom, fmtDayTitleKo, fmtWeekTitleKo } from '../../utils/schedulePeriod.js';
 import { repairIcsScheduleIntegrity, syncLinkedGoogleCalendars } from '../../utils/icsImport.js';
 import { flushPendingIcsSourceIdRemaps, listGoogleCalendarLinks } from '../../services/googleCalendarLinks.js';
 import { buildGcalMeta, scheduleSourceInfo } from '../../utils/scheduleColors.js';
+import { CalendarTimeGrid, CalendarViewTabs } from '../calendar/CalendarTimeGrid.jsx';
 import { MobilePage, MobileCard, MobileEmptyState, M } from './mobileUi.jsx';
 
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
@@ -33,6 +34,7 @@ export function MobileCalendar() {
   const [year, setYear] = useState(today.year);
   const [month, setMonth] = useState(today.month);
   const [sel, setSel] = useState(today.date);
+  const [calView, setCalView] = useState('month');
 
   const gcalOwnerId = user?.id && user.id !== 'dev-local' ? user.id : undefined;
   const gcalMeta = useMemo(() => buildGcalMeta(gcalOwnerId), [gcalOwnerId]);
@@ -98,19 +100,25 @@ export function MobileCalendar() {
     setSel(today.date);
   };
   const findProp = (pid) => properties.find((p) => p.id === pid);
+  const selectedDay = sel || (year === today.year && month === today.month ? today.date : 1);
+  const headerDateLabel = (() => {
+    const d = new Date(year, month - 1, selectedDay);
+    if (calView === 'day') return fmtDayTitleKo(d);
+    if (calView === 'week') {
+      const daysOfWeek = weekDaysFrom(d);
+      return fmtWeekTitleKo(daysOfWeek[0], daysOfWeek[6]);
+    }
+    return `${year}년 ${month}월`;
+  })();
 
-  const shiftMonth = (delta) => {
-    let m = month + delta;
-    let y = year;
-    if (m < 1) { m = 12; y -= 1; }
-    if (m > 12) { m = 1; y += 1; }
-    setYear(y);
-    setMonth(m);
-    const dim = new Date(y, m, 0).getDate();
-    setSel((prev) => {
-      if (y === today.year && m === today.month) return today.date;
-      return Math.min(prev || 1, dim);
-    });
+  const shiftCal = (delta) => {
+    const d = new Date(year, month - 1, selectedDay);
+    if (calView === 'day') d.setDate(d.getDate() + delta);
+    else if (calView === 'week') d.setDate(d.getDate() + delta * 7);
+    else d.setMonth(d.getMonth() + delta);
+    setYear(d.getFullYear());
+    setMonth(d.getMonth() + 1);
+    setSel(d.getDate());
   };
 
   const dayDotColors = (dayScheds) => {
@@ -126,27 +134,60 @@ export function MobileCalendar() {
     return colors;
   };
 
-  return (
-    <MobilePage>
+  const navBar = (
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12,
+        flexShrink: 0, padding: '12px 14px 10px', background: M.surf, borderBottom: `1px solid ${M.bdr}`,
       }}>
-        <button type="button" onClick={() => shiftMonth(-1)} aria-label="이전 달" style={navBtn}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={M.tx} strokeWidth="2.4"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: M.tx }}>{year}년 {month}월</div>
-          <button type="button" onClick={goToday} style={{
-            border: `1px solid ${M.bdr}`, background: '#fff', borderRadius: 6, padding: '3px 10px',
-            fontSize: 12, fontWeight: 600, color: M.brand, cursor: 'pointer', fontFamily: 'inherit',
-          }}>
-            오늘
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+          <CalendarViewTabs value={calView} onChange={setCalView} />
+        </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}>
+          <button type="button" onClick={() => shiftCal(-1)} aria-label="이전" style={navBtn}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={M.tx} strokeWidth="2.4"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+            <div style={{ fontSize: calView === 'month' ? 16 : 13, fontWeight: 700, color: M.tx, textAlign: 'center' }}>{headerDateLabel}</div>
+            <button type="button" onClick={goToday} style={{
+              border: `1px solid ${M.bdr}`, background: '#fff', borderRadius: 6, padding: '3px 10px',
+              fontSize: 12, fontWeight: 600, color: M.brand, cursor: 'pointer', fontFamily: 'inherit',
+            }}>
+              오늘
+            </button>
+          </div>
+          <button type="button" onClick={() => shiftCal(1)} aria-label="다음" style={navBtn}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={M.tx} strokeWidth="2.4"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
-        <button type="button" onClick={() => shiftMonth(1)} aria-label="다음 달" style={navBtn}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={M.tx} strokeWidth="2.4"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
       </div>
+  );
+
+  if (calView !== 'month') {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {navBar}
+        <div style={{ flex: 1, minHeight: 0, padding: '8px 10px 10px', display: 'flex' }}>
+          <CalendarTimeGrid
+            mode={calView}
+            year={year}
+            month={month}
+            day={selectedDay}
+            schedules={schedules}
+            gcalMeta={gcalMeta}
+            compact
+            onSelectDay={(y, m, d) => { setYear(y); setMonth(m); setSel(d); }}
+            onEventClick={(s) => navigate(`/calendar/${s.id}`)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    {navBar}
+    <MobilePage>
 
       <MobileCard style={{ padding: 0, marginBottom: 14, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${M.bdr}` }}>
@@ -246,6 +287,7 @@ export function MobileCalendar() {
         </div>
       )}
     </MobilePage>
+    </div>
   );
 }
 

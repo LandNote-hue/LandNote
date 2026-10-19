@@ -9,6 +9,7 @@ export const MENU_PATHS = {
   customersBulk: '/customers/bulk',
   calls: '/calls',
   calendar: '/calendar',
+  board: '/board',
   backup: '/backup',
   trash: '/trash',
   team: '/team/manage',
@@ -36,6 +37,8 @@ export function resolveTitle(pathname, params, properties) {
     '/customers/bulk': '고객 일괄 등록',
     '/calls': '업데이트 내역',
     '/calendar': '일정 관리',
+    '/board': '게시판',
+    '/board/write': '글쓰기',
     '/backup': '백업·복원',
     '/trash': '휴지통',
     '/team/manage': '멤버 관리',
@@ -53,6 +56,9 @@ export function resolveTitle(pathname, params, properties) {
     const prop = properties.find(p => p.id === Number(detailMatch[1]));
     return prop ? `매물 상세 — ${propDisplayAddr(prop)}` : '매물 상세';
   }
+
+  if (pathname.startsWith('/board/write')) return '글쓰기';
+  if (/^\/board\/\d+$/.test(pathname)) return '게시글';
 
   return labels[pathname] ?? 'LandNote';
 }

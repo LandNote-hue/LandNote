@@ -5,6 +5,7 @@ import { useOwnerCallLogs, useOwnerCustomers } from '../../hooks/useOwnerScopedD
 import { useDealMode } from '../../contexts/DealModeContext.jsx';
 import { callMatchesDealMode } from '../../utils/dealModeMatch.js';
 import { propCallIdentLabel } from '../../utils/propAddress.js';
+import { fmtCallContentOneLine } from '../../utils/propertyAuditLog.js';
 import { MobilePage, MobileCard, MobileEmptyState, MobileCloudDataHint, M } from './mobileUi.jsx';
 
 export function MobileCallList() {
@@ -41,7 +42,7 @@ export function MobileCallList() {
                       fontSize: 15, fontWeight: 700, color: M.tx, lineHeight: 1.45, minWidth: 0,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
-                      {String(c.content || '내용 없음').replace(/\s+/g, ' ').trim()}
+                      {fmtCallContentOneLine(c.content) || '내용 없음'}
                     </div>
                     <span style={{ fontSize: 12, color: M.txM, flexShrink: 0, textAlign: 'right', lineHeight: 1.4 }}>
                       {c.date}{c.time ? ` ${String(c.time).slice(0, 5)}` : ''}

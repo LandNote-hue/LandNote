@@ -325,6 +325,46 @@ db.version(16).stores({
   rec.dealMode = inferCustomerDealMode(rec);
 }));
 
+/** 게시판 (로컬 Dexie 우선, 클라우드 연동은 이후) */
+db.version(17).stores({
+  properties: '++id, status, main, trade, fav, favAt, created, deletedAt, cloudId, ownerId, companyId, syncStatus',
+  customers: '++id, type, status, name, phone, fav, created, deletedAt, cloudId, ownerId, companyId, dealMode',
+  call_logs: '++id, pid, cid, date, deletedAt, schedId, ownerId, cloudId, companyId',
+  schedules: '++id, date, pri, pid, deletedAt, callId, ownerId, cloudId, companyId, icsKey',
+  rentals: '++id, pid, ownerId, companyId, cloudId, deletedAt, syncStatus',
+  boards: '++id, parentId, kind, slug, sort, notify, ownerId',
+  board_posts: '++id, boardId, createdAt, updatedAt, isMustRead, isImportant, isDraft, deletedAt, authorKey, ownerId',
+  board_reads: '[postId+userKey], postId, userKey',
+  board_favs: '[boardId+userKey], boardId, userKey',
+});
+
+/** 게시글 댓글 */
+db.version(18).stores({
+  properties: '++id, status, main, trade, fav, favAt, created, deletedAt, cloudId, ownerId, companyId, syncStatus',
+  customers: '++id, type, status, name, phone, fav, created, deletedAt, cloudId, ownerId, companyId, dealMode',
+  call_logs: '++id, pid, cid, date, deletedAt, schedId, ownerId, cloudId, companyId',
+  schedules: '++id, date, pri, pid, deletedAt, callId, ownerId, cloudId, companyId, icsKey',
+  rentals: '++id, pid, ownerId, companyId, cloudId, deletedAt, syncStatus',
+  boards: '++id, parentId, kind, slug, sort, notify, ownerId',
+  board_posts: '++id, boardId, createdAt, updatedAt, isMustRead, isImportant, isDraft, deletedAt, authorKey, ownerId',
+  board_reads: '[postId+userKey], postId, userKey',
+  board_favs: '[boardId+userKey], boardId, userKey',
+  board_comments: '++id, postId, createdAt, authorKey, ownerId',
+});
+
+db.version(19).stores({
+  properties: '++id, status, main, trade, fav, favAt, created, deletedAt, cloudId, ownerId, companyId, syncStatus',
+  customers: '++id, type, status, name, phone, fav, created, deletedAt, cloudId, ownerId, companyId, dealMode',
+  call_logs: '++id, pid, cid, date, deletedAt, schedId, ownerId, cloudId, companyId',
+  schedules: '++id, date, pri, pid, deletedAt, callId, ownerId, cloudId, companyId, icsKey',
+  rentals: '++id, pid, ownerId, companyId, cloudId, deletedAt, syncStatus',
+  boards: '++id, parentId, kind, slug, sort, notify, ownerId',
+  board_posts: '++id, boardId, createdAt, updatedAt, isMustRead, isImportant, isDraft, deletedAt, authorKey, ownerId',
+  board_reads: '[postId+userKey], postId, userKey',
+  board_favs: '[boardId+userKey], boardId, userKey',
+  board_comments: '++id, postId, parentId, createdAt, authorKey, ownerId',
+});
+
 export const isActive = (item) => item != null && (item.deletedAt == null || item.deletedAt === '');
 
 export function formatCreatedDate() {
@@ -375,21 +415,23 @@ export async function seedDatabase(options = {}) {
   if (seedPromise) return seedPromise;
   seedPromise = (async () => {
     await migrateLegacyDatabaseIfNeeded();
-    if (options.skipSeed) return;
-    const count = await db.properties.count();
-    if (count > 0) return;
-
-    await db.transaction('rw', [db.properties, db.customers, db.call_logs, db.schedules, db.rentals], async () => {
-      if (await db.properties.count() > 0) return;
-      await db.properties.bulkAdd(SEED_PROPERTIES);
-      await db.customers.bulkAdd(SEED_CUSTOMERS);
-      await db.call_logs.bulkAdd(SEED_CALL_LOGS);
-      await db.schedules.bulkAdd(SEED_SCHEDULES);
-      await db.rentals.bulkAdd(SEED_RENTALS);
-    });
-
-    const { backfillCallNextActionSchedules } = await import('./utils/callNextActionSchedule.js');
-    await backfillCallNextActionSchedules();
+    if (!options.skipSeed) {
+      const count = await db.properties.count();
+      if (count === 0) {
+        await db.transaction('rw', [db.properties, db.customers, db.call_logs, db.schedules, db.rentals], async () => {
+          if (await db.properties.count() > 0) return;
+          await db.properties.bulkAdd(SEED_PROPERTIES);
+          await db.customers.bulkAdd(SEED_CUSTOMERS);
+          await db.call_logs.bulkAdd(SEED_CALL_LOGS);
+          await db.schedules.bulkAdd(SEED_SCHEDULES);
+          await db.rentals.bulkAdd(SEED_RENTALS);
+        });
+        const { backfillCallNextActionSchedules } = await import('./utils/callNextActionSchedule.js');
+        await backfillCallNextActionSchedules();
+      }
+    }
+    const { ensureBoardSeed } = await import('./services/board/boardStore.js');
+    await ensureBoardSeed();
   })();
   return seedPromise;
 }

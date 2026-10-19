@@ -80,6 +80,81 @@ export function scheduleCoversDay(sched, year, month, day) {
   return cell >= startIso && cell <= endIso;
 }
 
+/** @param {number} year @param {number} month 1–12 @param {number} day */
+export function isoFromParts(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** @param {Date} d */
+export function calendarDateOnly(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** 주 시작: 일요일 (월별 달력과 동일) */
+export function startOfWeekSunday(d) {
+  const x = calendarDateOnly(d);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+
+/** @param {Date} d @param {number} n */
+export function addCalendarDays(d, n) {
+  const x = calendarDateOnly(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+/** @param {Date} d */
+export function weekDaysFrom(d) {
+  const start = startOfWeekSunday(d);
+  return Array.from({ length: 7 }, (_, i) => addCalendarDays(start, i));
+}
+
+/**
+ * @param {unknown} time
+ * @returns {{ hour: number, minute: number, label: string } | null}
+ */
+export function parseScheduleTimeParts(time) {
+  const t = String(time || '').trim();
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?/);
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = m[2] != null ? Number(m[2]) : 0;
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return null;
+  const min = Number.isFinite(minute) && minute >= 0 && minute <= 59 ? minute : 0;
+  return {
+    hour,
+    minute: min,
+    label: `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
+  };
+}
+
+/** @param {number} hour 0–23 */
+export function formatHourLabel(hour) {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+export const CAL_WEEKDAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+
+/** @param {Date} d */
+export function fmtDayTitleKo(d) {
+  const wd = CAL_WEEKDAY_LABELS[d.getDay()];
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${wd})`;
+}
+
+/** @param {Date} start @param {Date} end */
+export function fmtWeekTitleKo(start, end) {
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = sameYear && start.getMonth() === end.getMonth();
+  if (sameMonth) {
+    return `${start.getFullYear()}년 ${start.getMonth() + 1}월 ${start.getDate()}일 ~ ${end.getDate()}일`;
+  }
+  if (sameYear) {
+    return `${start.getFullYear()}년 ${start.getMonth() + 1}월 ${start.getDate()}일 ~ ${end.getMonth() + 1}월 ${end.getDate()}일`;
+  }
+  return `${start.getFullYear()}년 ${start.getMonth() + 1}월 ${start.getDate()}일 ~ ${end.getFullYear()}년 ${end.getMonth() + 1}월 ${end.getDate()}일`;
+}
+
 /**
  * 저장용 dateEnd 정규화
  * @param {string} date

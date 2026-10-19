@@ -13,9 +13,14 @@ export function isLockedCallLog(call) {
   return String(call.content || '').startsWith('[변경기록]');
 }
 
+/** 표시용 — 저장값 앞의 [변경기록] 접두어 제거 */
+export function stripCallAuditPrefix(content) {
+  return String(content ?? '').replace(/^\[변경기록\]\s*/, '').trim();
+}
+
 /** 변경기록·통화내용 — 줄바꿈 없이 한 줄 */
 export function fmtCallContentOneLine(content) {
-  return String(content ?? '').replace(/\s+/g, ' ').trim();
+  return stripCallAuditPrefix(content).replace(/\s+/g, ' ').trim();
 }
 
 export function nowCallStamp() {

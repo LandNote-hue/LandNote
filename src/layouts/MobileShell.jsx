@@ -19,6 +19,7 @@ const TAB_ITEMS = [
 const MORE_ITEMS = [
   { id: 'customers', label: '고객' },
   { id: 'calls', label: '업데이트 내역' },
+  { id: 'board', label: '게시판' },
   { id: 'desktop', label: 'PC버전으로 보기' },
 ];
 
