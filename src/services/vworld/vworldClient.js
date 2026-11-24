@@ -23,11 +23,12 @@ export function getVworldDomain() {
 /**
  * @param {string} path e.g. /ned/data/getIndvdLandPriceAttr
  * @param {Record<string, string|number>} params
- * @param {{ timeout?: number }} [options]
+ * @param {{ timeout?: number, signal?: AbortSignal }} [options]
  */
 export async function vworldGet(path, params = {}, options = {}) {
   const { data } = await vworldClient.get(path, {
     ...(options.timeout ? { timeout: options.timeout } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
     params: {
       key: getVworldKey(),
       domain: getVworldDomain(),
