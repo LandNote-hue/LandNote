@@ -7,23 +7,36 @@ export const VWORLD_LAND = {
 };
 
 const YEAR_FALLBACK_DEPTH = 6;
+/** 기준연도 API가 응답 없이 멈출 때(2026 개별공시지가) 다음 연도로 넘기기 위한 상한 */
+const YEAR_REQUEST_TIMEOUT_MS = 4_000;
 
 async function fetchWithYearFallback(path, rootKey, pnu, startYear, extraParams = {}) {
   const baseYear = parseInt(startYear, 10) || new Date().getFullYear();
+  /** @type {{ raw: unknown, item: null, fields: unknown[], stdrYear: string } | null} */
+  let newestEmpty = null;
+  let lastErr;
 
   for (let offset = 0; offset < YEAR_FALLBACK_DEPTH; offset++) {
     const year = String(baseYear - offset);
-    const raw = await vworldGet(path, { pnu, stdrYear: year, ...extraParams });
-    const fields = vworldExtractFields(raw, rootKey);
-    if (fields.length) {
-      return { raw, item: fields[0], fields, stdrYear: year };
+    try {
+      const raw = await vworldGet(
+        path,
+        { pnu, stdrYear: year, ...extraParams },
+        { timeout: YEAR_REQUEST_TIMEOUT_MS },
+      );
+      const fields = vworldExtractFields(raw, rootKey);
+      if (fields.length) {
+        return { raw, item: fields[0], fields, stdrYear: year };
+      }
+      if (!newestEmpty) newestEmpty = { raw, item: null, fields, stdrYear: year };
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[vworld] ${rootKey} ${year} 조회 실패:`, err?.message || err);
     }
   }
 
-  const year = String(baseYear);
-  const raw = await vworldGet(path, { pnu, stdrYear: year, ...extraParams });
-  const fields = vworldExtractFields(raw, rootKey);
-  return { raw, item: fields[0] ?? null, fields, stdrYear: year };
+  if (newestEmpty) return newestEmpty;
+  throw lastErr ?? new Error('vworld 조회 실패');
 }
 
 /**
